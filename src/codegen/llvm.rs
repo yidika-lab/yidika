@@ -12,6 +12,7 @@ const RUNTIME_C: &str = r##"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 typedef struct { char* data; int64_t len; } yk_string;
 
@@ -23,6 +24,16 @@ void yk_string_init_ptr(yk_string* s, const char* data, int64_t len) {
 yk_string* yk_string_from_int(int64_t v) {
     char buf[64];
     int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
+    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    s->data = (char*)malloc(n + 1);
+    memcpy(s->data, buf, n + 1);
+    s->len = n;
+    return s;
+}
+
+yk_string* yk_string_from_real(double v) {
+    char buf[64];
+    int n = snprintf(buf, sizeof(buf), "%g", v);
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
     s->data = (char*)malloc(n + 1);
     memcpy(s->data, buf, n + 1);
@@ -46,6 +57,44 @@ void yk_print_int(int64_t v) { printf("%lld\n", (long long)v); }
 void yk_print_real(double v) { printf("%g\n", v); }
 void yk_print_bool(bool v) { printf("%s\n", v ? "true" : "false"); }
 void yk_print_str_ptr(yk_string* s) { printf("%.*s\n", (int)s->len, s->data); }
+
+typedef struct { double real; double imag; } yk_complex;
+
+void yk_complex_set(yk_complex* c, double r, double i) { c->real = r; c->imag = i; }
+double yk_complex_real(yk_complex* c) { return c->real; }
+double yk_complex_imag(yk_complex* c) { return c->imag; }
+double yk_complex_mod(yk_complex* c) { return sqrt(c->real * c->real + c->imag * c->imag); }
+double yk_complex_arg(yk_complex* c) { return atan2(c->imag, c->real); }
+void yk_complex_conj(yk_complex* r, yk_complex* c) { r->real = c->real; r->imag = -c->imag; }
+void yk_complex_add(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real + b->real; r->imag = a->imag + b->imag; }
+void yk_complex_sub(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real - b->real; r->imag = a->imag - b->imag; }
+void yk_complex_mul(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real*b->real - a->imag*b->imag; r->imag = a->real*b->imag + a->imag*b->real; }
+void yk_complex_div(yk_complex* r, yk_complex* a, yk_complex* b) { double d = b->real*b->real + b->imag*b->imag; r->real = (a->real*b->real + a->imag*b->imag)/d; r->imag = (a->imag*b->real - a->real*b->imag)/d; }
+void yk_print_complex(yk_complex* c) { printf("%g + %gi\n", c->real, c->imag); }
+
+yk_string* yk_string_from_bool(bool v) {
+    const char* s = v ? "true" : "false";
+    yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+    int n = (int)strlen(s);
+    r->data = (char*)malloc(n + 1);
+    memcpy(r->data, s, n + 1);
+    r->len = n;
+    return r;
+}
+
+yk_string* yk_string_from_complex(yk_complex* c) {
+    char buf[128];
+    int n;
+    if (c->imag < 0)
+        n = snprintf(buf, sizeof(buf), "%g%gi", c->real, c->imag);
+    else
+        n = snprintf(buf, sizeof(buf), "%g+%gi", c->real, c->imag);
+    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    s->data = (char*)malloc(n + 1);
+    memcpy(s->data, buf, n + 1);
+    s->len = n;
+    return s;
+}
 "##;
 
 pub struct LlvmCodegen {
@@ -125,6 +174,7 @@ impl LlvmCodegen {
         match te {
             TypeExpr::Int(_) | TypeExpr::Rint(_) => "i64".into(),
             TypeExpr::Real(_) => "double".into(),
+            TypeExpr::Complex(_, _) => "%yk_complex".into(),
             TypeExpr::Bool => "i1".into(),
             TypeExpr::Str => "%yk_string".into(),
             TypeExpr::Named(name) => {
@@ -159,9 +209,13 @@ impl LlvmCodegen {
             Expr::LitStr(_) => "%yk_string".into(),
             Expr::LitSymbol(_) => "%yk_string".into(),
             Expr::Ident(name) => self.var_types.get(name).cloned().unwrap_or("i64".into()),
-            Expr::BinOp(l, _, _) => {
+            Expr::BinOp(l, _op, r) => {
                 let lt = self.expr_type_str(l);
-                if lt == "%yk_string" { "%yk_string".into() } else { lt }
+                if lt == "%yk_string" { return "%yk_string".into(); }
+                let rt = self.expr_type_str(r);
+                if lt == "%yk_complex" || rt == "%yk_complex" { "%yk_complex".into() }
+                else if lt == "double" || rt == "double" { "double".into() }
+                else { lt }
             }
             Expr::UnOp(_, inner) => self.expr_type_str(inner),
             Expr::Call(_, _) => "i64".into(),
@@ -170,6 +224,19 @@ impl LlvmCodegen {
                 let elem_types: Vec<String> = items.iter().map(|i| self.expr_type_str(i)).collect();
                 self.get_or_create_tuple_type(&elem_types)
             }
+            Expr::LitComplex(_, _) => "%yk_complex".into(),
+            Expr::Field(obj, field) => {
+                let ot = self.expr_type_str(obj);
+                if ot == "%yk_complex" {
+                    if field == "conj" { "%yk_complex".into() } else { "double".into() }
+                } else if ot == "%yk_string" {
+                    "i64".into()
+                } else {
+                    "i64".into()
+                }
+            }
+            Expr::PostInc(i) | Expr::PostDec(i) => self.expr_type_str(i),
+            Expr::Match(_, arms) => arms.first().map(|a| self.expr_type_str(&a.body)).unwrap_or("i64".into()),
             _ => "i64".into(),
         }
     }
@@ -195,6 +262,7 @@ impl LlvmCodegen {
         self.e_raw("");
 
         self.e_raw("%yk_string = type { ptr, i64 }");
+        self.e_raw("%yk_complex = type { double, double }");
         self.e_raw("");
 
         for item in &module.items {
@@ -217,8 +285,22 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_print_bool(i1)");
         self.e_raw("declare void @yk_print_str_ptr(ptr)");
         self.e_raw("declare ptr @yk_string_from_int(i64)");
+        self.e_raw("declare ptr @yk_string_from_real(double)");
+        self.e_raw("declare ptr @yk_string_from_bool(i1)");
+        self.e_raw("declare ptr @yk_string_from_complex(ptr)");
         self.e_raw("declare ptr @yk_string_concat_ptr(ptr, ptr)");
         self.e_raw("declare i64 @yk_string_len_ptr(ptr)");
+        self.e_raw("declare void @yk_complex_set(ptr, double, double)");
+        self.e_raw("declare double @yk_complex_real(ptr)");
+        self.e_raw("declare double @yk_complex_imag(ptr)");
+        self.e_raw("declare double @yk_complex_mod(ptr)");
+        self.e_raw("declare double @yk_complex_arg(ptr)");
+        self.e_raw("declare void @yk_complex_conj(ptr, ptr)");
+        self.e_raw("declare void @yk_complex_add(ptr, ptr, ptr)");
+        self.e_raw("declare void @yk_complex_sub(ptr, ptr, ptr)");
+        self.e_raw("declare void @yk_complex_mul(ptr, ptr, ptr)");
+        self.e_raw("declare void @yk_complex_div(ptr, ptr, ptr)");
+        self.e_raw("declare void @yk_print_complex(ptr)");
         self.e_raw("");
 
         let has_main = module.items.iter().any(|item| matches!(&item.value, ItemKind::Fn { name, .. } if name == "main"));
@@ -356,17 +438,20 @@ impl LlvmCodegen {
                 }
             }
             Stmt::Assign(name, expr) => {
+                let val_ty = self.expr_type_str(expr);
                 let ptr = match self.var_alloca.get(name) {
                     Some(p) => p.clone(),
                     None => {
                         let p = self.alloca_name(name);
-                        self.e(&format!("{} = alloca i64, align 8", p));
+                        self.e(&format!("{} = alloca {}, align 8", p, val_ty));
                         self.var_alloca.insert(name.clone(), p.clone());
+                        self.var_types.insert(name.clone(), val_ty.clone());
                         p
                     }
                 };
                 let ty = self.val_ty(name);
-                let (val, val_ty) = self.compile_expr(expr);
+                let (val, val_ty2) = self.compile_expr(expr);
+                let val_ty = if val_ty2 != "i64" { val_ty2 } else { val_ty };
                 if !ty.is_empty() && ty != val_ty {
                     if ty == "i1" && val_ty == "i64" {
                         let tmp = self.fresh_label();
@@ -554,6 +639,28 @@ impl LlvmCodegen {
                     } else {
                         (self.ssa(&tmp), "i64".into())
                     }
+                } else if obj_ty == "%yk_complex" {
+                    // Store complex value to alloca to get a pointer for runtime
+                    let ca = self.fresh_label();
+                    self.e(&format!("%{} = alloca %yk_complex, align 8", ca));
+                    self.e(&format!("store %yk_complex {}, ptr %{}", o, ca));
+                    if field == "conj" {
+                        let r = self.fresh_label();
+                        self.e(&format!("%{} = alloca %yk_complex, align 8", r));
+                        self.e(&format!("call void @yk_complex_conj(ptr %{}, ptr %{})", r, ca));
+                        let loaded = self.fresh_label();
+                        self.e(&format!("%{} = load %yk_complex, ptr %{}", loaded, r));
+                        return (self.ssa(&loaded), "%yk_complex".into());
+                    }
+                    let func = match field.as_str() {
+                        "real" => "yk_complex_real",
+                        "img" => "yk_complex_imag",
+                        "mod" | "norm" => "yk_complex_mod",
+                        "arg" => "yk_complex_arg",
+                        _ => "yk_complex_real",
+                    };
+                    self.e(&format!("%{} = call double @{}(ptr %{})", tmp, func, ca));
+                    (self.ssa(&tmp), "double".into())
                 } else {
                     (self.ssa(&tmp), "i64".into())
                 }
@@ -693,7 +800,55 @@ impl LlvmCodegen {
             Expr::FnLit(_, _, body) => self.compile_expr(body),
             Expr::Await(inner) | Expr::Spawn(inner) => self.compile_expr(inner),
             Expr::ResultOk(inner) | Expr::ResultErr(inner) => self.compile_expr(inner),
-            Expr::Match(_, _) | Expr::ForIn(_, _, _) | Expr::While(_, _) | Expr::Loop(_) => ("0".into(), "i64".into()),
+            Expr::Match(scrutinee, arms) => {
+                let (sv, st) = self.compile_expr(scrutinee);
+                let result_ty = arms.first().map(|a| self.expr_type_str(&a.body)).unwrap_or("i64".into());
+                let result_ptr = self.fresh_label();
+                self.e(&format!("%{} = alloca {}, align 8", result_ptr, result_ty));
+                let merge_label = self.fresh_label();
+                let arm_labels: Vec<String> = arms.iter().map(|_| self.fresh_label()).collect();
+                for (idx, arm) in arms.iter().enumerate() {
+                    let match_cond = self.compile_pattern_match(&arm.pattern, &sv, &st);
+                    if let Some(ref cond) = match_cond {
+                        let next_target = if idx + 1 < arm_labels.len() { &arm_labels[idx + 1] } else { &merge_label };
+                        self.e(&format!("br i1 {}, label %{}, label %{}", cond, arm_labels[idx], next_target));
+                    } else {
+                        self.e(&format!("br label %{}", arm_labels[idx]));
+                    }
+                    self.e_raw(&format!("{}:", arm_labels[idx]));
+                    self.compile_pattern_bind(&arm.pattern, &sv, &st);
+                    let (body_val, body_ty) = self.compile_expr(&arm.body);
+                    self.e(&format!("store {} {}, ptr %{}", body_ty, body_val, result_ptr));
+                    self.e(&format!("br label %{}", merge_label));
+                }
+                self.e_raw(&format!("{}:", merge_label));
+                let result_val = self.fresh_label();
+                self.e(&format!("%{} = load {}, ptr %{}", result_val, result_ty, result_ptr));
+                (self.ssa(&result_val), result_ty)
+            }
+            Expr::ForIn(_, _, _) | Expr::While(_, _) | Expr::Loop(_) => ("0".into(), "i64".into()),
+            Expr::LitComplex(r, im) => {
+                let cptr = self.fresh_label();
+                self.e(&format!("%{} = alloca %yk_complex, align 8", cptr));
+                let (rv, rt) = self.compile_expr(r);
+                let (iv, it) = self.compile_expr(im);
+                let rv_conv = if rt == "i64" {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = sitofp i64 {} to double", t, rv));
+                    self.ssa(&t)
+                } else { rv.clone() };
+                let iv_conv = if it == "i64" {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = sitofp i64 {} to double", t, iv));
+                    self.ssa(&t)
+                } else { iv.clone() };
+                self.e(&format!("call void @yk_complex_set(ptr %{}, double {}, double {})", cptr, rv_conv, iv_conv));
+                let loaded = self.fresh_label();
+                self.e(&format!("%{} = load %yk_complex, ptr %{}", loaded, cptr));
+                (self.ssa(&loaded), "%yk_complex".into())
+            }
+            Expr::VectorLit(_) | Expr::MatrixLit(_) => ("0".into(), "i64".into()),
+            Expr::PostInc(i) | Expr::PostDec(i) => self.compile_expr(i),
         }
     }
 
@@ -702,10 +857,47 @@ impl LlvmCodegen {
         let (lc, _) = self.compile_expr(l);
         let (rc, _) = self.compile_expr(r);
 
+        let rt = self.expr_type_str(r);
         let is_float = lt == "double";
+        let is_complex = lt == "%yk_complex" || rt == "%yk_complex";
         let (arith_op, cmp_op) = if is_float { ("f", "fcmp") } else { ("", "icmp") };
 
         let tmp = self.fresh_label();
+        if is_complex {
+            let func = match op {
+                BinOp::Add => "yk_complex_add",
+                BinOp::Sub => "yk_complex_sub",
+                BinOp::Mul => "yk_complex_mul",
+                BinOp::Div => "yk_complex_div",
+                _ => "yk_complex_add",
+            };
+            // Allocate temps on stack and store values to pass pointers to runtime
+            let la = self.fresh_label();
+            let ra = self.fresh_label();
+            self.e(&format!("%{} = alloca %yk_complex, align 8", la));
+            self.e(&format!("%{} = alloca %yk_complex, align 8", ra));
+            // Left operand
+            if lt == "%yk_complex" {
+                self.e(&format!("store %yk_complex {}, ptr %{}", lc, la));
+            } else {
+                let lca = self.fresh_label();
+                self.e(&format!("%{} = sitofp {} {} to double", lca, lt, lc));
+                self.e(&format!("call void @yk_complex_set(ptr %{}, double %{}, double 0.0)", la, lca));
+            }
+            // Right operand (check right type)
+            if rt == "%yk_complex" {
+                self.e(&format!("store %yk_complex {}, ptr %{}", rc, ra));
+            } else {
+                let rca = self.fresh_label();
+                self.e(&format!("%{} = sitofp {} {} to double", rca, rt, rc));
+                self.e(&format!("call void @yk_complex_set(ptr %{}, double %{}, double 0.0)", ra, rca));
+            }
+            self.e(&format!("%{} = alloca %yk_complex, align 8", tmp));
+            self.e(&format!("call void @{}(ptr %{}, ptr %{}, ptr %{})", func, tmp, la, ra));
+            let loaded = self.fresh_label();
+            self.e(&format!("%{} = load %yk_complex, ptr %{}", loaded, tmp));
+            return (self.ssa(&loaded), "%yk_complex".into());
+        }
         match op {
             BinOp::Add => {
                 if lt == "%yk_string" {
@@ -807,6 +999,9 @@ impl LlvmCodegen {
                                     let p = self.string_to_ptr(av);
                                     self.e(&format!("call void @yk_print_str_ptr(ptr {})", p));
                                 }
+                                "%yk_complex" => {
+                                    self.e(&format!("call void @yk_print_complex(ptr {})", av));
+                                }
                                 _ => self.e(&format!("call void @yk_print_int(i64 {})", av)),
                             }
                         }
@@ -825,6 +1020,52 @@ impl LlvmCodegen {
                         }
                     } else { ("0".into(), "i64".into()) }
                 }
+                "str" => {
+                    if let Some((av, at)) = arg_results.first() {
+                        let ptr_ssa = match at.as_str() {
+                            "i64" => {
+                                let t = self.fresh_label();
+                                self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
+                                self.ssa(&t)
+                            }
+                            "double" => {
+                                let t = self.fresh_label();
+                                self.e(&format!("%{} = call ptr @yk_string_from_real(double {})", t, av));
+                                self.ssa(&t)
+                            }
+                            "i1" => {
+                                let t = self.fresh_label();
+                                self.e(&format!("%{} = call ptr @yk_string_from_bool(i1 {})", t, av));
+                                self.ssa(&t)
+                            }
+                            "%yk_complex" => {
+                                let ca = self.fresh_label();
+                                self.e(&format!("%{} = alloca %yk_complex, align 8", ca));
+                                self.e(&format!("store %yk_complex {}, ptr %{}", av, ca));
+                                let t = self.fresh_label();
+                                self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr %{})", t, ca));
+                                self.ssa(&t)
+                            }
+                            "%yk_string" => {
+                                // Already a %yk_string value, alloca and get ptr
+                                let ca = self.fresh_label();
+                                self.e(&format!("%{} = alloca %yk_string, align 8", ca));
+                                self.e(&format!("store %yk_string {}, ptr %{}", av, ca));
+                                self.ssa(&ca)
+                            }
+                            _ => {
+                                let t = self.fresh_label();
+                                self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
+                                self.ssa(&t)
+                            }
+                        };
+                        let loaded = self.fresh_label();
+                        self.e(&format!("%{} = load %yk_string, ptr {}", loaded, ptr_ssa));
+                        (self.ssa(&loaded), "%yk_string".into())
+                    } else {
+                        ("0".into(), "%yk_string".into())
+                    }
+                }
                 _ => {
                     let tmp = self.fresh_label();
                     let args_str: Vec<String> = arg_results.iter().map(|(v, t)| format!("{} {}", t, v)).collect();
@@ -842,11 +1083,143 @@ impl LlvmCodegen {
             _ => ("0".into(), "i64".into()),
         }
     }
+
+    fn compile_pattern_match(&mut self, pattern: &Pattern, scrutinee_val: &str, scrutinee_ty: &str) -> Option<String> {
+        match pattern {
+            Pattern::Ignore => None, // always matches
+            Pattern::Ident(_) | Pattern::Rest(_) => None, // always matches (bind)
+            Pattern::LitInt(n) => {
+                if scrutinee_ty == "i64" {
+                    let tmp = self.fresh_label();
+                    self.e(&format!("%{} = icmp eq i64 {}, {}", tmp, scrutinee_val, n));
+                    Some(self.ssa(&tmp))
+                } else {
+                    Some("true".into())
+                }
+            }
+            Pattern::LitReal(n) => {
+                if scrutinee_ty == "double" {
+                    let tmp = self.fresh_label();
+                    self.e(&format!("%{} = fcmp oeq double {}, {:.10}", tmp, scrutinee_val, n));
+                    Some(self.ssa(&tmp))
+                } else {
+                    Some("true".into())
+                }
+            }
+            Pattern::LitBool(b) => {
+                let v = if *b { "true" } else { "false" };
+                if scrutinee_ty == "i1" {
+                    let tmp = self.fresh_label();
+                    self.e(&format!("%{} = icmp eq i1 {}, {}", tmp, scrutinee_val, v));
+                    Some(self.ssa(&tmp))
+                } else {
+                    Some(v.into())
+                }
+            }
+            Pattern::LitStr(_s) => {
+                // Compare strings via runtime
+                // For now, fallback
+                Some("true".into())
+            }
+            _ => Some("true".into()), // Destruct/ListDestruct fallback
+        }
+    }
+
+    fn compile_pattern_bind(&mut self, pattern: &Pattern, scrutinee_val: &str, scrutinee_ty: &str) {
+        match pattern {
+            Pattern::Ident(name) => {
+                let ptr = self.alloca_name(name);
+                self.var_alloca.insert(name.clone(), ptr.clone());
+                self.var_types.insert(name.clone(), scrutinee_ty.to_string());
+                self.e(&format!("{} = alloca {}, align 8", ptr, scrutinee_ty));
+                self.e(&format!("store {} {}, ptr {}", scrutinee_ty, scrutinee_val, ptr));
+            }
+            Pattern::Rest(name) => {
+                let ptr = self.alloca_name(name);
+                self.var_alloca.insert(name.clone(), ptr.clone());
+                self.var_types.insert(name.clone(), scrutinee_ty.to_string());
+                self.e(&format!("{} = alloca {}, align 8", ptr, scrutinee_ty));
+                self.e(&format!("store {} {}, ptr {}", scrutinee_ty, scrutinee_val, ptr));
+            }
+            Pattern::ListDestruct(patterns) => {
+                for (_idx, pat) in patterns.iter().enumerate() {
+                    match pat {
+                        Pattern::Ident(name) => {
+                            let ptr = self.alloca_name(name);
+                            self.var_alloca.insert(name.clone(), ptr.clone());
+                            self.var_types.insert(name.clone(), "i64".into());
+                            self.e(&format!("{} = alloca i64, align 8", ptr));
+                            // GEP into the list and load - but lists are i64 values not pointers
+                            // For now, store 0 as placeholder
+                            self.e(&format!("store i64 0, ptr {}", ptr));
+                        }
+                        Pattern::Rest(name) => {
+                            let ptr = self.alloca_name(name);
+                            self.var_alloca.insert(name.clone(), ptr.clone());
+                            self.var_types.insert(name.clone(), "i64".into());
+                            self.e(&format!("{} = alloca i64, align 8", ptr));
+                            self.e(&format!("store i64 0, ptr {}", ptr));
+                        }
+                        _ => self.compile_pattern_bind(pat, scrutinee_val, scrutinee_ty),
+                    }
+                }
+            }
+            Pattern::Destruct(fields) => {
+                for (_fname, pat) in fields {
+                    self.compile_pattern_bind(pat, scrutinee_val, scrutinee_ty);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn compile_to_llvm(module: &Module) -> String {
     let mut codegen = LlvmCodegen::new();
     codegen.compile_module(module)
+}
+
+fn detect_clang() -> Option<String> {
+    // Check common LLVM installation paths
+    let candidates = [
+        r"C:\Program Files\LLVM\bin\clang.exe",
+        r"C:\Program Files (x86)\LLVM\bin\clang.exe",
+    ];
+    for p in &candidates {
+        if std::path::Path::new(p).exists() { return Some(p.to_string()); }
+    }
+    // Check PATH
+    std::env::var_os("PATH").and_then(|p| {
+        std::env::split_paths(&p).find_map(|d| {
+            let c = d.join("clang.exe");
+            if c.exists() { Some(c.to_string_lossy().to_string()) } else { None }
+        })
+    })
+}
+
+fn detect_vcvars() -> Option<String> {
+    // Try vswhere
+    let vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe";
+    if std::path::Path::new(vswhere).exists() {
+        if let Ok(out) = std::process::Command::new(vswhere)
+            .args(["-latest", "-property", "installationPath"])
+            .output()
+        {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let bat = format!(r"{}\VC\Auxiliary\Build\vcvars64.bat", path);
+            if std::path::Path::new(&bat).exists() { return Some(bat); }
+        }
+    }
+    // Fallback: common paths
+    let candidates = [
+        r"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars64.bat",
+        r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
+    ];
+    for p in &candidates {
+        if std::path::Path::new(p).exists() { return Some(p.to_string()); }
+    }
+    None
 }
 
 pub fn compile_to_exe(llvm_ir: &str, output_path: &Path) -> Result<()> {
@@ -865,7 +1238,12 @@ pub fn compile_to_exe(llvm_ir: &str, output_path: &Path) -> Result<()> {
             format!("Failed to write {}: {}", runtime_c_path.display(), e)))?;
     let runtime_obj_path = runtime_dir.join("yk_rt.obj");
 
-    let vcvars = r"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat";
+    let vcvars = detect_vcvars()
+        .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+            "Visual Studio 2019/2022/2025 not found. Install Build Tools or set PATH manually.".to_string()))?;
+    let clang = detect_clang()
+        .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+            "clang.exe not found. Install LLVM from https://llvm.org or add it to PATH.".to_string()))?;
 
     let bat_dir = std::env::temp_dir();
     let bat_path = bat_dir.join("yk_build.bat");
@@ -881,7 +1259,7 @@ call "{}" x64 >nul 2>&1
 if errorlevel 1 exit /b 1
 
 :: Compile LLVM IR to object file (with optimization)
-clang.exe -c "{}" -o "{}" -target x86_64-pc-windows-msvc -O3
+"{}" -c "{}" -o "{}" -target x86_64-pc-windows-msvc -O3
 if errorlevel 1 exit /b 1
 
 :: Compile runtime C to object file
@@ -891,7 +1269,7 @@ if errorlevel 1 exit /b 1
 :: Link objects into executable
 link.exe /nologo "{}" "{}" /OUT:"{}" /defaultlib:libcmt.lib
 exit /b %errorlevel%
-"#, vcvars, ll_str, obj_str, rt_c_str, rt_obj_str, obj_str, rt_obj_str, exe_str);
+"#, vcvars, clang, ll_str, obj_str, rt_c_str, rt_obj_str, obj_str, rt_obj_str, exe_str);
 
     std::fs::write(&bat_path, bat_content)
         .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),

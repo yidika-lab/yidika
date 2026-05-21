@@ -62,7 +62,7 @@ impl Lexer {
             "fn" => Token::Fn, "const" => Token::Const,
             "if" => Token::If, "else" => Token::Else,
             "for" => Token::For, "in" => Token::In,
-            "while" => Token::While, "loop" => Token::Loop,
+            "while" => Token::While, "loop" => Token::Loop, "infiny" => Token::Infiny,
             "return" => Token::Return, "struct" => Token::Struct,
             "class" => Token::Class, "interface" => Token::Interface,
             "union" => Token::Union, "type" => Token::Type,
@@ -80,6 +80,7 @@ impl Lexer {
             "bool" => Token::TBool, "str" => Token::TStr,
             "symbol" => Token::TSymbol,
             "vector" => Token::TVector, "matrix" => Token::TMatrix,
+            "map" => Token::TMap,
             _ => Token::Ident(s),
         }
     }
@@ -90,17 +91,26 @@ impl Lexer {
         while let Some(c) = self.peek() {
             if c.is_ascii_hexdigit() || c == '_' { self.advance(); } else { break; }
         }
-        let raw: String = self.source[start..self.pos].iter().filter(|&&c| c != '_').collect();
-        if is_hex { return Token::HexLit(raw); }
+        let is_imag = self.peek() == Some('i');
+        if is_hex { 
+            if is_imag { self.advance(); return Token::ImagInt(self.source[start..self.pos-1].iter().filter(|&&c| c != '_').collect()); }
+            return Token::HexLit(self.source[start..self.pos].iter().filter(|&&c| c != '_').collect());
+        }
         if self.peek() == Some('.') && self.source.get(self.pos + 1).map_or(false, |c| c.is_ascii_digit()) {
             self.advance();
             while let Some(c) = self.peek() {
                 if c.is_ascii_digit() || c == '_' { self.advance(); } else { break; }
             }
             let raw: String = self.source[start..self.pos].iter().filter(|&&c| c != '_').collect();
+            if self.peek() == Some('i') { self.advance(); return Token::ImagReal(raw); }
             return Token::RealLit(raw);
         }
-        Token::IntLit(raw)
+        if is_imag { 
+            self.advance();
+            let raw: String = self.source[start..self.pos - 1].iter().filter(|&&c| c != '_').collect();
+            return Token::ImagInt(raw);
+        }
+        Token::IntLit(self.source[start..self.pos].iter().filter(|&&c| c != '_').collect())
     }
 
     fn string(&mut self, start: usize) -> Token {
@@ -125,13 +135,29 @@ impl Iterator for Lexer {
             Some('[') => Token::LBracket, Some(']') => Token::RBracket,
             Some(';') => Token::Semicolon, Some(',') => Token::Comma,
             Some(':') => if self.peek() == Some('=') { self.advance(); Token::ColonEq } else { Token::Colon },
-            Some('.') => if self.peek() == Some('.') { self.advance(); Token::DotDot } else { Token::Dot },
+            Some('.') => {
+                if self.peek() == Some('.') {
+                    self.advance();
+                    if self.peek() == Some('.') { self.advance(); Token::DotDotDot }
+                    else { Token::DotDot }
+                } else if self.peek().map_or(false, |c| c.is_ascii_digit()) {
+                    self.advance();
+                    while let Some(c) = self.peek() {
+                        if c.is_ascii_digit() || c == '_' { self.advance(); } else { break; }
+                    }
+                    let raw: String = self.source[start..self.pos].iter().filter(|&&c| c != '_').collect();
+                    if self.peek() == Some('i') { self.advance(); Token::ImagReal(raw) }
+                    else { Token::RealLit(raw) }
+                } else { Token::Dot }
+            }
             Some('+') => if self.peek() == Some('+') { self.advance(); Token::Inc } else { Token::Plus },
             Some('-') => if self.peek() == Some('>') { self.advance(); Token::Arrow } else { Token::Minus },
             Some('*') => Token::Star,
             Some('/') => Token::Slash,
             Some('!') => if self.peek() == Some('=') { self.advance(); Token::NotEq } else { Token::Bang },
-            Some('=') => if self.peek() == Some('=') { self.advance(); Token::EqEq } else { Token::Eq },
+            Some('=') => if self.peek() == Some('=') { self.advance(); Token::EqEq }
+                          else if self.peek() == Some('>') { self.advance(); Token::FatArrow }
+                          else { Token::Eq },
             Some('<') => if self.peek() == Some('=') { self.advance(); Token::LtEq } else { Token::Lt },
             Some('>') => if self.peek() == Some('=') { self.advance(); Token::GtEq } else { Token::Gt },
             Some('&') => if self.peek() == Some('&') { self.advance(); Token::And } else { return Some((Token::Error("expected &&".into()), Span::new(start, self.pos))); },

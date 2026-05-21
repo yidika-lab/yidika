@@ -385,6 +385,8 @@ impl Codegen {
             Expr::Await(inner) | Expr::Spawn(inner) => self.compile_expr(inner),
             Expr::ResultOk(inner) | Expr::ResultErr(inner) => self.compile_expr(inner),
             Expr::Match(_, _) | Expr::ForIn(_, _, _) | Expr::While(_, _) | Expr::Loop(_) => "0".into(),
+            Expr::LitComplex(_, _) | Expr::VectorLit(_) | Expr::MatrixLit(_) => "0".into(),
+            Expr::PostInc(i) | Expr::PostDec(i) => self.compile_expr(i),
         }
     }
 

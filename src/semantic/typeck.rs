@@ -18,18 +18,50 @@ pub struct TypeChecker<'a> {
     builtin_modules: std::collections::HashSet<String>,
     std_imported: bool,
     has_error: bool,
+    current_fn_ret_type: Option<TypeExpr>,
+}
+
+fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
+    if *expected == TypeExpr::Infer || *actual == TypeExpr::Infer { return true; }
+    if *actual == TypeExpr::Null { return true; }
+    if matches!(expected, TypeExpr::Named(n) if n == "auto") { return true; }
+    if matches!(actual, TypeExpr::Named(n) if n == "auto") { return true; }
+    if expected == actual { return true; }
+    match (expected, actual) {
+        (TypeExpr::Rint(_), TypeExpr::Int(_)) => true,
+        (TypeExpr::Real(_), TypeExpr::Int(_) | TypeExpr::Rint(_)) => true,
+        (TypeExpr::Complex(er, ei), TypeExpr::Complex(ar, ai)) => {
+            types_compatible(er, ar) && types_compatible(ei, ai)
+        }
+        (TypeExpr::Complex(_, _), TypeExpr::Int(_) | TypeExpr::Rint(_) | TypeExpr::Real(_)) => true,
+        _ => false,
+    }
+}
+
+fn wider_type(a: &TypeExpr, b: &TypeExpr) -> TypeExpr {
+    if types_compatible(a, b) { return a.clone(); }
+    if types_compatible(b, a) { return b.clone(); }
+    match (a, b) {
+        (TypeExpr::Complex(_, _), _) | (_, TypeExpr::Complex(_, _)) => {
+            TypeExpr::Complex(Box::new(TypeExpr::Real(0)), Box::new(TypeExpr::Real(0)))
+        }
+        (TypeExpr::Real(_), _) | (_, TypeExpr::Real(_)) => TypeExpr::Real(0),
+        (TypeExpr::Rint(_), _) | (_, TypeExpr::Rint(_)) => TypeExpr::Rint(0),
+        _ => a.clone(),
+    }
 }
 
 fn is_copy_type(t: &TypeExpr) -> bool {
     matches!(t, TypeExpr::Int(_) | TypeExpr::Rint(_)
         | TypeExpr::Real(_) | TypeExpr::Bool
-        | TypeExpr::Symbol | TypeExpr::Null | TypeExpr::None_)
+        | TypeExpr::Symbol | TypeExpr::Null | TypeExpr::None_
+        | TypeExpr::Complex(_, _))
 }
 
 impl<'a> TypeChecker<'a> {
     pub fn new(env: &'a mut Env) -> Self {
         let types = env.types.clone();
-        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, has_error: false }
+        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, has_error: false, current_fn_ret_type: None }
     }
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
@@ -77,7 +109,7 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn check_item(&mut self, item: &ItemNode, exported: &std::collections::HashSet<&str>) -> Result<()> {
-        let is_exported = item.exported || exported.contains(item_name(&item.value).as_deref().unwrap_or(""));
+        let is_exported = item.decorators.contains(&"export".to_string()) || exported.contains(item_name(&item.value).as_deref().unwrap_or(""));
         match &item.value {
             ItemKind::Fn { name, params, ret_type, body, .. } => {
                 let sig = FnSig {
@@ -93,10 +125,12 @@ impl<'a> TypeChecker<'a> {
                     let t = self.resolve_type(&p.type_expr.value);
                     self.vars.insert(p.name.clone(), VarInfo { type_expr: t, is_const: false, moved: false });
                 }
+                self.current_fn_ret_type = Some(ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_));
                 for s in body {
-                    self.check_stmt(s)?;
-                    if self.has_error { break; }
-                }
+                     self.check_stmt(s)?;
+                     if self.has_error { break; }
+                 }
+                self.current_fn_ret_type = None;
                 Ok(())
             }
             ItemKind::Struct { name, .. } => {
@@ -160,12 +194,12 @@ impl<'a> TypeChecker<'a> {
                 let t = match type_expr {
                     Some(te) => {
                         let resolved = self.resolve_type(&te.value);
-                        // Even with explicit type, mark source as moved
-                        if let Some(te_ref) = type_expr {
-                            let _ = te_ref;
-                        }
-                        self.check_expr(value)?;
+                        let expr_ty = self.check_expr(value)?;
                         self.mark_moved(value, &resolved);
+                        if !types_compatible(&resolved, &expr_ty) {
+                            return self.fail(ErrorKind::TypeError, stmt.span,
+                                format!("Type mismatch: variable '{}' declared as {} but expression has type {}", name, resolved, expr_ty));
+                        }
                         resolved
                     }
                     None => {
@@ -183,8 +217,20 @@ impl<'a> TypeChecker<'a> {
                 if let Some(x) = e {
                     let t = self.check_expr(x)?;
                     self.mark_moved(x, &t);
+                    if let Some(ref ret_ty) = self.current_fn_ret_type {
+                        if !types_compatible(ret_ty, &t) {
+                            return self.fail(ErrorKind::TypeError, stmt.span,
+                                format!("Type mismatch: function returns {} but expression has type {}", ret_ty, t));
+                        }
+                    }
                     Ok(t)
                 } else {
+                    if let Some(ref ret_ty) = self.current_fn_ret_type {
+                        if !types_compatible(ret_ty, &TypeExpr::None_) {
+                            return self.fail(ErrorKind::TypeError, stmt.span,
+                                format!("Type mismatch: function returns {} but no value returned", ret_ty));
+                        }
+                    }
                     Ok(TypeExpr::None_)
                 }
             }
@@ -221,16 +267,25 @@ impl<'a> TypeChecker<'a> {
                 Ok(TypeExpr::None_)
             }
             Stmt::Assign(name, expr) => {
-                match self.vars.get(name) {
-                    Some(info) if !info.is_const => {
+                let var_type = self.vars.get(name).map(|info| (info.type_expr.clone(), info.is_const));
+                match var_type {
+                    Some((ty, false)) => {
                         let result = self.check_expr(expr)?;
                         self.mark_moved(expr, &result);
+                        if !types_compatible(&ty, &result) {
+                            return self.fail(ErrorKind::TypeError, stmt.span,
+                                format!("Type mismatch: variable '{}' has type {} but assigned expression has type {}", name, ty, result));
+                        }
                         Ok(result)
                     }
-                    Some(_) => self.fail(ErrorKind::TypeError, stmt.span,
+                    Some((_, true)) => self.fail(ErrorKind::TypeError, stmt.span,
                         format!("Cannot assign to const variable '{}'", name)),
-                    None => self.fail(ErrorKind::NameError, stmt.span,
-                        format!("Variable '{}' not found", name)),
+                    None => {
+                        let inferred = self.check_expr(expr)?;
+                        self.mark_moved(expr, &inferred);
+                        self.vars.insert(name.clone(), VarInfo { type_expr: inferred.clone(), is_const: false, moved: false });
+                        Ok(inferred)
+                    }
                 }
             }
             Stmt::Destruct(_, expr) => self.check_expr(expr),
@@ -267,10 +322,12 @@ impl<'a> TypeChecker<'a> {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
                         if lt == TypeExpr::Infer { Ok(rt) }
                         else if rt == TypeExpr::Infer { Ok(lt) }
-                        else if lt != rt {
+                        else if types_compatible(&lt, &rt) || types_compatible(&rt, &lt) {
+                            Ok(wider_type(&lt, &rt))
+                        } else {
                             self.fail(ErrorKind::TypeError, expr.span,
-                                format!("Type mismatch: cannot {:?} {:?} with {:?}", op, lt, rt))
-                        } else { Ok(lt) }
+                                format!("Type mismatch: cannot {} {} with {}", op, lt, rt))
+                        }
                     }
                     BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Gt | BinOp::Le | BinOp::Ge => Ok(TypeExpr::Bool),
                     BinOp::And | BinOp::Or => Ok(TypeExpr::Bool),
@@ -281,7 +338,16 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
-            Expr::UnOp(_, i) => self.check_expr(i),
+            Expr::UnOp(op, i) => {
+                let t = self.check_expr(i)?;
+                match op {
+                    UnOp::Neg => match &t {
+                        TypeExpr::Int(_) => Ok(TypeExpr::Rint(0)),
+                        _ => Ok(t),
+                    }
+                    UnOp::Not => Ok(t),
+                }
+            }
             Expr::Call(callee, args) => {
                 let mut arg_types = Vec::new();
                 for a in args {
@@ -322,6 +388,10 @@ impl<'a> TypeChecker<'a> {
                             let ret_type = sig.ret_type.clone();
                             for (i, (a, t)) in args.iter().zip(arg_types.iter()).enumerate() {
                                 if let Some(pt) = param_types.get(i) {
+                                    if !types_compatible(pt, t) {
+                                        return self.fail(ErrorKind::TypeError, expr.span,
+                                            format!("Type mismatch: parameter {} of function '{}' expects {} but got {}", i, name, pt, t));
+                                    }
                                     if !is_copy_type(pt) {
                                         self.mark_moved(a, t);
                                     }
@@ -431,6 +501,12 @@ impl<'a> TypeChecker<'a> {
             Expr::ResultErr(i) => self.check_expr(i),
             Expr::Spawn(i) => self.check_expr(i),
             Expr::AsConst(i) => self.check_expr(i),
+            Expr::PostInc(i) | Expr::PostDec(i) => self.check_expr(i),
+            Expr::LitComplex(r, im) => {
+                let rt = self.check_expr(r)?;
+                let it = self.check_expr(im)?;
+                Ok(TypeExpr::Complex(Box::new(rt), Box::new(it)))
+            }
             Expr::TupleLit(items) => {
                 let types: Result<Vec<TypeExpr>> = items.iter().map(|i| self.check_expr(i)).collect();
                 Ok(TypeExpr::Tuple(types?))
@@ -452,6 +528,24 @@ impl<'a> TypeChecker<'a> {
                     if i == 0 { elem_ty = t; }
                 }
                 Ok(TypeExpr::Set(Box::new(elem_ty)))
+            }
+            Expr::VectorLit(items) => {
+                let mut elem_ty = TypeExpr::Infer;
+                for (i, item) in items.iter().enumerate() {
+                    let t = self.check_expr(item)?;
+                    if i == 0 { elem_ty = t; }
+                }
+                Ok(TypeExpr::Vector(Box::new(elem_ty)))
+            }
+            Expr::MatrixLit(rows) => {
+                let mut elem_ty = TypeExpr::Infer;
+                for row in rows {
+                    for (i, item) in row.iter().enumerate() {
+                        let t = self.check_expr(item)?;
+                        if i == 0 { elem_ty = t; }
+                    }
+                }
+                Ok(TypeExpr::Matrix(Box::new(elem_ty)))
             }
             Expr::FnLit(params, ret_type, body) => {
                 let mut param_types = Vec::new();

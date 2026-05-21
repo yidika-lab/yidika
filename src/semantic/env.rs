@@ -19,7 +19,7 @@ impl Env {
         types.insert("int".into(), TypeExpr::Int(0));
         types.insert("rint".into(), TypeExpr::Rint(0));
         types.insert("real".into(), TypeExpr::Real(0));
-        types.insert("complex".into(), TypeExpr::Complex);
+        types.insert("complex".into(), TypeExpr::Complex(Box::new(TypeExpr::Real(0)), Box::new(TypeExpr::Real(0))));
         types.insert("bool".into(), TypeExpr::Bool);
         types.insert("str".into(), TypeExpr::Str);
         types.insert("symbol".into(), TypeExpr::Symbol);

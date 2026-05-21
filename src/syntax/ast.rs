@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::diagnostics::span::Span;
 
@@ -12,12 +13,12 @@ pub struct Node<T> {
     pub id: AstId,
     pub span: Span,
     pub value: T,
-    pub exported: bool,
+    pub decorators: Vec<String>,
 }
 
 impl<T> Node<T> {
     pub fn new(id: AstId, span: Span, value: T) -> Self {
-        Self { id, span, value, exported: false }
+        Node { id, span, value, decorators: vec![] }
     }
 }
 
@@ -39,7 +40,8 @@ pub enum TypeExpr {
     Int(u8),
     Rint(u8),
     Real(u8),
-    Bool, Str, Symbol, Complex,
+    Bool, Str, Symbol,
+    Complex(Box<TypeExpr>, Box<TypeExpr>),
     Vector(Box<TypeExpr>),
     Matrix(Box<TypeExpr>),
     List(Box<TypeExpr>),
@@ -50,6 +52,45 @@ pub enum TypeExpr {
     Fn(Vec<TypeExpr>, Box<TypeExpr>),
     Generic(String, Vec<TypeExpr>),
     Null, None_, Infer,
+}
+
+impl fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TypeExpr::Named(s) => write!(f, "{}", s),
+            TypeExpr::Int(w) => write!(f, "int({})", w),
+            TypeExpr::Rint(w) => write!(f, "rint({})", w),
+            TypeExpr::Real(w) => write!(f, "real({})", w),
+            TypeExpr::Bool => write!(f, "bool"),
+            TypeExpr::Str => write!(f, "str"),
+            TypeExpr::Symbol => write!(f, "symbol"),
+            TypeExpr::Complex(r, i) => write!(f, "complex[{}, {}]", r, i),
+            TypeExpr::Vector(t) => write!(f, "vector<{}>", t),
+            TypeExpr::Matrix(t) => write!(f, "matrix<{}>", t),
+            TypeExpr::List(t) => write!(f, "list<{}>", t),
+            TypeExpr::Set(t) => write!(f, "set<{}>", t),
+            TypeExpr::Map(k, v) => write!(f, "map<{}, {}>", k, v),
+            TypeExpr::Union(ts) => {
+                let strs: Vec<String> = ts.iter().map(|t| t.to_string()).collect();
+                write!(f, "union({})", strs.join(", "))
+            }
+            TypeExpr::Tuple(ts) => {
+                let strs: Vec<String> = ts.iter().map(|t| t.to_string()).collect();
+                write!(f, "({})", strs.join(", "))
+            }
+            TypeExpr::Fn(params, ret) => {
+                let strs: Vec<String> = params.iter().map(|t| t.to_string()).collect();
+                write!(f, "fn({}) -> {}", strs.join(", "), ret)
+            }
+            TypeExpr::Generic(name, args) => {
+                let strs: Vec<String> = args.iter().map(|t| t.to_string()).collect();
+                write!(f, "{}<{}>", name, strs.join(", "))
+            }
+            TypeExpr::Null => write!(f, "null"),
+            TypeExpr::None_ => write!(f, "null"),
+            TypeExpr::Infer => write!(f, "auto"),
+        }
+    }
 }
 
 // ─── Expressions ─────────────────────────────────────────
@@ -77,7 +118,12 @@ pub enum Expr {
     SetLit(Vec<ExprNode>),
     MapLit(Vec<(ExprNode, ExprNode)>),
     TupleLit(Vec<ExprNode>),
+    VectorLit(Vec<ExprNode>),
+    MatrixLit(Vec<Vec<ExprNode>>),
     FnLit(Vec<Param>, Option<TypeNode>, Box<ExprNode>),
+    LitComplex(Box<ExprNode>, Box<ExprNode>),
+    PostInc(Box<ExprNode>),
+    PostDec(Box<ExprNode>),
     Await(Box<ExprNode>),
     Spawn(Box<ExprNode>),
     ResultOk(Box<ExprNode>),
@@ -87,6 +133,26 @@ pub enum Expr {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinOp { Add, Sub, Mul, Div, Eq, Ne, Lt, Gt, Le, Ge, And, Or, Assign }
+
+impl fmt::Display for BinOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BinOp::Add => write!(f, "+"),
+            BinOp::Sub => write!(f, "-"),
+            BinOp::Mul => write!(f, "*"),
+            BinOp::Div => write!(f, "/"),
+            BinOp::Eq => write!(f, "=="),
+            BinOp::Ne => write!(f, "!="),
+            BinOp::Lt => write!(f, "<"),
+            BinOp::Gt => write!(f, ">"),
+            BinOp::Le => write!(f, "<="),
+            BinOp::Ge => write!(f, ">="),
+            BinOp::And => write!(f, "&&"),
+            BinOp::Or => write!(f, "||"),
+            BinOp::Assign => write!(f, "="),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnOp { Neg, Not }
@@ -116,8 +182,13 @@ pub enum Stmt {
 #[derive(Debug, Clone)]
 pub enum Pattern {
     Ident(String),
+    Rest(String),
     Destruct(Vec<(String, Pattern)>),
     ListDestruct(Vec<Pattern>),
+    LitInt(i64),
+    LitReal(f64),
+    LitStr(String),
+    LitBool(bool),
     Ignore,
 }
 

@@ -129,14 +129,37 @@ fn watch_and_run(path: &PathBuf) -> Result<(), String> {
     }
 }
 
+fn has_in_path(name: &str) -> bool {
+    // First check PATH
+    if std::env::var_os("PATH")
+        .and_then(|p| std::env::split_paths(&p).find(|d| d.join(name).exists()))
+        .is_some()
+    {
+        return true;
+    }
+    // Also check common LLVM install locations
+    let candidates = [
+        r"C:\Program Files\LLVM\bin\clang.exe",
+        r"C:\Program Files (x86)\LLVM\bin\clang.exe",
+    ];
+    candidates.iter().any(|p| std::path::Path::new(p).exists())
+}
+
 fn build_program(path: &PathBuf, watch: bool) -> Result<String, String> {
     let file = path.file_name().unwrap().to_string_lossy().to_string();
     let files = load(path)?;
     typecheck_all(&files)?;
-    let llvm_ir = crate::codegen::llvm::compile_to_llvm(&files[0].module);
     let output_path = path.with_extension("");
-    crate::codegen::llvm::compile_to_exe(&llvm_ir, &output_path)
-        .map_err(|e| e.to_string())?;
+
+    if has_in_path("clang.exe") {
+        let llvm_ir = crate::codegen::llvm::compile_to_llvm(&files[0].module);
+        crate::codegen::llvm::compile_to_exe(&llvm_ir, &output_path)
+            .map_err(|e| e.to_string())?;
+    } else {
+        let c_code = crate::codegen::compile_to_c(&files[0].module);
+        crate::codegen::compile_to_exe(&c_code, &output_path)
+            .map_err(|e| e.to_string())?;
+    }
     println!("✅ Build OK: {} -> {}.exe ({} files)", file, output_path.to_string_lossy(), files.len());
 
     if watch {

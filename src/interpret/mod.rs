@@ -22,6 +22,8 @@ pub enum Value {
     Dict(Vec<(Value, Value)>),
     Set(Vec<Value>),
     Map(HashMap<String, Value>),
+    Complex(f64, f64),
+    Instance(String, Vec<Value>),
     None_,
 }
 
@@ -83,6 +85,18 @@ impl std::fmt::Display for Value {
                 write!(f, "}}")
             }
             Value::None_ => write!(f, "none"),
+            Value::Instance(name, fields) => {
+                write!(f, "{} {{ ", name)?;
+                for (i, v) in fields.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, " }}")
+            }
+            Value::Complex(r, i) => {
+                if *i < 0.0 { write!(f, "{} - {}i", r, -i) }
+                else { write!(f, "{} + {}i", r, i) }
+            }
         }
     }
 }
@@ -93,10 +107,18 @@ struct FnDef {
     body: Vec<StmtNode>,
 }
 
+#[derive(Debug, Clone)]
+struct ClassDef {
+    fields: Vec<String>,
+    methods: HashMap<String, FnDef>,
+    extends: Option<String>,
+}
+
 pub struct Interpreter {
     globals: HashMap<String, Value>,
     const_vars: HashSet<String>,
     struct_defs: HashMap<String, Vec<String>>,
+    classes: HashMap<String, ClassDef>,
     functions: HashMap<String, FnDef>,
     builtin_modules: HashMap<String, String>,
     builtin_funcs: HashMap<String, String>,
@@ -115,6 +137,7 @@ impl Interpreter {
             globals: HashMap::new(),
             const_vars: HashSet::new(),
             struct_defs: HashMap::new(),
+            classes: HashMap::new(),
             functions: HashMap::new(),
             builtin_modules: HashMap::new(),
             builtin_funcs: HashMap::new(),
@@ -160,10 +183,10 @@ impl Interpreter {
                         for (name, _) in &import.names {
                             self.builtin_modules.insert(name.clone(), format!("{}:{}", lang, source));
                         }
-                    }
-                }
-            }
-        }
+                                        }
+                                    }
+                                }
+                            }
         for item in &module.items {
             match &item.value {
                 ItemKind::Fn { name, params, body, .. } => {
@@ -174,6 +197,19 @@ impl Interpreter {
                 }
                 ItemKind::Struct { name, fields, .. } => {
                     self.struct_defs.insert(name.clone(), fields.iter().map(|p| p.name.clone()).collect());
+                }
+                ItemKind::Class { name, fields, methods, extends, .. } => {
+                    let mut cls_methods: HashMap<String, FnDef> = HashMap::new();
+                    for m in methods {
+                        if let ItemKind::Fn { name: mname, params, body, .. } = m {
+                            cls_methods.insert(mname.clone(), FnDef { params: params.clone(), body: body.clone() });
+                        }
+                    }
+                    self.classes.insert(name.clone(), ClassDef {
+                        fields: fields.iter().map(|p| p.name.clone()).collect(),
+                        methods: cls_methods,
+                        extends: extends.clone(),
+                    });
                 }
                 ItemKind::Const { name, value, .. } => {
                     let val = self.eval_expr(value).unwrap_or(Value::None_);
@@ -193,6 +229,7 @@ impl Interpreter {
         let functions = self.functions.clone();
         let globals = self.globals.clone();
         let struct_defs = self.struct_defs.clone();
+        let classes = self.classes.clone();
         let const_vars = self.const_vars.clone();
         let builtin_modules = self.builtin_modules.clone();
         let builtin_funcs = self.builtin_funcs.clone();
@@ -205,6 +242,7 @@ impl Interpreter {
                 globals,
                 const_vars,
                 struct_defs,
+                classes,
                 functions,
                 builtin_modules,
                 builtin_funcs,
@@ -230,6 +268,18 @@ impl Interpreter {
             format!("Failed to spawn interpreter thread: {}", e)))?;
         result.join().map_err(|_| error::err(ErrorKind::Internal, Span::new(0, 0),
             "Interpreter thread panicked"))?
+    }
+
+    fn find_class_method(&self, cls_name: &str, method: &str) -> Option<FnDef> {
+        let cls = self.classes.get(cls_name)?;
+        if let Some(fn_def) = cls.methods.get(method) {
+            return Some(fn_def.clone());
+        }
+        // Search parent class
+        if let Some(parent) = &cls.extends {
+            return self.find_class_method(parent, method);
+        }
+        None
     }
 
     fn is_moved(&self, name: &str) -> bool {
@@ -400,9 +450,72 @@ impl Interpreter {
                 self.set_var(name, val)?;
                 Ok(None)
             }
-            Stmt::Destruct(_, expr) => {
-                self.eval_expr(expr)?;
+            Stmt::Destruct(pattern, expr) => {
+                let val = self.eval_expr(expr)?;
+                self.destruct_bind(pattern, val, expr.span)?;
                 Ok(None)
+            }
+        }
+    }
+
+    fn match_pattern(&self, pattern: &Pattern, value: &Value, bindings: &mut HashMap<String, Value>) -> bool {
+        match pattern {
+            Pattern::Ignore => true,
+            Pattern::Ident(name) => { bindings.insert(name.clone(), value.clone()); true }
+            Pattern::Rest(name) => { bindings.insert(name.clone(), value.clone()); true }
+            Pattern::LitInt(n) => matches!(value, Value::Int(v) if *v == *n),
+            Pattern::LitReal(n) => matches!(value, Value::Real(v) if *v == *n),
+            Pattern::LitStr(s) => matches!(value, Value::Str(v) if *v == *s),
+            Pattern::LitBool(b) => matches!(value, Value::Bool(v) if *v == *b),
+            Pattern::ListDestruct(patterns) => {
+                match value {
+                    Value::List(items) => {
+                        let mut i = 0;
+                        for pat in patterns {
+                            match pat {
+                                Pattern::Rest(rname) => {
+                                    let rest: Vec<Value> = items[i..].to_vec();
+                                    bindings.insert(rname.clone(), Value::List(rest));
+                                    i = items.len();
+                                }
+                                _ => {
+                                    if i >= items.len() { return false; }
+                                    if !self.match_pattern(pat, &items[i], bindings) { return false; }
+                                    i += 1;
+                                }
+                            }
+                        }
+                        i == items.len()
+                    }
+                    _ => false,
+                }
+            }
+            Pattern::Destruct(fields) => {
+                match value {
+                    Value::Struct(_, map) => {
+                        for (fname, pat) in fields {
+                            match map.get(fname) {
+                                Some(fval) => {
+                                    if !self.match_pattern(pat, fval, bindings) { return false; }
+                                }
+                                None => return false,
+                            }
+                        }
+                        true
+                    }
+                    Value::Map(map) => {
+                        for (fname, pat) in fields {
+                            match map.get(fname) {
+                                Some(fval) => {
+                                    if !self.match_pattern(pat, fval, bindings) { return false; }
+                                }
+                                None => return false,
+                            }
+                        }
+                        true
+                    }
+                    _ => false,
+                }
             }
         }
     }
@@ -416,6 +529,13 @@ impl Interpreter {
             Expr::LitChar(c) => Ok(Value::Char(*c)),
             Expr::LitBool(b) => Ok(Value::Bool(*b)),
             Expr::LitNull | Expr::LitNone => Ok(Value::None_),
+            Expr::LitComplex(r, im) => {
+                let rv = self.eval_expr(r)?;
+                let iv = self.eval_expr(im)?;
+                let rf = match rv { Value::Int(i) => i as f64, Value::Real(f) => f, _ => return Err(self.err(expr.span, "Complex real part must be a number")) };
+                let ri = match iv { Value::Int(i) => i as f64, Value::Real(f) => f, _ => return Err(self.err(expr.span, "Complex imag part must be a number")) };
+                Ok(Value::Complex(rf, ri))
+            }
             Expr::LitSymbol(s) => Ok(Value::Str(format!(":{}", s))),
             Expr::Ident(name) => {
                 self.get_var(name)
@@ -431,6 +551,7 @@ impl Interpreter {
                     UnOp::Neg => match v {
                         Value::Int(i) => Ok(Value::Int(-i)),
                         Value::Real(r) => Ok(Value::Real(-r)),
+                        Value::Complex(r, i) => Ok(Value::Complex(-r, -i)),
                         _ => Err(self.err(expr.span, "Cannot negate")),
                     },
                     UnOp::Not => match v {
@@ -543,6 +664,30 @@ impl Interpreter {
                             None => {
                                 let var_name = match &obj.value { Expr::Ident(n) => Some(n.clone()), _ => None };
                                 let mut receiver = self.eval_expr(obj)?;
+                                // Check for class/instance methods first
+                                if let Value::Instance(cls_name, _) = &receiver {
+                                    let method = self.find_class_method(cls_name, field);
+                                    match method {
+                                        Some(fn_def) => {
+                                            self.push_frame();
+                                            let cls_receiver = receiver;
+                                            self.frames.last_mut().unwrap().insert("self".into(), cls_receiver);
+                                            let start_idx = if fn_def.params.first().map(|p| p.name.as_str()) == Some("self") { 1 } else { 0 };
+                                            for (i, param) in fn_def.params.iter().enumerate().skip(start_idx) {
+                                                let val = arg_vals.get(i - start_idx).cloned().unwrap_or(Value::None_);
+                                                self.frames.last_mut().unwrap().insert(param.name.clone(), val);
+                                            }
+                                            let result = self.run_fn_body(&fn_def)?;
+                                            let mutated = self.frames.last().and_then(|f| f.get("self")).cloned();
+                                            self.pop_frame();
+                                            if let Some(ref n) = var_name {
+                                                if let Some(m) = mutated { self.set_var(n, m).ok(); }
+                                            }
+                                            return Ok(result.unwrap_or(Value::None_));
+                                        }
+                                        None => {}
+                                    }
+                                }
                                 match field.as_str() {
                                     "push" => match &mut receiver {
                                         Value::List(items) => {
@@ -775,6 +920,137 @@ impl Interpreter {
                                         }
                                         _ => Err(self.err(expr.span, "index requires a string")),
                                     },
+                                    "mod" => match &receiver {
+                                        Value::Complex(r, i) => Ok(Value::Real((r * r + i * i).sqrt())),
+                                        _ => Err(self.err(expr.span, "mod requires a complex")),
+                                    },
+                                    "arg" => match &receiver {
+                                        Value::Complex(r, i) => Ok(Value::Real(i.atan2(*r))),
+                                        _ => Err(self.err(expr.span, "arg requires a complex")),
+                                    },
+                                    "conj" => match &receiver {
+                                        Value::Complex(r, i) => Ok(Value::Complex(*r, -i)),
+                                        _ => Err(self.err(expr.span, "conj requires a complex")),
+                                    },
+                                    "norm" => match &receiver {
+                                        Value::Complex(r, i) => Ok(Value::Real(r * r + i * i)),
+                                        _ => Err(self.err(expr.span, "norm requires a complex")),
+                                    },
+                                    "includes" => match &receiver {
+                                        Value::List(items) => {
+                                            let target = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "includes requires 1 argument"))?;
+                                            Ok(Value::Bool(items.contains(&target)))
+                                        }
+                                        _ => Err(self.err(expr.span, "includes requires a list")),
+                                    },
+                                    "join" => match &receiver {
+                                        Value::List(items) => {
+                                            let sep = arg_vals.into_iter().next()
+                                                .map(|v| match v { Value::Str(s) => s, _ => ",".into() })
+                                                .unwrap_or_else(|| ",".into());
+                                            Ok(Value::Str(items.iter().map(|v| v.to_string()).collect::<Vec<_>>().join(&sep)))
+                                        }
+                                        _ => Err(self.err(expr.span, "join requires a list")),
+                                    },
+                                    "slice" => match &receiver {
+                                        Value::List(items) => {
+                                            let start = arg_vals.get(0).and_then(|v| if let Value::Int(i) = v { Some(*i as usize) } else { None }).unwrap_or(0);
+                                            let end = arg_vals.get(1).and_then(|v| if let Value::Int(i) = v { Some(*i as usize) } else { None }).unwrap_or(items.len());
+                                            let end = end.min(items.len());
+                                            Ok(Value::List(items[start..end].to_vec()))
+                                        }
+                                        Value::Str(s) => {
+                                            let chars: Vec<char> = s.chars().collect();
+                                            let start = arg_vals.get(0).and_then(|v| if let Value::Int(i) = v { Some(*i as usize) } else { None }).unwrap_or(0);
+                                            let end = arg_vals.get(1).and_then(|v| if let Value::Int(i) = v { Some(*i as usize) } else { None }).unwrap_or(chars.len());
+                                            let end = end.min(chars.len());
+                                            Ok(Value::Str(chars[start..end].iter().collect()))
+                                        }
+                                        _ => Err(self.err(expr.span, "slice requires a list or string")),
+                                    },
+                                    "shift" => match &mut receiver {
+                                        Value::List(items) => {
+                                            if items.is_empty() { return Err(self.err(expr.span, "shift from empty list")); }
+                                            let result = items.remove(0);
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(result)
+                                        }
+                                        _ => Err(self.err(expr.span, "shift requires a list")),
+                                    },
+                                    "unshift" => match &mut receiver {
+                                        Value::List(items) => {
+                                            let val = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "unshift requires 1 argument"))?;
+                                            items.insert(0, val);
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(Value::None_)
+                                        }
+                                        _ => Err(self.err(expr.span, "unshift requires a list")),
+                                    },
+                                    "keys" => match &receiver {
+                                        Value::Map(m) => Ok(Value::List(m.keys().map(|k| Value::Str(k.clone())).collect())),
+                                        _ => Err(self.err(expr.span, "keys requires a map")),
+                                    },
+                                    "values" => match &receiver {
+                                        Value::Map(m) => Ok(Value::List(m.values().cloned().collect())),
+                                        _ => Err(self.err(expr.span, "values requires a map")),
+                                    },
+                                    "entries" => match &receiver {
+                                        Value::Map(m) => Ok(Value::List(m.iter().map(|(k, v)| {
+                                            Value::Tuple(vec![Value::Str(k.clone()), v.clone()])
+                                        }).collect())),
+                                        _ => Err(self.err(expr.span, "entries requires a map")),
+                                    },
+                                    "has" => match &receiver {
+                                        Value::Map(m) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "has requires 1 argument"))?;
+                                            match key {
+                                                Value::Str(k) => Ok(Value::Bool(m.contains_key(&k))),
+                                                _ => Err(self.err(expr.span, "has requires a string key")),
+                                            }
+                                        }
+                                        _ => Err(self.err(expr.span, "has requires a map")),
+                                    },
+                                    "get" => match &receiver {
+                                        Value::Map(m) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "get requires 1 argument"))?;
+                                            match key {
+                                                Value::Str(k) => Ok(m.get(&k).cloned().unwrap_or(Value::None_)),
+                                                _ => Err(self.err(expr.span, "get requires a string key")),
+                                            }
+                                        }
+                                        _ => Err(self.err(expr.span, "get requires a map")),
+                                    },
+                                    "set" => match &mut receiver {
+                                        Value::Map(m) => {
+                                            let mut args = arg_vals.into_iter();
+                                            let key = args.next().ok_or_else(|| self.err(expr.span, "set requires 2 arguments"))?;
+                                            let val = args.next().ok_or_else(|| self.err(expr.span, "set requires 2 arguments"))?;
+                                            match key {
+                                                Value::Str(k) => { m.insert(k, val); }
+                                                _ => return Err(self.err(expr.span, "set key must be a string")),
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(Value::None_)
+                                        }
+                                        _ => Err(self.err(expr.span, "set requires a map")),
+                                    },
+                                    "delete" => match &mut receiver {
+                                        Value::Map(m) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "delete requires 1 argument"))?;
+                                            match key {
+                                                Value::Str(k) => { m.remove(&k); }
+                                                _ => return Err(self.err(expr.span, "delete key must be a string")),
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(Value::None_)
+                                        }
+                                        _ => Err(self.err(expr.span, "delete requires a map")),
+                                    },
                                     _ => Err(self.err(expr.span, format!("Unknown method '{}'", field))),
                                 }
                             }
@@ -841,27 +1117,57 @@ impl Interpreter {
                         fields.get(field).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Struct has no field '{}'", field)))
                     }
+                    Value::Instance(cls_name, cls_fields) => {
+                        let cls = self.classes.get(&cls_name)
+                            .ok_or_else(|| self.err(expr.span, format!("Unknown class '{}'", cls_name)))?;
+                        // Check fields first
+                        if let Some(idx) = cls.fields.iter().position(|f| f == field) {
+                            Ok(cls_fields[idx].clone())
+                        } else {
+                            Err(self.err(expr.span, format!("Class '{}' has no field '{}'", cls_name, field)))
+                        }
+                    }
                     Value::Tuple(items) => {
                         let idx: usize = field.parse()
                             .map_err(|_| self.err(expr.span, format!("Invalid tuple index '{}'", field)))?;
                         items.get(idx).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Tuple index {} out of bounds", idx)))
                     }
+                    Value::Complex(r, i) => match field.as_str() {
+                        "real" => Ok(Value::Real(r)),
+                        "img" => Ok(Value::Real(i)),
+                        "mod" | "norm" => Ok(Value::Real((r * r + i * i).sqrt())),
+                        "arg" => Ok(Value::Real(i.atan2(r))),
+                        "conj" => Ok(Value::Complex(r, -i)),
+                        _ => Err(self.err(expr.span, format!("Complex has no field '{}'", field))),
+                    },
                     _ => Err(self.err(expr.span, "Cannot access field on non-struct value")),
                 }
             }
             Expr::StructLit(name, field_exprs) => {
-                let def_fields = self.struct_defs.get(name).cloned()
-                    .ok_or_else(|| self.err(expr.span, format!("Unknown struct '{}'", name)))?;
-                let mut fields = HashMap::new();
-                for (fname, fexpr) in field_exprs {
-                    if !def_fields.contains(fname) {
-                        return Err(self.err(expr.span, format!("Struct '{}' has no field '{}'", name, fname)));
+                // Try struct first, then class
+                if let Some(def_fields) = self.struct_defs.get(name).cloned() {
+                    let mut fields = HashMap::new();
+                    for (fname, fexpr) in field_exprs {
+                        if !def_fields.contains(fname) {
+                            return Err(self.err(expr.span, format!("Struct '{}' has no field '{}'", name, fname)));
+                        }
+                        let val = self.eval_expr(fexpr)?;
+                        fields.insert(fname.clone(), val);
                     }
-                    let val = self.eval_expr(fexpr)?;
-                    fields.insert(fname.clone(), val);
+                    Ok(Value::Struct(name.clone(), fields))
+                } else if let Some(cls) = self.classes.get(name).cloned() {
+                    let mut vals = vec![Value::None_; cls.fields.len()];
+                    for (fname, fexpr) in field_exprs {
+                        let idx = cls.fields.iter().position(|f| f == fname)
+                            .ok_or_else(|| self.err(expr.span, format!("Class '{}' has no field '{}'", name, fname)))?;
+                        let val = self.eval_expr(fexpr)?;
+                        vals[idx] = val;
+                    }
+                    Ok(Value::Instance(name.clone(), vals))
+                } else {
+                    Err(self.err(expr.span, format!("Unknown struct/class '{}'", name)))
                 }
-                Ok(Value::Struct(name.clone(), fields))
             }
             Expr::TupleLit(items) => {
                 let vals: Result<Vec<Value>> = items.iter().map(|i| self.eval_expr(i)).collect();
@@ -883,11 +1189,60 @@ impl Interpreter {
                 }
                 Ok(Value::Set(set))
             }
+            Expr::VectorLit(items) => {
+                let vals: Result<Vec<Value>> = items.iter().map(|i| self.eval_expr(i)).collect();
+                Ok(Value::List(vals?))
+            }
+            Expr::MatrixLit(rows) => {
+                let vals: Result<Vec<Vec<Value>>> = rows.iter().map(|r| r.iter().map(|i| self.eval_expr(i)).collect()).collect();
+                Ok(Value::List(vals?.into_iter().map(|r| Value::List(r)).collect()))
+            }
             Expr::FnLit(_, _, body) => {
                 self.eval_expr(body)
             }
+            Expr::PostInc(i) | Expr::PostDec(i) => {
+                let val = self.eval_expr(i)?;
+                let one = Value::Int(1);
+                let op = if matches!(&expr.value, Expr::PostInc(_)) { BinOp::Add } else { BinOp::Sub };
+                let inc = self.eval_binop(val.clone(), op, one, expr.span)?;
+                if let Expr::Ident(name) = &i.value {
+                    self.set_var(name, inc)?;
+                } else {
+                    return Err(self.err(expr.span, "++/-- not supported on non-variable"));
+                }
+                Ok(val)
+            }
             Expr::ResultOk(i) | Expr::ResultErr(i) | Expr::Spawn(i) | Expr::AsConst(i) => {
                 self.eval_expr(i)
+            }
+            Expr::Match(scrutinee, arms) => {
+                let sv = self.eval_expr(scrutinee)?;
+                for arm in arms {
+                    let mut bindings = HashMap::new();
+                    if self.match_pattern(&arm.pattern, &sv, &mut bindings) {
+                        let guard_ok = match &arm.guard {
+                            Some(guard_expr) => {
+                                self.push_frame();
+                                for (k, v) in &bindings { self.set_var(k, v.clone()).ok(); }
+                                let result = self.eval_expr(guard_expr);
+                                self.pop_frame();
+                                match result {
+                                    Ok(Value::Bool(b)) => b,
+                                    _ => return Err(self.err(scrutinee.span, "Match guard must evaluate to a boolean")),
+                                }
+                            }
+                            None => true,
+                        };
+                        if guard_ok {
+                            self.push_frame();
+                            for (k, v) in &bindings { self.set_var(k, v.clone()).ok(); }
+                            let result = self.eval_expr(&arm.body);
+                            self.pop_frame();
+                            return result;
+                        }
+                    }
+                }
+                Err(self.err(scrutinee.span, "Non-exhaustive patterns: no match arm matched the value"))
             }
             _ => Err(self.err(expr.span, "Expression not supported in interpreter")),
         }
@@ -912,13 +1267,27 @@ impl Interpreter {
 
     fn eval_binop(&self, lv: Value, op: BinOp, rv: Value, span: Span) -> Result<Value> {
         match op {
-            BinOp::Add => match (&lv, &rv) {
-                (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
-                (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a + b)),
-                (Value::Str(a), Value::Str(b)) => Ok(Value::Str(format!("{}{}", a, b))),
-                _ => Err(self.err(span, "Type mismatch in addition")),
-            },
+            BinOp::Add => {
+                let to_c64 = |v: &Value| -> Option<(f64, f64)> {
+                    match v { Value::Int(i) => Some((*i as f64, 0.0)), Value::Real(r) => Some((*r, 0.0)), Value::Complex(r, i) => Some((*r, *i)), _ => None }
+                };
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                    (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a + b)),
+                    (Value::Str(a), Value::Str(b)) => Ok(Value::Str(format!("{}{}", a, b))),
+                    _ => {
+                        if let (Some((r1, i1)), Some((r2, i2))) = (to_c64(&lv), to_c64(&rv)) {
+                            Ok(Value::Complex(r1 + r2, i1 + i2))
+                        } else {
+                            Err(self.err(span, "Type mismatch in addition"))
+                        }
+                    }
+                }
+            }
             BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                let to_c64 = |v: &Value| -> Option<(f64, f64)> {
+                    match v { Value::Int(i) => Some((*i as f64, 0.0)), Value::Real(r) => Some((*r, 0.0)), Value::Complex(r, i) => Some((*r, *i)), _ => None }
+                };
                 match (&lv, &rv) {
                     (Value::Int(a), Value::Int(b)) => {
                         let v = match op {
@@ -938,7 +1307,23 @@ impl Interpreter {
                         };
                         Ok(v)
                     }
-                    _ => Err(self.err(span, "Type mismatch in arithmetic")),
+                    _ => {
+                        if let (Some((r1, i1)), Some((r2, i2))) = (to_c64(&lv), to_c64(&rv)) {
+                            let (r, i) = match op {
+                                BinOp::Sub => (r1 - r2, i1 - i2),
+                                BinOp::Mul => (r1 * r2 - i1 * i2, r1 * i2 + i1 * r2),
+                                BinOp::Div => {
+                                    let d = r2 * r2 + i2 * i2;
+                                    if d == 0.0 { return Err(self.err(span, "Division by zero in complex arithmetic")); }
+                                    ((r1 * r2 + i1 * i2) / d, (i1 * r2 - r1 * i2) / d)
+                                }
+                                _ => unreachable!(),
+                            };
+                            Ok(Value::Complex(r, i))
+                        } else {
+                            Err(self.err(span, "Type mismatch in arithmetic"))
+                        }
+                    }
                 }
             }
             BinOp::Eq => Ok(Value::Bool(lv == rv)),
@@ -1385,6 +1770,52 @@ impl Interpreter {
         }
     }
 
+    fn destruct_bind(&mut self, pattern: &Pattern, val: Value, span: Span) -> Result<()> {
+        match pattern {
+            Pattern::Ident(name) => { self.set_var(name, val)?; Ok(()) }
+            Pattern::Rest(name) => { self.set_var(name, val)?; Ok(()) }
+            Pattern::Ignore => Ok(()),
+            Pattern::LitInt(_) | Pattern::LitReal(_) | Pattern::LitStr(_) | Pattern::LitBool(_) => Ok(()),
+            Pattern::ListDestruct(elements) => {
+                let items = match val {
+                    Value::List(items) => items,
+                    _ => return Err(self.err(span, "Cannot destructure non-list value")),
+                };
+                let mut idx = 0;
+                for elem in elements {
+                    match elem {
+                        Pattern::Rest(name) => {
+                            let rest: Vec<Value> = items[idx..].to_vec();
+                            self.set_var(name, Value::List(rest))?;
+                            idx = items.len();
+                        }
+                        Pattern::Ignore => { idx += 1; }
+                        Pattern::Ident(name) => {
+                            let v = items.get(idx).cloned()
+                                .ok_or_else(|| self.err(span, format!("Destructure index {} out of bounds", idx)))?;
+                            self.set_var(name, v)?;
+                            idx += 1;
+                        }
+                        _ => return Err(self.err(span, "Nested destructuring not yet supported in lists")),
+                    }
+                }
+                Ok(())
+            }
+            Pattern::Destruct(fields) => {
+                let obj = match val {
+                    Value::Map(m) => m,
+                    Value::Struct(_, fields_map) => fields_map,
+                    _ => return Err(self.err(span, "Cannot destructure non-map/struct value")),
+                };
+                for (name, subpattern) in fields {
+                    let v = obj.get(name).cloned().unwrap_or(Value::None_);
+                    self.destruct_bind(subpattern, v, span)?;
+                }
+                Ok(())
+            }
+        }
+    }
+
     fn err(&self, span: Span, msg: impl Into<String>) -> error::YkError {
         error::err(ErrorKind::Runtime, span, msg)
     }
@@ -1424,6 +1855,11 @@ fn value_to_json(v: &Value) -> serde_json::Value {
         Value::None_ => serde_json::Value::Null,
         Value::Char(c) => serde_json::Value::String(c.to_string()),
         Value::Range(_, _) => serde_json::Value::Null,
+        Value::Complex(r, i) => serde_json::Value::Array(vec![
+            serde_json::Value::Number(serde_json::Number::from_f64(*r).unwrap_or(serde_json::Number::from(0))),
+            serde_json::Value::Number(serde_json::Number::from_f64(*i).unwrap_or(serde_json::Number::from(0))),
+        ]),
+        Value::Instance(_, _) => serde_json::Value::Null,
     }
 }
 
@@ -1438,7 +1874,7 @@ fn is_truthy(v: &Value) -> bool {
 }
 
 fn is_copy_value(v: &Value) -> bool {
-    matches!(v, Value::Int(_) | Value::Real(_) | Value::Bool(_) | Value::Char(_) | Value::None_)
+    matches!(v, Value::Int(_) | Value::Real(_) | Value::Bool(_) | Value::Char(_) | Value::None_ | Value::Complex(_, _))
 }
 
 fn cmp_binop<F: Fn(f64, f64) -> bool>(a: &Value, b: &Value, cmp: F, span: Span) -> Result<Value> {
