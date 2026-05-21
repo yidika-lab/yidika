@@ -1,5 +1,5 @@
-   0.066795500s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
-   0.066867700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-34bf4e7ef71afb0d\lib-yidi`
+   0.080868300s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
+   0.082108900s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-34bf4e7ef71afb0d\lib-yidi`
 
 Caused by:
     Le fichier spécifié est introuvable. (os error 2)
@@ -26,8 +26,729 @@ Stack backtrace:
   18: git_midx_writer_dump
   19: BaseThreadInitThunk
   20: RtlUserThreadStart
-   0.089138700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
-   0.089175900s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-0a2f358119f43a14\test-lib-yidi`
+   0.109476600s  INFO prepare_target{force=false package_id=base64 v0.22.1 target="base64"}: cargo::core::compiler::fingerprint: fingerprint error for base64 v0.22.1/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("base64", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\base64-0.22.1\\src\\lib.rs", Edition2018) }
+   0.109523700s  INFO prepare_target{force=false package_id=base64 v0.22.1 target="base64"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\base64-10d89ddba0e66456\lib-base64`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.110168800s  INFO prepare_target{force=false package_id=chrono v0.4.44 target="chrono"}: cargo::core::compiler::fingerprint: fingerprint error for chrono v0.4.44/Check { test: false }/TargetInner { ..: lib_target("chrono", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\chrono-0.4.44\\src\\lib.rs", Edition2021) }
+   0.110211000s  INFO prepare_target{force=false package_id=chrono v0.4.44 target="chrono"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\chrono-b92bfdd12351292d\lib-chrono`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.110965100s  INFO prepare_target{force=false package_id=num-traits v0.2.19 target="num_traits"}: cargo::core::compiler::fingerprint: fingerprint error for num-traits v0.2.19/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("num_traits", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\num-traits-0.2.19\\src\\lib.rs", Edition2021) }
+   0.111006800s  INFO prepare_target{force=false package_id=num-traits v0.2.19 target="num_traits"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\num-traits-8a2945158d16227a\lib-num_traits`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.113561700s  INFO prepare_target{force=false package_id=windows-link v0.2.1 target="windows_link"}: cargo::core::compiler::fingerprint: fingerprint error for windows-link v0.2.1/Check { test: false }/TargetInner { ..: lib_target("windows_link", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\windows-link-0.2.1\\src\\lib.rs", Edition2021) }
+   0.113612300s  INFO prepare_target{force=false package_id=windows-link v0.2.1 target="windows_link"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\windows-link-21627c4766c4452c\lib-windows_link`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.114314500s  INFO prepare_target{force=false package_id=fastrand v2.4.1 target="fastrand"}: cargo::core::compiler::fingerprint: fingerprint error for fastrand v2.4.1/Check { test: false }/TargetInner { ..: lib_target("fastrand", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\fastrand-2.4.1\\src\\lib.rs", Edition2018) }
+   0.114349200s  INFO prepare_target{force=false package_id=fastrand v2.4.1 target="fastrand"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\fastrand-8f40ed6c942b1267\lib-fastrand`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.115278800s  INFO prepare_target{force=false package_id=libloading v0.8.9 target="libloading"}: cargo::core::compiler::fingerprint: fingerprint error for libloading v0.8.9/Check { test: false }/TargetInner { ..: lib_target("libloading", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\libloading-0.8.9\\src\\lib.rs", Edition2015) }
+   0.115323200s  INFO prepare_target{force=false package_id=libloading v0.8.9 target="libloading"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\libloading-7e37daeeca056b30\lib-libloading`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.116640900s  INFO prepare_target{force=false package_id=regex v1.12.3 target="regex"}: cargo::core::compiler::fingerprint: fingerprint error for regex v1.12.3/Check { test: false }/TargetInner { ..: lib_target("regex", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\regex-1.12.3\\src\\lib.rs", Edition2021) }
+   0.116725700s  INFO prepare_target{force=false package_id=regex v1.12.3 target="regex"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\regex-6c3b4ee2de717dfc\lib-regex`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.117585500s  INFO prepare_target{force=false package_id=aho-corasick v1.1.4 target="aho_corasick"}: cargo::core::compiler::fingerprint: fingerprint error for aho-corasick v1.1.4/Check { test: false }/TargetInner { ..: lib_target("aho_corasick", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\aho-corasick-1.1.4\\src\\lib.rs", Edition2021) }
+   0.117679600s  INFO prepare_target{force=false package_id=aho-corasick v1.1.4 target="aho_corasick"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\aho-corasick-1da483babd4dda47\lib-aho_corasick`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.118345700s  INFO prepare_target{force=false package_id=memchr v2.8.0 target="memchr"}: cargo::core::compiler::fingerprint: fingerprint error for memchr v2.8.0/Check { test: false }/TargetInner { benched: false, ..: lib_target("memchr", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\memchr-2.8.0\\src\\lib.rs", Edition2021) }
+   0.118410300s  INFO prepare_target{force=false package_id=memchr v2.8.0 target="memchr"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\memchr-6fa30735eda4ed40\lib-memchr`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.119142600s  INFO prepare_target{force=false package_id=regex-automata v0.4.14 target="regex_automata"}: cargo::core::compiler::fingerprint: fingerprint error for regex-automata v0.4.14/Check { test: false }/TargetInner { benched: false, ..: lib_target("regex_automata", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\regex-automata-0.4.14\\src\\lib.rs", Edition2021) }
+   0.119233800s  INFO prepare_target{force=false package_id=regex-automata v0.4.14 target="regex_automata"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\regex-automata-85e1eea356742e68\lib-regex_automata`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.120033600s  INFO prepare_target{force=false package_id=regex-syntax v0.8.10 target="regex_syntax"}: cargo::core::compiler::fingerprint: fingerprint error for regex-syntax v0.8.10/Check { test: false }/TargetInner { ..: lib_target("regex_syntax", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\regex-syntax-0.8.10\\src\\lib.rs", Edition2021) }
+   0.120083500s  INFO prepare_target{force=false package_id=regex-syntax v0.8.10 target="regex_syntax"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\regex-syntax-47d779dab01dd56d\lib-regex_syntax`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.120761300s  INFO prepare_target{force=false package_id=serde_json v1.0.149 target="serde_json"}: cargo::core::compiler::fingerprint: fingerprint error for serde_json v1.0.149/Check { test: false }/TargetInner { ..: lib_target("serde_json", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\serde_json-1.0.149\\src\\lib.rs", Edition2021) }
+   0.120798000s  INFO prepare_target{force=false package_id=serde_json v1.0.149 target="serde_json"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\serde_json-46946b4730089366\lib-serde_json`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.121498000s  INFO prepare_target{force=false package_id=itoa v1.0.18 target="itoa"}: cargo::core::compiler::fingerprint: fingerprint error for itoa v1.0.18/Check { test: false }/TargetInner { ..: lib_target("itoa", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\itoa-1.0.18\\src\\lib.rs", Edition2021) }
+   0.121534100s  INFO prepare_target{force=false package_id=itoa v1.0.18 target="itoa"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\itoa-41a8b9ef9e35d87c\lib-itoa`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.122151900s  INFO prepare_target{force=false package_id=serde_core v1.0.228 target="serde_core"}: cargo::core::compiler::fingerprint: fingerprint error for serde_core v1.0.228/Check { test: false }/TargetInner { ..: lib_target("serde_core", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\serde_core-1.0.228\\src\\lib.rs", Edition2021) }
+   0.122183000s  INFO prepare_target{force=false package_id=serde_core v1.0.228 target="serde_core"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\serde_core-41c4da796a7ac8f6\lib-serde_core`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.124972100s  INFO prepare_target{force=false package_id=zmij v1.0.21 target="zmij"}: cargo::core::compiler::fingerprint: fingerprint error for zmij v1.0.21/Check { test: false }/TargetInner { ..: lib_target("zmij", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\zmij-1.0.21\\src\\lib.rs", Edition2021) }
+   0.125021000s  INFO prepare_target{force=false package_id=zmij v1.0.21 target="zmij"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\zmij-ad706ccbdeeacfe2\lib-zmij`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.126599000s  INFO prepare_target{force=false package_id=toml v0.7.8 target="toml"}: cargo::core::compiler::fingerprint: fingerprint error for toml v0.7.8/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("toml", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\toml-0.7.8\\src\\lib.rs", Edition2021) }
+   0.126642000s  INFO prepare_target{force=false package_id=toml v0.7.8 target="toml"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\toml-56de6000e8615cb8\lib-toml`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.127461800s  INFO prepare_target{force=false package_id=serde v1.0.228 target="serde"}: cargo::core::compiler::fingerprint: fingerprint error for serde v1.0.228/Check { test: false }/TargetInner { ..: lib_target("serde", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\serde-1.0.228\\src\\lib.rs", Edition2021) }
+   0.127503000s  INFO prepare_target{force=false package_id=serde v1.0.228 target="serde"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\serde-786f5f2f79c700b6\lib-serde`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.129246000s  INFO prepare_target{force=false package_id=serde_spanned v0.6.9 target="serde_spanned"}: cargo::core::compiler::fingerprint: fingerprint error for serde_spanned v0.6.9/Check { test: false }/TargetInner { ..: lib_target("serde_spanned", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\serde_spanned-0.6.9\\src\\lib.rs", Edition2021) }
+   0.129292600s  INFO prepare_target{force=false package_id=serde_spanned v0.6.9 target="serde_spanned"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\serde_spanned-14feff8ad7c7a079\lib-serde_spanned`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.130043600s  INFO prepare_target{force=false package_id=toml_datetime v0.6.11 target="toml_datetime"}: cargo::core::compiler::fingerprint: fingerprint error for toml_datetime v0.6.11/Check { test: false }/TargetInner { ..: lib_target("toml_datetime", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\toml_datetime-0.6.11\\src\\lib.rs", Edition2021) }
+   0.130078800s  INFO prepare_target{force=false package_id=toml_datetime v0.6.11 target="toml_datetime"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\toml_datetime-f0b5cf373b39cd36\lib-toml_datetime`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.131055600s  INFO prepare_target{force=false package_id=toml_edit v0.19.15 target="toml_edit"}: cargo::core::compiler::fingerprint: fingerprint error for toml_edit v0.19.15/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("toml_edit", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\toml_edit-0.19.15\\src\\lib.rs", Edition2021) }
+   0.131100000s  INFO prepare_target{force=false package_id=toml_edit v0.19.15 target="toml_edit"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\toml_edit-1ba479a55f6252e5\lib-toml_edit`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.131867200s  INFO prepare_target{force=false package_id=indexmap v2.14.0 target="indexmap"}: cargo::core::compiler::fingerprint: fingerprint error for indexmap v2.14.0/Check { test: false }/TargetInner { benched: false, ..: lib_target("indexmap", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\indexmap-2.14.0\\src\\lib.rs", Edition2024) }
+   0.131899200s  INFO prepare_target{force=false package_id=indexmap v2.14.0 target="indexmap"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\indexmap-8ebc1a440ca9e80a\lib-indexmap`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.132883100s  INFO prepare_target{force=false package_id=equivalent v1.0.2 target="equivalent"}: cargo::core::compiler::fingerprint: fingerprint error for equivalent v1.0.2/Check { test: false }/TargetInner { ..: lib_target("equivalent", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\equivalent-1.0.2\\src\\lib.rs", Edition2015) }
+   0.132931100s  INFO prepare_target{force=false package_id=equivalent v1.0.2 target="equivalent"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\equivalent-b0b9630c89b1647e\lib-equivalent`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_libgit2_prerelease
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: <unknown>
+  20: git_midx_writer_dump
+  21: git_filter_source_repo
+  22: git_midx_writer_dump
+  23: BaseThreadInitThunk
+  24: RtlUserThreadStart
+   0.133619000s  INFO prepare_target{force=false package_id=hashbrown v0.17.1 target="hashbrown"}: cargo::core::compiler::fingerprint: fingerprint error for hashbrown v0.17.1/Check { test: false }/TargetInner { ..: lib_target("hashbrown", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\hashbrown-0.17.1\\src\\lib.rs", Edition2024) }
+   0.133654100s  INFO prepare_target{force=false package_id=hashbrown v0.17.1 target="hashbrown"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\hashbrown-6e97e545ae3a60f7\lib-hashbrown`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_libgit2_prerelease
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: <unknown>
+  20: git_midx_writer_dump
+  21: git_filter_source_repo
+  22: git_midx_writer_dump
+  23: BaseThreadInitThunk
+  24: RtlUserThreadStart
+   0.134325300s  INFO prepare_target{force=false package_id=winnow v0.5.40 target="winnow"}: cargo::core::compiler::fingerprint: fingerprint error for winnow v0.5.40/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("winnow", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\winnow-0.5.40\\src\\lib.rs", Edition2021) }
+   0.134355000s  INFO prepare_target{force=false package_id=winnow v0.5.40 target="winnow"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\winnow-3b5ab3e2c23970ae\lib-winnow`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.135000700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
+   0.135029800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-0a2f358119f43a14\test-lib-yidi`
 
 Caused by:
     Le fichier spécifié est introuvable. (os error 2)
@@ -54,8 +775,8 @@ Stack backtrace:
   18: git_midx_writer_dump
   19: BaseThreadInitThunk
   20: RtlUserThreadStart
-   0.089743200s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
-   0.089780000s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-97d8aea0f79ab69b\bin-yidi`
+   0.135804600s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
+   0.135846100s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-97d8aea0f79ab69b\bin-yidi`
 
 Caused by:
     Le fichier spécifié est introuvable. (os error 2)
@@ -82,8 +803,8 @@ Stack backtrace:
   18: git_midx_writer_dump
   19: BaseThreadInitThunk
   20: RtlUserThreadStart
-   0.090310800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
-   0.090337200s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-37802f5236353435\test-bin-yidi`
+   0.136653100s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
+   0.136683900s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-37802f5236353435\test-bin-yidi`
 
 Caused by:
     Le fichier spécifié est introuvable. (os error 2)
@@ -110,5 +831,29 @@ Stack backtrace:
   18: git_midx_writer_dump
   19: BaseThreadInitThunk
   20: RtlUserThreadStart
+    Checking memchr v2.8.0
+    Checking equivalent v1.0.2
+    Checking serde_core v1.0.228
+    Checking hashbrown v0.17.1
+    Checking winnow v0.5.40
+    Checking windows-link v0.2.1
+    Checking regex-syntax v0.8.10
+    Checking num-traits v0.2.19
+    Checking aho-corasick v1.1.4
+    Checking indexmap v2.14.0
+    Checking zmij v1.0.21
+    Checking itoa v1.0.18
+    Checking chrono v0.4.44
+    Checking serde v1.0.228
+    Checking libloading v0.8.9
+    Checking base64 v0.22.1
+    Checking serde_json v1.0.149
+    Checking fastrand v2.4.1
+    Checking regex-automata v0.4.14
+    Checking serde_spanned v0.6.9
+    Checking toml_datetime v0.6.11
+    Checking toml_edit v0.19.15
+    Checking toml v0.7.8
+    Checking regex v1.12.3
     Checking yidi v0.1.0 (D:\dev\yidika)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.09s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.04s
