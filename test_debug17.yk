@@ -1,0 +1,5 @@
+use {json} from "json";
+use {dt} from "datetime";
+fn main() {
+    print("Now: " + dt.now());
+}

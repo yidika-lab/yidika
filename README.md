@@ -1,69 +1,186 @@
-# yidika
-yidika est un langage de programmation de haut niveau avec un typage hybride
+# Yidika (yidi)
 
-fonction pour afficher à la console
+A **modern systems programming language** designed for **hardware-aware computing** — blending the safety and expressiveness of Rust with the ergonomics of modern scripting languages.
 
-```py
-  print('hello')
-  debug(var)
-  info(var)
+> **Status**: MVP / Experimental — parsing, type checking, and an interpreter are functional.
+
+---
+
+## Features
+
+- **Mutable by default** — variables are mutable unless declared `const`
+- **Strong, static typing** with type inference
+- **Algebraic data types** — structs, unions, type aliases, generics
+- **Pattern matching** (`match`) with guards
+- **Async/await & spawn** (parsed; synchronous runtime for now)
+- **Module system** with relative path imports
+- **FFI** — import C/C++/Rust symbols via `use from "lang:path"`
+- **Built-in collections** — lists, maps, sets (interpreter support in progress)
+- **Rich type system** — `int`, `rint`, `real`, `bool`, `str`, `symbol`, `null`, `None`, vectors, matrices
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- [Rust](https://www.rust-lang.org/) 1.70+ (install via `rustup`)
+
+### Install
+
+```sh
+git clone https://github.com/espik-dev/yidika.git
+cd yidika
+cargo build --release
 ```
 
-pour déclarer une variable en yidika :
+### Usage
 
-```dart
-input = <Input type="text"/>
-//ou
-input : tag = <Input type="text"/>
+```sh
+# Run a .yk file (interpreter — quiet, just output)
+yidi test.yk
 
-nombre = 12
-nombre1 : int = 12
-nombre2 : complex = 2i
-nombre3 = 2i +3
-nombre4 : float = 5.6
-nombre4 = 5.6
-string : str = 'papa'
-str = 'papa'
-boolean = true
-boole : bool = false
+# Run with file watching
+yidi test.yk --watch
+
+# Build for production
+yidi build test.yk
+
+# Package management
+yidi add <package>
+yidi install
 ```
 
-pour déclarer une constante :
+### Hello World
 
-```js
-const classe ="L2"
+Create `hello.yk`:
+```rust
+fn main() {
+    print("Hello, Yidika!");
+}
 ```
 
-des tableaux en yidika : yk
-
-```js
-  noms = ['maman','papa']
-  prenom : str = ['maman','papa']
-  const ages = [12,32,25]
-  INPUTS : tag = [<Input type="text"/>,<Text>papa</Text>]
-  
+Run it:
+```sh
+cargo run -- hello.yk
 ```
 
-des dictionnaires yidika = object js =MAP ,mais peut etre plus complexe
+### More examples
 
-```js
-  const dic = {pap:'papa', fun: () => //code }
-```
-pour definir une fonction
-```kt
-fn Hello () { // code} // une fonction avec ou sans return
-ou
-fn Hello () => // code // une array function
+Variables and mutability:
+```rust
+fn main() {
+    x: int = 10;      // mutable by default
+    x = 6;            // OK
 
-Heol :str ()  {} // une fonction un return une str
-Tag : tag () {} // un composant comme dans tsx ou jsx
-
-
-const func = () => //code
-MOD : tag = () => // code
-
-  
+    name: const = "Alice";  // immutable
+    // name = "Bob";        // ERROR
+}
 ```
 
+Functions and control flow:
+```rust
+fn factorial(n: int) -> int {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
 
+fn main() {
+    result: int = factorial(5);
+    print(result);  // 120
 
+    for (i in 0..5) {
+        print(i);
+    }
+}
+```
+
+Structs:
+```rust
+struct Person {
+    name: str;
+    age: int;
+}
+
+fn main() {
+    p: auto = Person { name: "Alice", age: 30 };
+    print(p.name);
+}
+```
+
+---
+
+## Project Structure
+
+```
+src/
+├── cli/           # CLI argument parsing & command execution
+├── diagnostics/   # Error types & source-span tracking
+├── interpret/     # Tree-walking interpreter
+├── module/        # Module loader (resolve imports, detect cycles)
+├── semantic/      # Type checker & environment
+│   ├── env.rs     # Symbol table (types & function signatures)
+│   └── typeck.rs  # Type inference & checking
+└── syntax/        # Lexer, parser, AST, tokens
+    ├── ast.rs     # AST node definitions
+    ├── lexer.rs   # Tokenizer
+    ├── parser.rs  # Recursive-descent Pratt parser
+    └── token.rs   # Token enum
+```
+
+---
+
+## Language Specification
+
+Detailed specs are in [`docs/dev/`](docs/dev/):
+- [MVP Specification](docs/dev/SPEC_MVP.md) — complete language reference
+- [Architecture](docs/dev/ARCHITECTURE.md) — compiler pipeline & MLIR/LLVM strategy
+- [Type System](docs/dev/TYPE_SYSTEM.md)
+- [Memory Model](docs/dev/MEMORY_MODEL.md)
+- [Module System](docs/dev/MODULE_SYSTEM.md)
+- [FFI / ABI](docs/dev/FFI_ABI.md)
+- [Execution Model](docs/dev/EXECUTION_MODEL.md)
+- [Syntax Tree](docs/dev/SYNTAX_TREE.md)
+
+---
+
+## Testing
+
+```sh
+cargo test                    # Run all tests
+cargo test --lib              # Unit tests only
+cargo check --tests           # Verify tests compile (no linker needed)
+cargo clippy                  # Lint checks
+cargo run -- test.yk          # Run a .yk file
+cargo run -- build test.yk    # Build a .yk file
+cargo run -- test.yk --watch  # Watch mode
+```
+
+---
+
+## Roadmap
+
+- [x] Lexer & Pratt parser
+- [x] AST with span tracking
+- [x] Type checker (env + type inference)
+- [x] Module loader (import resolution, cycle detection)
+- [x] Tree-walking interpreter
+- [ ] Code generation (MLIR dialect → LLVM IR)
+- [ ] Full async runtime
+- [ ] GPU/NPU backend
+- [ ] Package manager
+- [ ] Language server (LSP)
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+Copyright (c) 2022 Espoir LOEMBA

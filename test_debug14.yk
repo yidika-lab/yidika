@@ -1,0 +1,6 @@
+use {json} from "json";
+use {p} from "path";
+use {b} from "base64";
+fn main() {
+    print("ok");
+}

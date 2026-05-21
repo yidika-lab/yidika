@@ -1,0 +1,6 @@
+use {p} from "path";
+use {json} from "json";
+fn main() {
+    x: str = p.join("a", "b");
+    print(x);
+}

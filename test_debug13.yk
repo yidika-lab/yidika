@@ -1,0 +1,5 @@
+use {json} from "json";
+use {p} from "path";
+fn main() {
+    print("ok");
+}

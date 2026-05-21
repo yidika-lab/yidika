@@ -1,0 +1,6 @@
+use {json} from "json";
+fn main() {
+    items: auto = [3, 1, 4];
+    items.sort();
+    print(str(items));
+}

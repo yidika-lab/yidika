@@ -1,0 +1,4 @@
+use {json} from "json";
+fn main() {
+    print("ok");
+}

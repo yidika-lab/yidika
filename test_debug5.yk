@@ -1,0 +1,37 @@
+use {fs, sys} from "io";
+use {cos, sin, sqrt, abs, max, pow, rand} from "math";
+use {dt} from "datetime";
+use {p} from "path";
+use {b} from "base64";
+use {re} from "re";
+use {json} from "json";
+fn main() {
+    msg: str = "hello world";
+    print("Upper: " + msg.toUpper());
+    print("Trim: '" + "  spaced  ".trim() + "'");
+    print("isalpha: " + str("abc".isalpha()));
+    print("isdigit: " + str("123".isdigit()));
+    print("isalnum: " + str("abc123".isalnum()));
+    print("Capitalize: " + "hello".capitalize());
+    print("Swapcase: " + "Hello".swapcase());
+    print("Count l: " + str("hello".count("l")));
+    print("Index: " + str(msg.index("world")));
+    items: auto = [3, 1, 4, 1, 5];
+    items.sort();
+    print("Sorted: " + str(items));
+    items.reverse();
+    print("Reversed: " + str(items));
+    items.insert(0, 9);
+    print("After insert: " + str(items));
+    print("List len: " + str(items.len()));
+    parsed: auto = json.parse("{\"name\":\"Yidika\"}");
+    print("JSON: " + str(parsed));
+    print("Now: " + dt.now());
+    ts: int = dt.timestamp();
+    print("Year: " + str(dt.year(ts)));
+    print("Join: " + p.join("a", "b", "c.txt"));
+    enc: str = b.encode("hello");
+    print("Base64: " + enc);
+    print("Regex match: " + str(re.match("\\d+", "abc123")));
+    print("Regex split: " + str(re.split(",", "a,b,c")));
+}

@@ -1,0 +1,10 @@
+fn main() {
+    x: int = 5 + 10;
+    y: int = x * 2;
+    print(y);
+    if x > 10 {
+        print(1);
+    } else {
+        print(0);
+    }
+}

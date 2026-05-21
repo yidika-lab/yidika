@@ -1,0 +1,6 @@
+fn main() {
+    a: str = "hello";
+    b: str = a;
+    print(b);
+    // print(a);  // ERROR: a has been moved
+}

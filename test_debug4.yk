@@ -1,0 +1,1 @@
+fn main() { x: auto = '{"name":"test"}'; print(str(x)); }

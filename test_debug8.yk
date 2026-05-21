@@ -1,0 +1,5 @@
+use {p} from "path";
+fn main() {
+    x: str = p.join("a", "b");
+    print(x);
+}

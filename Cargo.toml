@@ -1,0 +1,18 @@
+[package]
+name = "yidi"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "yidi"
+path = "src/main.rs"
+
+[dependencies]
+fastrand = "2"
+serde_json = "1"
+chrono = "0.4"
+base64 = "0.22"
+regex = "1"
+toml = "0.7"
+libloading = "0.8"
+

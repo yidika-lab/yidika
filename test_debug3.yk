@@ -1,0 +1,16 @@
+use {fs, sys} from "io";
+use {cos, sin, sqrt, abs, max, pow, rand} from "math";
+use {dt} from "datetime";
+use {p} from "path";
+use {b} from "base64";
+use {re} from "re";
+use {json} from "json";
+fn main() {
+    msg: str = "hello world";
+    print("Upper: " + msg.toUpper());
+    items: auto = [3, 1, 4];
+    items.sort();
+    print(str(items));
+    parsed: auto = json.parse('{"name":"Yidika"}');
+    print("JSON: " + str(parsed));
+}

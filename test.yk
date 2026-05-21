@@ -1,0 +1,89 @@
+// Yidika - builtin modules must be imported
+use {fs, sys} from "io";
+use {cos, sin, sqrt, abs, max, pow, rand} from "math";
+use {dt} from "datetime";
+use {p} from "path";
+use {b} from "base64";
+use {re} from "re";
+use {json} from "json";
+
+fn main() {
+    // === System ────────────────────────────────
+    print("OS: " + sys.platform());
+    print("PID: " + str(sys.pid()));
+    print("CWD: " + sys.cwd());
+
+    // === File I/O ───────────────────────────────
+    fs.write("test_hello.txt", "Hello from Yidika!");
+    content: str = fs.read("test_hello.txt");
+    print("Read back: " + content);
+
+    // === Math ───────────────────────────────────
+    print("cos(0) = " + str(cos(0)));
+    print("sin(pi/2) = " + str(sin(1.5708)));
+    print("sqrt(9) = " + str(sqrt(9)));
+    print("abs(-5) = " + str(abs(-5)));
+    print("max(3, 7) = " + str(max(3, 7)));
+    print("pow(2, 10) = " + str(pow(2, 10)));
+    print("rand = " + str(rand(100)));
+
+    // === String methods ─────────────────────────
+    msg: str = "hello world";
+    print("Upper: " + msg.toUpper());
+    print("Lower: " + "HELLO".toLower());
+    print("Contains 'world': " + str(msg.contains("world")));
+    print("Split: " + str(msg.split(" ")));
+    print("Trim: '" + "  spaced  ".trim() + "'");
+    print("Strip: '" + "  x  ".strip() + "'");
+    print("isalpha: " + str("abc".isalpha()));
+    print("isdigit: " + str("123".isdigit()));
+    print("isalnum: " + str("abc123".isalnum()));
+    print("Capitalize: " + "hello".capitalize());
+    print("Swapcase: " + "Hello".swapcase());
+    print("Count 'l': " + str("hello".count("l")));
+    print("Index 'world': " + str(msg.index("world")));
+
+    // === List methods ───────────────────────────
+    items: auto = [3, 1, 4, 1, 5];
+    items.sort();
+    print("Sorted: " + str(items));
+    items.reverse();
+    print("Reversed: " + str(items));
+    items.insert(0, 9);
+    print("After insert: " + str(items));
+    items.remove(0);
+    print("After remove: " + str(items));
+    print("List len: " + str(items.len()));
+
+    // === JSON ──────────────────────────────────
+    parsed: auto = json.parse("{\"name\":\"Yidika\",\"ver\":1,\"tags\":[\"lang\",\"compiler\"]}");
+    print("JSON parsed: " + str(parsed));
+    print("JSON stringify: " + json.stringify(parsed));
+
+    // === Datetime ──────────────────────────────
+    print("Now: " + dt.now());
+    ts: int = dt.timestamp();
+    print("Timestamp: " + str(ts));
+    print("Year: " + str(dt.year(ts)));
+    print("Month: " + str(dt.month(ts)));
+    print("Day: " + str(dt.day(ts)));
+    print("Formatted: " + dt.format(ts, "%Y-%m-%d %H:%M:%S"));
+
+    // === Path ──────────────────────────────────
+    print("Join: " + p.join("a", "b", "c.txt"));
+    print("Dirname: " + p.dirname("a/b/c.txt"));
+    print("Basename: " + p.basename("a/b/c.txt"));
+    print("Extension: " + p.extension("a/b/c.txt"));
+    print("Is absolute: " + str(p.is_absolute("a/b/c.txt")));
+
+    // === Base64 ────────────────────────────────
+    enc: str = b.encode("hello yidika");
+    print("Base64: " + enc);
+    print("Base64 decode: " + b.decode(enc));
+
+    // === Regex ─────────────────────────────────
+    print("Regex match: " + str(re.match("\\d+", "abc123def")));
+    print("Regex find: " + str(re.find("\\d+", "abc 123 def 456")));
+    print("Regex replace: " + re.replace("\\s+", "hello   world", " "));
+    print("Regex split: " + str(re.split("[,;]", "a,b;c")));
+}

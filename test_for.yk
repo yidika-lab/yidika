@@ -1,0 +1,8 @@
+fn main() {
+    x:int = input("use:");
+    print(x);
+    for (i in 10) {
+        print(f`{x} : {i}`);
+              
+    }
+}
