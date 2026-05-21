@@ -1,0 +1,5 @@
+fn main() {
+    self = "test";
+    a = self + self;
+    print(a);
+}

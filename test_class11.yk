@@ -1,0 +1,12 @@
+class Foo {
+    a: str;
+
+    fn get(self) -> str {
+        return self.a;
+    }
+}
+
+fn main() {
+    f = Foo { a: "hello" };
+    print(f.get());
+}

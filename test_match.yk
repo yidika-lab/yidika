@@ -1,0 +1,18 @@
+fn main() {
+    x= 42;
+    desc= match x {
+        42 => "answer",
+        _ => "other"
+    };
+    print(desc);
+
+    y= 3+4i;
+    r= match y { _ => y.mod };
+    print(r);
+
+    lst= [1, 2, 3];
+    a= match lst {
+        [first, ...rest] => first
+    };
+    print(a);
+}

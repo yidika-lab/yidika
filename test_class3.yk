@@ -1,0 +1,17 @@
+class Counter {
+    val: int;
+
+    fn inc(self) {
+        self.val = self.val + 1;
+    }
+
+    fn get(self) -> int {
+        return self.val;
+    }
+}
+
+fn main() {
+    c = Counter { val: 0 };
+    c.inc();
+    print(c.get());
+}

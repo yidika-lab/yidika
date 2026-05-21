@@ -1,0 +1,12 @@
+class Foo {
+    name: str;
+
+    fn greet(self) -> str {
+        return "hello " + self.name;
+    }
+}
+
+fn main() {
+    f = Foo { name: "world" };
+    print(f.greet());
+}

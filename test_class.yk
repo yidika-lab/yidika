@@ -1,0 +1,14 @@
+class Animal {
+    name: str;
+    sound: str;
+
+    fn speak(self) -> str {
+        return self.name + " says " + self.sound;
+    }
+}
+
+fn main() {
+    a = Animal { name: "Rex", sound: "woof" };
+    print(a.speak());
+    print(a.name);
+}

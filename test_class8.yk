@@ -1,0 +1,14 @@
+class Foo {
+    a: str;
+    b: str;
+
+    fn concat(self) -> str {
+        s = " says ";
+        return self.a + s + self.b;
+    }
+}
+
+fn main() {
+    f = Foo { a: "Rex", b: "woof" };
+    print(f.concat());
+}

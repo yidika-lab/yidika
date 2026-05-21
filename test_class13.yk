@@ -1,0 +1,9 @@
+struct Obj {
+    a: str;
+    b: str;
+}
+
+fn main() {
+    obj = Obj { a: "hello", b: "world" };
+    print(obj.a + obj.b);
+}
