@@ -4,7 +4,9 @@ fn add(a: int, b: int) -> int {
 
 fn main() {
     x: int = add(3, 4);
+    xy: int = add(3, 8);
     print(x);
     print(x + 10);
     print(add(x, x));
 }
+

@@ -1,0 +1,24 @@
+data class Person(name: str, age: int) {
+    init {
+        println("Person created: " + self.name);
+    }
+}
+
+data class Box(val: int) {}
+
+fn main() {
+    p1 = Person { name: "Alice", age: 30 };
+    p2 = Person { name: "Alice", age: 30 };
+    p3 = Person { name: "Bob", age: 25 };
+
+    println(p1.toString());
+    println(p1.equals(p2));
+    println(p1.equals(p3));
+
+    p4 = p1.copy();
+    println(p4.toString());
+
+    b1 = Box { val: 42 };
+    b2 = Box { val: 42 };
+    println(b1.equals(b2));
+}

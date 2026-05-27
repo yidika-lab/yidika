@@ -1,0 +1,8 @@
+Usage:
+  yidi <file>              Run a .yk file (interpreter)
+  yidi <file> --watch      Run file and watch for changes
+  yidi build <file>        Build a .yk file
+  yidi build <file> --watch Rebuild on file change
+  yidi info                Show hardware info
+  yidi add <package>        Add a dependency
+  yidi sync               Sync dependencies

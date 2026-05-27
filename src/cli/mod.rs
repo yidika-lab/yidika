@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use crate::codegen::backend::CodegenBackend;
+use crate::hardware;
 use crate::interpret::Interpreter;
 use crate::module::ModuleLoader;
 use crate::semantic::env::Env;
@@ -11,8 +13,10 @@ use crate::syntax::parser::Parser;
 pub enum Command {
     Run(String, bool),
     Build(String, bool),
+    BuildWithInfo(String, bool),
     Add(String),
     Sync,
+    Info,
 }
 
 pub fn parse_args() -> Command {
@@ -23,16 +27,20 @@ pub fn parse_args() -> Command {
         eprintln!("  yidi <file> --watch      Run file and watch for changes");
         eprintln!("  yidi build <file>        Build a .yk file");
         eprintln!("  yidi build <file> --watch Rebuild on file change");
+        eprintln!("  yidi info                Show hardware info");
         eprintln!("  yidi add <package>        Add a dependency");
         eprintln!("  yidi sync               Sync dependencies");
         std::process::exit(1);
     }
 
     match args[1].as_str() {
+        "info" => Command::Info,
         "build" => {
             if args.len() < 3 { eprintln!("Usage: yidi build <file>"); std::process::exit(1); }
             let watch = args.iter().any(|a| a == "--watch");
-            Command::Build(args[2].clone(), watch)
+            let verbose = args.iter().any(|a| a == "--info");
+            if verbose { Command::BuildWithInfo(args[2].clone(), watch) }
+            else { Command::Build(args[2].clone(), watch) }
         }
         "add" => {
             if args.len() < 3 { eprintln!("Usage: yidi add <package>"); std::process::exit(1); }
@@ -49,10 +57,17 @@ pub fn parse_args() -> Command {
 pub fn execute(cmd: Command) -> Result<String, String> {
     match cmd {
         Command::Run(f, watch) => run_program(&PathBuf::from(f), watch),
-        Command::Build(f, watch) => build_program(&PathBuf::from(f), watch),
+        Command::Build(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, false),
+        Command::BuildWithInfo(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, true),
+        Command::Info => show_info(),
         Command::Add(pkg) => add_package(&pkg),
         Command::Sync => sync_packages(),
     }
+}
+
+fn show_info() -> Result<String, String> {
+    let hw = hardware::detect();
+    Ok(hw.to_string())
 }
 
 struct LoadedFile {
@@ -83,7 +98,7 @@ fn load(path: &PathBuf) -> Result<Vec<LoadedFile>, String> {
 
 fn typecheck_all(files: &[LoadedFile]) -> Result<(), String> {
     let mut env = Env::new();
-    for lf in files {
+    for lf in files.iter().rev() {
         let mut checker = TypeChecker::new(&mut env);
         checker.check_module(&lf.module)
             .map_err(|e| format!("{}", e.with_source(&lf.source).with_file(&lf.path.to_string_lossy())))?;
@@ -92,6 +107,8 @@ fn typecheck_all(files: &[LoadedFile]) -> Result<(), String> {
 }
 
 fn run_program(path: &PathBuf, watch: bool) -> Result<String, String> {
+    let hw = crate::hardware::detect();
+    eprintln!("{}", hw);
     let files = load(path)?;
     typecheck_all(&files)?;
 
@@ -129,38 +146,20 @@ fn watch_and_run(path: &PathBuf) -> Result<(), String> {
     }
 }
 
-fn has_in_path(name: &str) -> bool {
-    // First check PATH
-    if std::env::var_os("PATH")
-        .and_then(|p| std::env::split_paths(&p).find(|d| d.join(name).exists()))
-        .is_some()
-    {
-        return true;
-    }
-    // Also check common LLVM install locations
-    let candidates = [
-        r"C:\Program Files\LLVM\bin\clang.exe",
-        r"C:\Program Files (x86)\LLVM\bin\clang.exe",
-    ];
-    candidates.iter().any(|p| std::path::Path::new(p).exists())
-}
-
-fn build_program(path: &PathBuf, watch: bool) -> Result<String, String> {
-    let file = path.file_name().unwrap().to_string_lossy().to_string();
+fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show_info: bool) -> Result<String, String> {
     let files = load(path)?;
     typecheck_all(&files)?;
+
+    if show_info {
+        let hw = hardware::detect();
+        println!("{}", hw);
+    }
+
+    let hw = hardware::detect();
     let output_path = path.with_extension("");
 
-    if has_in_path("clang.exe") {
-        let llvm_ir = crate::codegen::llvm::compile_to_llvm(&files[0].module);
-        crate::codegen::llvm::compile_to_exe(&llvm_ir, &output_path)
-            .map_err(|e| e.to_string())?;
-    } else {
-        let c_code = crate::codegen::compile_to_c(&files[0].module);
-        crate::codegen::compile_to_exe(&c_code, &output_path)
-            .map_err(|e| e.to_string())?;
-    }
-    println!("✅ Build OK: {} -> {}.exe ({} files)", file, output_path.to_string_lossy(), files.len());
+    backend.compile_with_info(&files[0].module, &output_path, &hw)
+        .map_err(|e| e.to_string())?;
 
     if watch {
         watch_and_build(path)?;
@@ -173,15 +172,13 @@ fn watch_and_build(path: &PathBuf) -> Result<(), String> {
     let mut last = fs::metadata(path)
         .and_then(|m| m.modified())
         .ok();
-    println!("👀 Watching {} for changes...", path.display());
     loop {
         std::thread::sleep(Duration::from_millis(500));
         if let Ok(meta) = fs::metadata(path) {
             if let Ok(modified) = meta.modified() {
                 if last.map_or(true, |l| modified > l) {
                     last = Some(modified);
-                    println!("🔄 Change detected, rebuilding...");
-                    let _ = build_program(path, true);
+                    let _ = build_program(path, true, &crate::codegen::backend::LlvmBackend, false);
                 }
             }
         }
@@ -194,4 +191,176 @@ fn add_package(name: &str) -> Result<String, String> {
 
 fn sync_packages() -> Result<String, String> {
     crate::package::sync()
+}
+
+#[cfg(test)]
+fn load_module(source: &str) -> Module {
+    crate::syntax::ast::reset_ids();
+    Parser::parse(source).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::codegen::backend::MockBackend;
+
+    #[test]
+    fn build_program_with_mock_backend() {
+        let dir = std::env::temp_dir().join("yidi_test_cli");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("test_build.yk");
+        std::fs::write(&file_path, "fn main() { print(\"hello\"); }").unwrap();
+
+        let backend = MockBackend::new();
+        build_program(&file_path, false, &backend, false).unwrap();
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn build_program_fails_on_bad_source() {
+        let dir = std::env::temp_dir().join("yidi_test_cli_fail");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("bad.yk");
+        std::fs::write(&file_path, "fn main() { syntax error }").unwrap();
+
+        let backend = MockBackend::new();
+        let result = build_program(&file_path, false, &backend, false);
+        assert!(result.is_err());
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn typecheck_all_accumulates_errors() {
+        let files = vec![
+            LoadedFile {
+                path: PathBuf::from("test.yk"),
+                source: "fn main() { x: int = \"wrong_type\"; }".into(),
+                module: load_module("fn main() { x: int = \"wrong_type\"; }"),
+            },
+        ];
+        let result = typecheck_all(&files);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn load_valid_source_succeeds() {
+        let dir = std::env::temp_dir().join("yidi_test_load");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("simple.yk");
+        std::fs::write(&file_path, "fn main() {}").unwrap();
+
+        let result = load(&file_path);
+        assert!(result.is_ok());
+        let files = result.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].module.items.len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn end_to_end_full_pipeline_ok() {
+        let dir = std::env::temp_dir().join("yidi_e2e_ok");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("main.yk");
+        std::fs::write(&file_path,
+            "fn add(a: int, b: int) -> int { return a + b; }
+             fn main() { x: int = add(1, 2); print(x); }"
+        ).unwrap();
+
+        let backend = MockBackend::new();
+        let result = build_program(&file_path, false, &backend, false);
+        assert!(result.is_ok());
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn end_to_end_with_struct_and_field() {
+        let dir = std::env::temp_dir().join("yidi_e2e_struct");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("app.yk");
+        std::fs::write(&file_path,
+            "struct Point { x: int, y: int }
+             fn main() { p: Point = Point { x: 10, y: 20 }; print(p.x); }"
+        ).unwrap();
+
+        let backend = MockBackend::new();
+        let result = build_program(&file_path, false, &backend, false);
+        assert!(result.is_ok());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn end_to_end_with_fn_call() {
+        let dir = std::env::temp_dir().join("yidi_e2e_fncall");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("app.yk");
+        std::fs::write(&file_path,
+            "fn double(x: int) -> int { return x * 2; }
+             fn main() { result: int = double(5); print(result); }"
+        ).unwrap();
+
+        let backend = MockBackend::new();
+        build_program(&file_path, false, &backend, false).unwrap();
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn end_to_end_type_error_rejected() {
+        let dir = std::env::temp_dir().join("yidi_e2e_typeerr");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("bad.yk");
+        std::fs::write(&file_path,
+            "fn main() { x: int = \"not a number\"; }"
+        ).unwrap();
+
+        let backend = MockBackend::new();
+        let result = build_program(&file_path, false, &backend, false);
+        assert!(result.is_err());
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn end_to_end_generic_class() {
+        let dir = std::env::temp_dir().join("yidi_e2e_genclass");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("app.yk");
+        std::fs::write(&file_path,
+            "class Box<T> { val: T; fn get(self) -> T { return self.val; } }
+             fn main() { b: Box<int> = Box { val: 42 }; print(b.get()); }"
+        ).unwrap();
+
+        let backend = MockBackend::new();
+        let result = build_program(&file_path, false, &backend, false);
+        assert!(result.is_ok());
+
+        let outputs = backend.output_paths.lock().unwrap();
+        assert_eq!(outputs.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_show_info() {
+        let result = show_info();
+        assert!(result.is_ok());
+        let info = result.unwrap();
+        assert!(info.contains("Yidika Hardware Info"));
+    }
 }

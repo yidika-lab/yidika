@@ -1,5 +1,6 @@
 pub mod env;
 pub mod typeck;
+pub mod borrowck;
 
 #[cfg(test)]
 mod tests {

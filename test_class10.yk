@@ -2,8 +2,8 @@ class Foo {
     a: str;
     b: str;
 
-    fn concat(this) -> str {
-        return this.a + this.b;
+    fn concat(self) -> str {
+        return self.a + self.b;
     }
 }
 
@@ -11,3 +11,4 @@ fn main() {
     f = Foo { a: "hello", b: "world" };
     print(f.concat());
 }
+

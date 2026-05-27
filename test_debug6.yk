@@ -1,6 +1,6 @@
 use {dt} from "datetime";
 use {p} from "path";
 fn main() {
-    print("Formatted: " + dt.format(1, "%Y-%m-%d"));
+    print("Formatted: " + dt.format(6, "%d/%m/%Y"));
     print("Join: " + p.join("a", "b"));
 }

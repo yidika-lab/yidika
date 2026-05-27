@@ -1,0 +1,46 @@
+fn main() {
+    // Test 1: Simple inheritance — access parent field
+    dog = Dog { name: "Rex", breed: "Labrador" };
+    println(dog.name);
+    println(dog.breed);
+
+    // Test 2: Inherited method (not overridden)
+    dog.greeting();
+    
+    // Test 3: Overridden method
+    println(dog.sound());
+    
+    // Test 4: super.method()
+    dog.callSuper();
+    
+    // Test 5: Init block execution
+    println("done");
+}
+
+open class Animal(name: str) {
+    init {
+        println("Animal init");
+    }
+    
+    fn greeting() {
+        println("Hello, I'm " + self.name);
+    }
+    
+    fn sound(self) -> str {
+        return "generic animal sound";
+    }
+}
+
+class Dog(name: str, breed: str) : Animal {
+    init {
+        println("Dog init");
+    }
+    
+    fn sound(self) -> str {
+        return "woof!";
+    }
+    
+    fn callSuper() {
+        println(super.sound());
+    }
+}

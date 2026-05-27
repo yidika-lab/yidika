@@ -65,11 +65,16 @@ impl Lexer {
             "while" => Token::While, "loop" => Token::Loop, "infiny" => Token::Infiny,
             "return" => Token::Return, "struct" => Token::Struct,
             "class" => Token::Class, "interface" => Token::Interface,
-            "union" => Token::Union, "type" => Token::Type,
-            "use" => Token::Use, "export" => Token::Export,
+            "union" => Token::Union, "enum" => Token::Enum, "object" => Token::Object,
+            "type" => Token::Type,
+            "use" => Token::Use, "implements" => Token::Use, "export" => Token::Export,
             "as" => Token::As, "from" => Token::From,
             "async" => Token::Async, "await" => Token::Await,
             "spawn" => Token::Spawn,
+            "try" => Token::Try, "catch" => Token::Catch,
+            "init" => Token::Init,
+            "open" => Token::Open, "abstract" => Token::Abstract, "data" => Token::Data,
+            "override" => Token::Override, "final" => Token::Final,
             "true" => Token::True, "false" => Token::False,
             "null" => Token::Null, "None" => Token::None,
             "Ok" => Token::OkKw, "Error" => Token::ErrorKw,
@@ -134,7 +139,7 @@ impl Iterator for Lexer {
             Some('{') => Token::LBrace, Some('}') => Token::RBrace,
             Some('[') => Token::LBracket, Some(']') => Token::RBracket,
             Some(';') => Token::Semicolon, Some(',') => Token::Comma,
-            Some(':') => if self.peek() == Some('=') { self.advance(); Token::ColonEq } else { Token::Colon },
+            Some(':') => if self.peek() == Some(':') { self.advance(); Token::DoubleColon } else { Token::Colon },
             Some('.') => {
                 if self.peek() == Some('.') {
                     self.advance();
@@ -160,9 +165,14 @@ impl Iterator for Lexer {
                           else { Token::Eq },
             Some('<') => if self.peek() == Some('=') { self.advance(); Token::LtEq } else { Token::Lt },
             Some('>') => if self.peek() == Some('=') { self.advance(); Token::GtEq } else { Token::Gt },
-            Some('&') => if self.peek() == Some('&') { self.advance(); Token::And } else { return Some((Token::Error("expected &&".into()), Span::new(start, self.pos))); },
+            Some('&') => if self.peek() == Some('&') { self.advance(); Token::And } else { Token::Ref },
             Some('|') => if self.peek() == Some('|') { self.advance(); Token::Or } else { Token::Pipe },
-            Some('?') => Token::Question, Some('@') => Token::At, Some('#') => Token::Hash,
+            Some('?') => {
+                if self.peek() == Some('.') { self.advance(); Token::QuestionDot }
+                else if self.peek() == Some(':') { self.advance(); Token::Elvis }
+                else { Token::Question }
+            },
+            Some('@') => Token::At, Some('#') => Token::Hash,
             Some('"') => self.string(start),
             Some('`') => {
                 let content_start = self.pos;

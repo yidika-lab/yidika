@@ -1,6 +1,7 @@
 fn main() {
-    x: real = 3.14;
+    x: real = 32.2;
     y: real = 2.71;
     print(x + y);
     print(x * y);
+    print(`es`);
 }

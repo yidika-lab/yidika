@@ -1,4 +1,0 @@
-fn main() {
-    x: int = 5 + 12;
-    print("t:",x);
-}

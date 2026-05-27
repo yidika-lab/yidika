@@ -15,4 +15,13 @@ base64 = "0.22"
 regex = "1"
 toml = "0.7"
 libloading = "0.8"
+sysinfo = "0.33"
+crossbeam-deque = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "interpret"
+harness = false
 

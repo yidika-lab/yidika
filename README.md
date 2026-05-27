@@ -184,3 +184,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 MIT — see [LICENSE](LICENSE).
 
 Copyright (c) 2022 Espoir LOEMBA
+
+
+yidika dans a été designer en 2022
+
+dont la première version était écrit en Clang comme MVP
+et écrit totalement en Rust en 2026

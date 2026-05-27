@@ -9,6 +9,8 @@ class Animal {
 
 fn main() {
     a = Animal { name: "Rex", sound: "woof" };
+    b = Animal{name:23, sound:true};
+    print(b);
     print(a.speak());
     print(a.name);
 }

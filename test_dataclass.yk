@@ -1,0 +1,14 @@
+data class Point(x: int, y: int) {}
+
+fn main() {
+    a = Point { x: 1, y: 2 };
+    b = Point { x: 1, y: 2 };
+    c = Point { x: 3, y: 4 };
+
+    println(a.toString());
+    println(a.equals(b));
+    println(a.equals(c));
+
+    d = a.copy();
+    println(d.toString());
+}

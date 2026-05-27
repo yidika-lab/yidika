@@ -1,0 +1,34 @@
+fn main() {
+    s = "hello";
+
+    desc = match s {
+        "hello" => "greeting",
+        "bye"   => "farewell",
+        _       => "other"
+    };
+    print(desc);
+
+    s2 = "bye";
+    desc2 = match s2 {
+        "hello" => "greeting",
+        "bye"   => "farewell",
+        _       => "other"
+    };
+    print(desc2);
+
+    // Same string after concatenation
+    s3 = "hel" + "lo";
+    desc3 = match s3 {
+        "hello" => "matched after concat",
+        _       => "no match"
+    };
+    print(desc3);
+
+    // Non-matching
+    s4 = "world";
+    desc4 = match s4 {
+        "hello" => "greeting",
+        _       => "other"
+    };
+    print(desc4);
+}

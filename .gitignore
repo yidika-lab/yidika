@@ -11,3 +11,4 @@ __pycache__/
 *.exe
 *.yk.bc
 .yk_cache/
+test

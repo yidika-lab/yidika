@@ -1,1 +1,4 @@
-fn main() { x: auto = '{"name":"test"}'; print(str(x)); }
+fn uq(){
+    print("ooo");
+}
+fn main() {uq(); x: auto = '{"name":"test"}'; print(str(x)); }

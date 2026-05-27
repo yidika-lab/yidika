@@ -14,4 +14,6 @@ fn main() {
     c = Counter { val: 0 };
     c.inc();
     print(c.get());
+    c.inc();
+    print(c.get());
 }

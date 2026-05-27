@@ -1,0 +1,20 @@
+interface Drawable {
+    fn draw(&self) -> str;
+}
+
+class Circle implements Drawable {
+    x: int;
+    fn draw(&self) -> str {
+        return "drawing circle";
+    }
+}
+
+fn describe(d: Drawable) -> str {
+    return d.draw();
+}
+
+fn main() {
+    d: Drawable = Circle { x: 10 };
+    print(d.draw());
+    print(describe(Circle { x: 20 }));
+}

@@ -1,9 +1,14 @@
 pub mod cli;
 pub mod codegen;
 pub mod diagnostics;
+pub mod hardware;
 pub mod interpret;
+pub mod jit;
+pub mod memory;
 pub mod module;
+pub mod netlib;
 pub mod package;
+pub mod runtime;
 pub mod semantic;
 pub mod stdlib;
 pub mod syntax;
@@ -20,7 +25,19 @@ mod tests {
         let module = Parser::parse(source).map_err(|e| e.to_string())?;
         let mut env = Env::new();
         let mut checker = TypeChecker::new(&mut env);
-        checker.check_module(&module).map_err(|e| e.to_string())
+        checker.check_module(&module).map_err(|e| e.to_string())?;
+
+        // Borrow check all function bodies
+        for item in &module.items {
+            if let ast::ItemKind::Fn { ref params, ref body, .. } = item.value {
+                let errors = crate::semantic::borrowck::BorrowChecker::new().check_function(params, body);
+                if !errors.is_empty() {
+                    return Err(errors.join("\n"));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -67,6 +84,130 @@ mod tests {
     fn reject_assign_to_const_explicit() {
         let r = check("fn main() { x: int = 5 as const; x = 10; }");
         assert!(r.is_err(), "as const var reassignment should error");
+    }
+
+    #[test]
+    fn as_operator_type_conversion() {
+        check("fn main() { x: int = 3.14 as int; }").unwrap();  // real -> int
+        check("fn main() { x: int = -5 as int; }").unwrap();     // rint -> int (no parens needed now)
+        check("fn main() { x: str = 42 as str; }").unwrap();     // int -> str
+        check("fn main() { x: str = 3.14 as str; }").unwrap();   // real -> str
+        check("fn main() { x: str = true as str; }").unwrap();   // bool -> str
+        check("fn main() { x: int = -42 as int; print(x); }").unwrap();
+    }
+
+    #[test]
+    fn as_operator_rejects_invalid() {
+        assert!(check("fn main() { x: real = 42 as real; }").is_err());
+        assert!(check("fn main() { x: bool = 1 as bool; }").is_err());
+        assert!(check("fn main() { x: int = true as int; }").is_err());
+        assert!(check("fn main() { x: real = false as real; }").is_err());
+        assert!(check("fn main() { x: bool = 0.0 as bool; }").is_err());
+        assert!(check("fn main() { x: str = \"hi\" as int; }").is_err());
+    }
+
+    #[test]
+    fn generic_fn_call() {
+        check("fn first<T>(list: List<T>) -> T { return list[0]; } fn main() { x: int = first([1, 2, 3]); }").unwrap();
+        check("fn pair<T, U>(a: T, b: U) -> str { return a as str + b as str; } fn main() { x: str = pair(42, true); }").unwrap();
+    }
+
+    #[test]
+    fn generic_fn_body_checked() {
+        assert!(check("fn bad<T>(x: T) -> int { let y: int = x; return y; } fn main() { bad(\"hello\"); }").is_err());
+        assert!(check("fn bad2<T>(x: T) -> int { return x; } fn main() { bad2(\"hello\"); }").is_err());
+        check("fn id<T>(x: T) -> T { return x; } fn main() { x: int = id(42); y: str = id(\"hi\"); }").unwrap();
+    }
+
+    #[test]
+    fn generic_struct() {
+        check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<int, str> = Pair { first: 42, second: \"hi\" }; }").unwrap();
+        check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<str, bool> = Pair { first: \"a\", second: true }; }").unwrap();
+    }
+
+    #[test]
+    fn generic_struct_field_access() {
+        check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<int, str> = Pair { first: 42, second: \"hi\" }; print(p.first); }").unwrap();
+    }
+
+    #[test]
+    fn generic_struct_infer() {
+        check("struct Pair<T, U> { first: T; second: U; } fn main() { p = Pair { first: 42, second: \"hi\" }; }").unwrap();
+    }
+
+    #[test]
+    fn generic_struct_wrong_field_type() {
+        assert!(check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<int, str> = Pair { first: \"bad\", second: \"hi\" }; }").is_err());
+    }
+
+    #[test]
+    fn generic_struct_unknown_field() {
+        assert!(check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<int, str> = Pair { first: 42, second: \"hi\", third: 1 }; }").is_err());
+    }
+
+    #[test]
+    fn class_method() {
+        check("class Counter { val: int; fn get(self) -> int { return self.val; } fn inc(self) { self.val = self.val + 1; } } fn main() { c: Counter = Counter { val: 0 }; print(c.get()); }").unwrap();
+    }
+
+    #[test]
+    fn class_method_arg() {
+        check("class Adder { val: int; fn add(self, x: int) -> int { return self.val + x; } } fn main() { a: Adder = Adder { val: 10 }; print(a.add(5)); }").unwrap();
+    }
+
+    #[test]
+    fn class_method_type_mismatch() {
+        assert!(check("class Adder { val: int; fn add(self, x: int) -> int { return self.val + x; } } fn main() { a: Adder = Adder { val: 10 }; a.add(\"str\"); }").is_err());
+    }
+
+    #[test]
+    fn class_unknown_method() {
+        assert!(check("class Adder { val: int; fn add(self, x: int) -> int { return self.val + x; } } fn main() { a: Adder = Adder { val: 10 }; a.bad(); }").is_err());
+    }
+
+    #[test]
+    fn generic_class_method() {
+        check("class Box<T> { val: T; fn get(self) -> T { return self.val; } } fn main() { b: Box<int> = Box { val: 42 }; print(b.get()); }").unwrap();
+    }
+
+    #[test]
+    fn generic_class_method_arg() {
+        check("class Box<T> { val: T; fn set(self, v: T) { self.val = v; } } fn main() { b: Box<int> = Box { val: 0 }; b.set(99); }").unwrap();
+    }
+
+    #[test]
+    fn generic_class_str() {
+        check("class Box<T> { val: T; label: str; fn get(self) -> T { return self.val; } } fn main() { b: Box<str> = Box { val: \"hi\", label: \"x\" }; print(b.get()); }").unwrap();
+    }
+
+    #[test]
+    fn ref_self() {
+        check("class C { val: int; fn get(&self) -> int { return self.val; } fn inc(&self) { self.val = self.val + 1; } } fn main() { c: C = C { val: 0 }; c.inc(); print(c.get()); }").unwrap();
+    }
+
+    #[test]
+    fn ref_self_generic() {
+        check("class Box<T> { val: T; fn get(&self) -> T { return self.val; } fn set(&self, v: T) { self.val = v; } } fn main() { b: Box<int> = Box { val: 0 }; b.set(42); print(b.get()); }").unwrap();
+    }
+
+    #[test]
+    fn nested_generic_struct() {
+        check("struct Pair<T, U> { first: T; second: U; } fn main() { p: Pair<Pair<int, str>, bool> = Pair { first: Pair { first: 42, second: \"hi\" }, second: true }; print(p.first.first); }").unwrap();
+    }
+
+    #[test]
+    fn nested_generic_class_in_struct() {
+        check("class Box<T> { val: T; fn get(&self) -> T { return self.val; } fn set(&self, v: T) { self.val = v; } } struct Pair<A, B> { first: A; second: B; } fn main() { p: Pair<Box<int>, str> = Pair { first: Box { val: 99 }, second: \"items\" }; print(p.first.get()); p.first.set(42); print(p.first.get()); }").unwrap();
+    }
+
+    #[test]
+    fn nested_generic_swap() {
+        check("class Box<T> { val: T; fn get(&self) -> T { return self.val; } } class Pair<A, B> { first: A; second: B; fn swap(&self) { tmp: auto = self.first; self.first = self.second; self.second = tmp; } } fn main() { p: Pair<Box<int>, Box<int>> = Pair { first: Box { val: 10 }, second: Box { val: 20 } }; p.swap(); print(p.first.get()); print(p.second.get()); }").unwrap();
+    }
+
+    #[test]
+    fn auto_type_keyword() {
+        check("fn main() { x: auto = 42; print(x); }").unwrap();
     }
 
     // ─── Type strictness ──────────────────────────────
@@ -179,6 +320,29 @@ mod tests {
         ").unwrap();
     }
 
+    #[test]
+    fn interface_method_dispatch() {
+        check("
+            interface Drawable {
+                fn draw(&self) -> str;
+            }
+            class Circle implements Drawable {
+                x: int;
+                fn draw(&self) -> str {
+                    return \"drawing circle\";
+                }
+            }
+            fn describe(d: Drawable) -> str {
+                return d.draw();
+            }
+            fn main() {
+                d: Drawable = Circle { x: 10 };
+                print(d.draw());
+                print(describe(Circle { x: 20 }));
+            }
+        ").unwrap();
+    }
+
     // ─── Stdlib std namespace ──────────────────────────
 
     #[test]
@@ -258,6 +422,56 @@ mod tests {
         check("
             use std from \"std\";
             fn main() { x: str = std.json.stringify(42); }
+        ").unwrap();
+    }
+
+    // ─── Enum tests ────────────────────────────────────
+
+    #[test]
+    fn enum_basic() {
+        check("
+            enum Color { Red; Green; Blue; }
+            fn main() { c: Color = Color::Red; }
+        ").unwrap();
+    }
+
+    #[test]
+    fn enum_with_payload() {
+        check("
+            enum Option { Some(x: int); None; }
+            fn main() { o: Option = Option::Some(42); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn enum_match() {
+        check("
+            enum Color { Red; Green; Blue; }
+            fn main() { c: Color = Color::Red; match c { Red => 1 }; }
+        ").unwrap();
+    }
+
+    // ─── Object tests ──────────────────────────────────
+
+    #[test]
+    fn object_basic() {
+        check("
+            object Logger {
+                fn log(msg: str) { print(msg); }
+            }
+            fn main() { Logger.log(\"hello\"); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn object_with_fields() {
+        check("
+            object Config {
+                debug: bool;
+                version: str;
+                init { debug = true; }
+            }
+            fn main() { x: bool = Config.debug; }
         ").unwrap();
     }
 }

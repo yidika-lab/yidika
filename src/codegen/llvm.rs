@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::process::Command;
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
+use crate::hardware::HardwareInfo;
 use crate::syntax::ast::*;
 
 const RUNTIME_C: &str = r##"
@@ -109,6 +110,7 @@ pub struct LlvmCodegen {
     label_counter: usize,
     in_block: bool,
     string_constants: String,
+    nullable_types: HashSet<String>,
 }
 
 impl LlvmCodegen {
@@ -125,6 +127,7 @@ impl LlvmCodegen {
             label_counter: 0,
             in_block: false,
             string_constants: String::new(),
+            nullable_types: HashSet::new(),
         }
     }
 
@@ -170,19 +173,37 @@ impl LlvmCodegen {
         self.ssa(&slot)
     }
 
-    fn type_to_llvm(&self, te: &TypeExpr) -> String {
+    fn type_to_llvm(&mut self, te: &TypeExpr) -> String {
         match te {
             TypeExpr::Int(_) | TypeExpr::Rint(_) => "i64".into(),
             TypeExpr::Real(_) => "double".into(),
             TypeExpr::Complex(_, _) => "%yk_complex".into(),
             TypeExpr::Bool => "i1".into(),
             TypeExpr::Str => "%yk_string".into(),
+            TypeExpr::Vector(inner) => {
+                let inner_ty = self.type_to_llvm(inner);
+                format!("<2 x {}>", inner_ty)
+            }
+            TypeExpr::Matrix(inner) => {
+                let inner_ty = self.type_to_llvm(inner);
+                format!("[<2 x {}> x 2]", inner_ty)
+            }
             TypeExpr::Named(name) => {
                 if self.struct_defs.contains_key(name) {
                     format!("%struct.{}", name)
                 } else {
                     "i64".into()
                 }
+            }
+            TypeExpr::Nullable(inner) => {
+                let inner_ty = self.type_to_llvm(inner);
+                // Use a named struct type for the nullable wrapper
+                let name = format!("%__nullable_{}", inner_ty.replace(|c: char| !c.is_alphanumeric(), "_"));
+                if !self.nullable_types.contains(&name) {
+                    self.nullable_types.insert(name.clone());
+                    self.tuple_types_output.push(format!("{} = type {{ {}, i1 }}", name, inner_ty));
+                }
+                name
             }
             _ => "i64".into(),
         }
@@ -275,7 +296,11 @@ impl LlvmCodegen {
                     field_types.push((p.name.clone(), ft));
                 }
                 self.struct_defs.insert(name.clone(), field_types);
-                self.e_raw(&format!("%struct.{} = type {{ {} }}", name, field_llvm.join(", ")));
+                let align_attr = item.decorators.iter()
+                    .find_map(|d| d.strip_prefix("align(").and_then(|s| s.strip_suffix(')')))
+                    .map(|n| format!(", align {}", n))
+                    .unwrap_or_default();
+                self.e_raw(&format!("%struct.{} = type {{ {} }}{}", name, field_llvm.join(", "), align_attr));
             }
         }
         self.e_raw("");
@@ -847,9 +872,142 @@ impl LlvmCodegen {
                 self.e(&format!("%{} = load %yk_complex, ptr %{}", loaded, cptr));
                 (self.ssa(&loaded), "%yk_complex".into())
             }
-            Expr::VectorLit(_) | Expr::MatrixLit(_) => ("0".into(), "i64".into()),
+            Expr::VectorLit(items) => {
+                if items.is_empty() {
+                    ("zeroinitializer".into(), "<2 x double>".into())
+                } else {
+                    let first = self.compile_expr(&items[0]);
+                    let vty = format!("<{} x {}>", items.len(), first.1);
+                    let mut result = format!("{} undef", vty);
+                    for (i, item) in items.iter().enumerate() {
+                        let (val, _) = self.compile_expr(item);
+                        let lbl = self.fresh_label();
+                        self.e(&format!("%{} = insertelement {} {}, {} {}", lbl, vty, self.ssa(&result), val, i));
+                        result = format!("%{}", lbl);
+                    }
+                    (self.ssa(&result), vty)
+                }
+            }
+            Expr::MatrixLit(rows) => {
+                if rows.is_empty() || rows[0].is_empty() {
+                    ("zeroinitializer".into(), "[<2 x double> x 0]".into())
+                } else {
+                    let first = self.compile_expr(&rows[0][0]);
+                    let vty = format!("<{} x {}>", rows[0].len(), first.1);
+                    let mty = format!("[{} x {}]", vty, rows.len());
+                    let mut result = format!("{} undef", mty);
+                    for (i, row) in rows.iter().enumerate() {
+                        let mut row_val = format!("{} undef", vty);
+                        for (j, item) in row.iter().enumerate() {
+                            let (val, _) = self.compile_expr(item);
+                            let lbl = self.fresh_label();
+                            self.e(&format!("%{} = insertelement {} {}, {} {}", lbl, vty, self.ssa(&row_val), val, j));
+                            row_val = format!("%{}", lbl);
+                        }
+                        let lbl2 = self.fresh_label();
+                        self.e(&format!("%{} = insertvalue {} {}, {} {}", lbl2, mty, self.ssa(&result), self.ssa(&row_val), i));
+                        result = format!("%{}", lbl2);
+                    }
+                    (self.ssa(&result), mty)
+                }
+            }
             Expr::PostInc(i) | Expr::PostDec(i) => self.compile_expr(i),
+            Expr::SafeCall(obj, field) => {
+                let (obj_val, obj_ty) = self.compile_expr(obj);
+                // Extract the null flag (i1, second element)
+                let null_flag = self.fresh_label();
+                self.e(&format!("%{} = extractvalue {} {}, 1", null_flag, obj_ty, obj_val));
+                // Check if valid (1 = non-null)
+                let is_valid = self.fresh_label();
+                self.e(&format!("%{} = icmp eq i1 {}, 1", is_valid, self.ssa(&null_flag)));
+                let null_bb = self.fresh_label();
+                let valid_bb = self.fresh_label();
+                let merge_bb = self.fresh_label();
+                self.e(&format!("br i1 {}, label %{}, label %{}", self.ssa(&is_valid), valid_bb, null_bb));
+                // Null branch: return zero-initialized nullable
+                self.e(&format!("{}:", null_bb));
+                let null_result = self.fresh_label();
+                // We need the field type - infer from struct definitions
+                let inner_obj_ty = obj_ty.trim_start_matches("%__nullable_");
+                let field_ty = self.guess_field_type(&inner_obj_ty, field);
+                let nullable_field_ty = format!("%__nullable_{}", field_ty.replace(|c: char| !c.is_alphanumeric(), "_"));
+                self.e(&format!("%{} = insertvalue {} undef, i1 0, 1", null_result, nullable_field_ty));
+                let null_val = self.ssa(&null_result);
+                self.e(&format!("br label %{}", merge_bb));
+                // Valid branch: extract inner, access field, wrap in nullable
+                self.e(&format!("{}:", valid_bb));
+                let inner = self.fresh_label();
+                self.e(&format!("%{} = extractvalue {} {}, 0", inner, obj_ty, obj_val));
+                let inner_val = self.ssa(&inner);
+                let (field_val, _) = self.compile_field_access(&inner_val, &inner_obj_ty, field);
+                let valid_result = self.fresh_label();
+                self.e(&format!("%{} = insertvalue {} undef, {} {}, 0", valid_result, nullable_field_ty, field_ty, field_val));
+                let valid_result2 = self.fresh_label();
+                self.e(&format!("%{} = insertvalue {} %{}, i1 1, 1", valid_result2, nullable_field_ty, self.ssa(&valid_result)));
+                let valid_val = self.ssa(&valid_result2);
+                self.e(&format!("br label %{}", merge_bb));
+                // Merge
+                self.e(&format!("{}:", merge_bb));
+                let phi = self.fresh_label();
+                self.e(&format!("%{} = phi {} [ %{}, %{} ], [ %{}, %{} ]", phi, nullable_field_ty, null_val, null_bb, valid_val, valid_bb));
+                (self.ssa(&phi), nullable_field_ty)
+            }
+            Expr::Elvis(a, b) => {
+                let (a_val, a_ty) = self.compile_expr(a);
+                let null_flag = self.fresh_label();
+                self.e(&format!("%{} = extractvalue {} {}, 1", null_flag, a_ty, a_val));
+                let is_null = self.fresh_label();
+                self.e(&format!("%{} = icmp eq i1 {}, 0", is_null, self.ssa(&null_flag)));
+                let null_bb = self.fresh_label();
+                let nonnull_bb = self.fresh_label();
+                let merge_bb = self.fresh_label();
+                self.e(&format!("br i1 {}, label %{}, label %{}", self.ssa(&is_null), null_bb, nonnull_bb));
+                self.e(&format!("{}:", null_bb));
+                let (b_val, b_ty) = self.compile_expr(b);
+                self.e(&format!("br label %{}", merge_bb));
+                self.e(&format!("{}:", nonnull_bb));
+                let inner = self.fresh_label();
+                self.e(&format!("%{} = extractvalue {} {}, 0", inner, a_ty, a_val));
+                let inner_val = self.ssa(&inner);
+                self.e(&format!("br label %{}", merge_bb));
+                self.e(&format!("{}:", merge_bb));
+                let phi = self.fresh_label();
+                self.e(&format!("%{} = phi {} [ %{}, %{} ], [ %{}, %{} ]", phi, b_ty, b_val, null_bb, inner_val, nonnull_bb));
+                (self.ssa(&phi), b_ty)
+            }
+            Expr::Variant(_, _, _) => ("0".into(), "i64".into()), // TODO: enum LLVM
+            Expr::Try(_) | Expr::TryCatch(_, _, _) => ("0".into(), "i64".into()),
+            Expr::As(_, _) => self.compile_expr(&ExprNode::new(0, crate::diagnostics::span::Span::new(0,0), Expr::LitNull)),
         }
+    }
+
+    fn compile_field_access(&mut self, val: &str, ty: &str, field: &str) -> (String, String) {
+        // Try struct type
+        let struct_name = ty.strip_prefix("%struct.").unwrap_or("");
+        if !struct_name.is_empty() {
+            if let Some(defs) = self.struct_defs.get(struct_name) {
+                if let Some(idx) = defs.iter().position(|(n, _)| n == field) {
+                    let fty = defs[idx].1.clone();
+                    let ext = self.fresh_label();
+                    self.e(&format!("%{} = extractvalue {} {}, {}", ext, ty, val, idx));
+                    return (self.ssa(&ext), fty);
+                }
+            }
+        }
+        // Fallback: return val as-is
+        (val.to_string(), ty.to_string())
+    }
+
+    fn guess_field_type(&mut self, ty: &str, field: &str) -> String {
+        let struct_name = ty.strip_prefix("%struct.").unwrap_or("");
+        if !struct_name.is_empty() {
+            if let Some(defs) = self.struct_defs.get(struct_name) {
+                if let Some(idx) = defs.iter().position(|(n, _)| n == field) {
+                    return defs[idx].1.clone();
+                }
+            }
+        }
+        "i64".into()
     }
 
     fn compile_binop(&mut self, l: &ExprNode, op: &BinOp, r: &ExprNode) -> (String, String) {
@@ -1197,7 +1355,7 @@ fn detect_clang() -> Option<String> {
     })
 }
 
-fn detect_vcvars() -> Option<String> {
+pub fn detect_vcvars() -> Option<String> {
     // Try vswhere
     let vswhere = r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe";
     if std::path::Path::new(vswhere).exists() {
@@ -1222,7 +1380,164 @@ fn detect_vcvars() -> Option<String> {
     None
 }
 
-pub fn compile_to_exe(llvm_ir: &str, output_path: &Path) -> Result<()> {
+pub fn compile_to_exe(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo) -> Result<()> {
+    // Fast path: use LLVM API in-process if available
+    if let Ok(()) = compile_to_exe_fast(llvm_ir, output_path, hw) {
+        return Ok(());
+    }
+    // Fallback: batch script with clang + MSVC
+    compile_to_exe_batch(llvm_ir, output_path, hw)
+}
+
+/// Fast compilation path using in-process LLVM API (no batch script, no clang).
+/// Falls back silently if LLVM-C DLL is not available.
+fn compile_to_exe_fast(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo) -> Result<()> {
+    let obj_path = output_path.with_extension("obj");
+    let exe_path = output_path.with_extension("exe");
+
+    // Try to load LLVM-C and emit object in-process
+    let api_path = match crate::codegen::llvm_api::find_llvm_lib() {
+        Some(p) => p,
+        None => return Err(error::err(ErrorKind::Internal, Span::new(0, 0), "LLVM-C not found")),
+    };
+    let api = crate::codegen::llvm_api::LlvmApi::load(&api_path)?;
+    emit_obj_in_memory(&api, llvm_ir, &obj_path, hw)?;
+
+    // Ensure runtime object is cached
+    let runtime_obj = cache_runtime_obj(&obj_path)?;
+
+    // Single link command (no batch script, no clang)
+    let vcvars = detect_vcvars()
+        .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+            "Visual Studio not found"))?;
+    let status = std::process::Command::new("cmd.exe")
+        .args(["/c", &format!(r#""{}" x64 >nul 2>&1 && link.exe /nologo "{}" "{}" /OUT:"{}" /defaultlib:libcmt.lib"#,
+            vcvars, obj_path.to_string_lossy(), runtime_obj.to_string_lossy(), exe_path.to_string_lossy())])
+        .status()
+        .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+            format!("link.exe failed: {}", e)))?;
+    if !status.success() {
+        return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+            format!("link.exe exited with code {:?}", status.code())));
+    }
+
+    // Cleanup obj files
+    let _ = std::fs::remove_file(&obj_path);
+    let _ = std::fs::remove_file(&runtime_obj);
+    Ok(())
+}
+
+pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str, obj_path: &Path, hw: &HardwareInfo) -> Result<()> {
+    unsafe {
+        if let Some(f) = api.LLVMInitializeX86TargetInfo { f(); }
+        if let Some(f) = api.LLVMInitializeX86Target { f(); }
+        if let Some(f) = api.LLVMInitializeX86TargetMC { f(); }
+        if let Some(f) = api.LLVMInitializeX86AsmPrinter { f(); }
+
+        let ctx = (api.LLVMContextCreate)();
+        let ir_str = std::ffi::CString::new(llvm_ir)
+            .map_err(|_| error::err(ErrorKind::Internal, Span::new(0, 0), "LLVM IR contains null byte"))?;
+        let name = std::ffi::CString::new("yk").unwrap();
+        let membuf = (api.LLVMCreateMemoryBufferWithMemoryRange)(ir_str.as_ptr(), llvm_ir.len(), name.as_ptr(), 1);
+        let mut module: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut err: *mut i8 = std::ptr::null_mut();
+        let parse_rc = (api.LLVMParseIRInContext)(ctx, membuf, &mut module, &mut err);
+        if parse_rc != 0 {
+            let err_str = api.get_error(err);
+            (api.LLVMDisposeMemoryBuffer)(membuf);
+            (api.LLVMContextDispose)(ctx);
+            return Err(error::err(ErrorKind::Internal, Span::new(0, 0), format!("LLVM IR parse failed: {}", err_str)));
+        }
+        (api.LLVMDisposeMemoryBuffer)(membuf);
+
+        // AOT O0 — skip optimization passes entirely (fast compilation)
+        let triple_c = std::ffi::CString::new(hw.os.triple.as_str()).unwrap();
+        let cpu_c = std::ffi::CString::new(hw.cpu.name.as_str()).unwrap();
+        let features = hw.cpu.simd.to_llvm_features().join(",");
+        let features_c = std::ffi::CString::new(features).unwrap();
+        (api.LLVMSetTarget)(module, triple_c.as_ptr());
+
+        let mut target_ref = (api.LLVMGetFirstTarget)();
+        if target_ref.is_null() {
+            let mut err_target: *mut i8 = std::ptr::null_mut();
+            let rc = (api.LLVMGetTargetFromTriple)(triple_c.as_ptr(), &mut target_ref, &mut err_target);
+            if rc != 0 || target_ref.is_null() {
+                let err_str = if !err_target.is_null() { api.get_error(err_target) } else { "unknown".into() };
+                (api.LLVMDisposeModule)(module);
+                (api.LLVMContextDispose)(ctx);
+                return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                    format!("LLVM: no target for triple '{}' ({})", hw.os.triple, err_str)));
+            }
+        }
+        // AOT uses O0 for fastest compilation
+        let tm = (api.LLVMCreateTargetMachine)(target_ref, triple_c.as_ptr(), cpu_c.as_ptr(), features_c.as_ptr(), 0, 2, 0);
+        if tm.is_null() {
+            (api.LLVMDisposeModule)(module);
+            (api.LLVMContextDispose)(ctx);
+            return Err(error::err(ErrorKind::Internal, Span::new(0, 0), "LLVM: failed to create target machine"));
+        }
+
+        let td = (api.LLVMCreateTargetDataLayout)(tm);
+        (api.LLVMSetModuleDataLayout)(module, td);
+
+        // Emit to memory buffer
+        let mut membuf_out: *mut std::ffi::c_void = std::ptr::null_mut();
+        let mut err2: *mut i8 = std::ptr::null_mut();
+        let emit_result = (api.LLVMTargetMachineEmitToMemoryBuffer)(tm, module, 1, &mut err2, &mut membuf_out);
+        if emit_result != 0 {
+            let err_str = api.get_error(err2);
+            (api.LLVMDisposeTargetMachine)(tm);
+            (api.LLVMDisposeModule)(module);
+            (api.LLVMContextDispose)(ctx);
+            return Err(error::err(ErrorKind::Internal, Span::new(0, 0), format!("LLVM emit failed: {}", err_str)));
+        }
+
+        // Write memory buffer to file
+        let buf_ptr = (api.LLVMGetBufferStart)(membuf_out);
+        let buf_size = (api.LLVMGetBufferSize)(membuf_out);
+        let obj_data = std::slice::from_raw_parts(buf_ptr as *const u8, buf_size);
+        std::fs::write(obj_path, obj_data)
+            .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0), format!("Failed to write obj: {}", e)))?;
+
+        (api.LLVMDisposeMemoryBuffer)(membuf_out);
+        (api.LLVMDisposeTargetMachine)(tm);
+        (api.LLVMDisposeModule)(module);
+        (api.LLVMContextDispose)(ctx);
+        Ok(())
+    }
+}
+
+/// Cache the pre-compiled runtime C object file to avoid recompiling every time
+fn cache_runtime_obj(_output_path: &Path) -> Result<std::path::PathBuf> {
+    let cache_dir = std::env::temp_dir().join("yk_cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let cached_obj = cache_dir.join("yk_rt.obj");
+
+    if !cached_obj.exists() {
+        let runtime_c_path = cache_dir.join("yk_rt.c");
+        std::fs::write(&runtime_c_path, RUNTIME_C)
+            .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+                format!("Failed to write runtime C: {}", e)))?;
+
+        let vcvars = detect_vcvars()
+            .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0), "Visual Studio not found"))?;
+        let rt_c_str = runtime_c_path.to_string_lossy();
+        let rt_obj_str = cached_obj.to_string_lossy();
+        let status = std::process::Command::new("cmd.exe")
+            .args(["/c", &format!(r#""{}" x64 >nul 2>&1 && cl.exe /nologo /std:c11 /c "{}" /Fo:"{}" /utf-8"#,
+                vcvars, rt_c_str, rt_obj_str)])
+            .status()
+            .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+                format!("cl.exe failed: {}", e)))?;
+        if !status.success() {
+            return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                format!("cl.exe exited with code {:?}", status.code())));
+        }
+    }
+    Ok(cached_obj)
+}
+
+fn compile_to_exe_batch(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo) -> Result<()> {
     let ll_path = output_path.with_extension("ll");
     std::fs::write(&ll_path, llvm_ir)
         .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
@@ -1245,6 +1560,14 @@ pub fn compile_to_exe(llvm_ir: &str, output_path: &Path) -> Result<()> {
         .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
             "clang.exe not found. Install LLVM from https://llvm.org or add it to PATH.".to_string()))?;
 
+    let opt_level = if crate::hardware::memory::is_low_memory(&hw.memory) { "O2" }
+        else { "O3" };
+    let target = &hw.os.triple;
+    let march = &hw.cpu.name;
+    let simd_features = hw.cpu.simd.to_llvm_features().join(",");
+    let target_features = if simd_features.is_empty() { String::new() }
+        else { format!(" -target-feature {}", simd_features) };
+
     let bat_dir = std::env::temp_dir();
     let bat_path = bat_dir.join("yk_build.bat");
     let exe_str = exe_path.to_string_lossy();
@@ -1258,8 +1581,8 @@ pub fn compile_to_exe(llvm_ir: &str, output_path: &Path) -> Result<()> {
 call "{}" x64 >nul 2>&1
 if errorlevel 1 exit /b 1
 
-:: Compile LLVM IR to object file (with optimization)
-"{}" -c "{}" -o "{}" -target x86_64-pc-windows-msvc -O3
+:: Compile LLVM IR to object file (hardware-adaptive)
+"{}" -c "{}" -o "{}" -target {} -{} -march={}{}
 if errorlevel 1 exit /b 1
 
 :: Compile runtime C to object file
@@ -1269,7 +1592,7 @@ if errorlevel 1 exit /b 1
 :: Link objects into executable
 link.exe /nologo "{}" "{}" /OUT:"{}" /defaultlib:libcmt.lib
 exit /b %errorlevel%
-"#, vcvars, clang, ll_str, obj_str, rt_c_str, rt_obj_str, obj_str, rt_obj_str, exe_str);
+"#, vcvars, clang, ll_str, obj_str, target, opt_level, march, target_features, rt_c_str, rt_obj_str, obj_str, rt_obj_str, exe_str);
 
     std::fs::write(&bat_path, bat_content)
         .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
@@ -1304,6 +1627,299 @@ exit /b %errorlevel%
     Ok(())
 }
 
+/// Generate LLVM IR for a handler function that returns a static string.
+///
+/// The generated function has C ABI: `void handler_name(struct YkResponse* resp)`
+/// and writes the response body, length, and status code into the struct.
+///
+/// # Arguments
+/// * `handler_name` - The name of the LLVM function (also used as JIT symbol)
+/// * `response_body` - The static response body string
+/// * `status_code` - HTTP status code (e.g. 200)
+pub fn generate_static_handler_ir(handler_name: &str, response_body: &str, status_code: i32) -> String {
+    let body_len = response_body.len();
+    let escaped_body = response_body
+        .replace('\\', "\\\\")
+        .replace('"', "\\22")
+        .replace('\n', "\\0A")
+        .replace('\r', "\\0D")
+        .replace('\t', "\\09");
+    let cstr_name = format!("@__yk_cstr_{}", handler_name);
+
+    format!(
+        r#"; JIT-compiled handler for '{handler_name}'
+target triple = "x86_64-pc-windows-msvc"
+
+{global_str} = private unnamed_addr constant [{array_len} x i8] c"{escaped_body}\00"
+
+define void @{handler_name}(ptr %resp) {{
+entry:
+  ; Write body pointer at byte offset 0
+  %bp = getelementptr i8, ptr %resp, i32 0
+  store ptr {global_str}, ptr %bp
+  ; Write body_len at byte offset 8
+  %lp = getelementptr i8, ptr %resp, i32 8
+  store i64 {body_len}, ptr %lp
+  ; Write status_code at byte offset 16
+  %sp = getelementptr i8, ptr %resp, i32 16
+  store i32 {status_code}, ptr %sp
+  ret void
+}}
+"#,
+        handler_name = handler_name,
+        global_str = cstr_name,
+        escaped_body = escaped_body,
+        array_len = body_len + 1,
+        body_len = body_len,
+        status_code = status_code,
+    )
+}
+
+/// Generate LLVM IR for a handler function from an AST FnDef body.
+///
+/// The generated function has C ABI:
+///   void @handler_name(ptr %resp, ptr %req, ptr %buf, i64 %buf_len)
+///
+/// It evaluates the FnDef body (supporting string literals, req field access,
+/// and string concatenation of literals + req fields) and writes the result
+/// into the caller-provided %buf buffer, updating %resp.
+///
+/// Handler parameter `req` maps to the %req struct pointer. The struct layout:
+///   offsets: method(0 ptr, 8 len), path(16 ptr, 24 len), body(32 ptr, 40 len)
+pub fn generate_fn_handler_ir(handler_name: &str, fndef: &crate::interpret::FnDef) -> Option<String> {
+    let body = &fndef.body;
+    let ret_expr = find_return_expr(body)?;
+    let mut gen = FnIrGen::new();
+    Some(gen.gen_fn(handler_name, ret_expr))
+}
+
+fn find_return_expr(body: &[StmtNode]) -> Option<&ExprNode> {
+    for stmt in body.iter().rev() {
+        match &stmt.value {
+            Stmt::Return(Some(e)) => return Some(e),
+            Stmt::Return(None) => return None,
+            Stmt::Expr(e) => return Some(e),
+            _ => {}
+        }
+    }
+    None
+}
+
+struct FnIrGen {
+    label: usize,
+    output: String,
+    string_constants: String,
+}
+
+impl FnIrGen {
+    fn new() -> Self {
+        FnIrGen { label: 0, output: String::new(), string_constants: String::new() }
+    }
+
+    fn fresh(&mut self) -> String {
+        let n = self.label;
+        self.label += 1;
+        format!("%l{}", n)
+    }
+
+    fn e(&mut self, s: &str) {
+        use std::fmt::Write;
+        writeln!(self.output, "  {}", s).unwrap();
+    }
+
+    fn gen_fn(&mut self, handler_name: &str, ret_expr: &ExprNode) -> String {
+        self.output.clear();
+        self.string_constants.clear();
+
+        // Build the full IR in correct order: target triple, types, constants, function
+        let mut ir = String::new();
+        ir.push_str(&format!("; JIT-compiled FnDef handler for '{}'\n", handler_name));
+        ir.push_str("target triple = \"x86_64-pc-windows-msvc\"\n");
+        ir.push_str("\n");
+        ir.push_str("%YkResponse = type { ptr, i64, i32 }\n");
+        ir.push_str("\n");
+
+        // Generate function body into self.output & string constants
+        self.output.push_str(&format!(
+            "define void @{}(ptr %resp, ptr %req, ptr %buf, i64 %buf_len) {{\n",
+            handler_name
+        ));
+        self.output.push_str("entry:\n");
+
+        let (ptr_val, len_val) = self.gen_expr(ret_expr);
+
+        self.e(&format!("store ptr {}, ptr %resp", ptr_val));
+        self.e(&format!("%lp = getelementptr i8, ptr %resp, i32 8"));
+        self.e(&format!("store i64 {}, ptr %lp", len_val));
+        self.e(&format!("%sp = getelementptr i8, ptr %resp, i32 16"));
+        self.e("store i32 200, ptr %sp");
+        self.e("ret void");
+        self.output.push_str("}\n");
+
+        // Assemble: constants then function body
+        ir.push_str(&self.string_constants);
+        ir.push('\n');
+        ir.push_str(&self.output);
+        ir
+    }
+
+    fn gen_str_constant(&mut self, s: &str) -> (String, String) {
+        let idx = self.label;
+        self.label += 1;
+        let cstr_name = format!("@__yk_cstr_{}", idx);
+        let escaped = s.replace('\\', "\\\\").replace('"', "\\22").replace('\n', "\\0A").replace('\r', "\\0D");
+        let arr_len = escaped.len() + 1;
+        use std::fmt::Write;
+        writeln!(self.string_constants, "{cstr_name} = private unnamed_addr constant [{arr_len} x i8] c\"{escaped}\\00\"").unwrap();
+        let ptr = self.fresh();
+        self.e(&format!("{ptr} = getelementptr inbounds [{arr_len} x i8], ptr {cstr_name}, i64 0, i64 0"));
+        let len_val = s.len().to_string();
+        (ptr, len_val)
+    }
+
+    fn gen_int64(&mut self, expr: &ExprNode) -> String {
+        match &expr.value {
+            Expr::LitInt(n) => n.to_string(),
+            _ => "0".into(),
+        }
+    }
+
+    fn gen_condition(&mut self, expr: &ExprNode) -> String {
+        match &expr.value {
+            Expr::LitBool(b) => {
+                if *b { "true".into() } else { "false".into() }
+            }
+            Expr::BinOp(l, BinOp::Eq, r) => {
+                let lhs = self.gen_int64(l);
+                let rhs = self.gen_int64(r);
+                let r = self.fresh();
+                self.e(&format!("{r} = icmp eq i64 {lhs}, {rhs}"));
+                r
+            }
+            Expr::BinOp(l, BinOp::Ne, r) => {
+                let lhs = self.gen_int64(l);
+                let rhs = self.gen_int64(r);
+                let r = self.fresh();
+                self.e(&format!("{r} = icmp ne i64 {lhs}, {rhs}"));
+                r
+            }
+            _ => "true".into(),
+        }
+    }
+
+    fn gen_expr(&mut self, expr: &ExprNode) -> (String, String) {
+        match &expr.value {
+            Expr::LitStr(s) => self.gen_str_constant(s),
+            Expr::LitInt(n) => self.gen_str_constant(&n.to_string()),
+            Expr::LitBool(b) => self.gen_str_constant(if *b { "true" } else { "false" }),
+            Expr::LitChar(c) => self.gen_str_constant(&c.to_string()),
+            Expr::LitReal(v) => self.gen_str_constant(&format!("{}", v)),
+            Expr::LitHex(n) => self.gen_str_constant(&format!("{}", n)),
+            Expr::If(cond, then_expr, else_expr) => {
+                let cond_i1 = self.gen_condition(cond);
+                let (then_ptr, then_len) = self.gen_expr(then_expr);
+                let (else_ptr, else_len) = if let Some(ee) = else_expr {
+                    self.gen_expr(ee)
+                } else {
+                    let empty = self.fresh();
+                    self.e(&format!("{empty} = getelementptr i8, ptr %buf, i64 0"));
+                    (empty, "0".into())
+                };
+                let ptr = self.fresh();
+                self.e(&format!("{ptr} = select i1 {cond_i1}, ptr {then_ptr}, ptr {else_ptr}"));
+                let len = self.fresh();
+                self.e(&format!("{len} = select i1 {cond_i1}, i64 {then_len}, i64 {else_len}"));
+                (ptr, len)
+            }
+            Expr::Field(obj, field) => {
+                if let Expr::Ident(name) = &obj.value {
+                    if name == "req" {
+                        let (field_offset_ptr, field_offset_len) = match field.as_str() {
+                            "method" => (0i32, 8i32),
+                            "path" => (16, 24),
+                            "body" => (32, 40),
+                            _ => (32, 40),
+                        };
+                        let ptr_label = self.fresh();
+                        let len_label = self.fresh();
+                        self.e(&format!("; Load req.{}", field));
+                        self.e(&format!("{ptr_label} = getelementptr i8, ptr %req, i32 {field_offset_ptr}"));
+                        let ptr_v = self.fresh();
+                        self.e(&format!("{ptr_v} = load ptr, ptr {ptr_label}"));
+                        self.e(&format!("{len_label} = getelementptr i8, ptr %req, i32 {field_offset_len}"));
+                        let len_v = self.fresh();
+                        self.e(&format!("{len_v} = load i64, ptr {len_label}"));
+                        (ptr_v, len_v)
+                    } else {
+                        let empty_ptr = self.fresh();
+                        self.e(&format!("{empty_ptr} = getelementptr i8, ptr %buf, i64 0"));
+                        (empty_ptr, "0".into())
+                    }
+                } else {
+                    let empty_ptr = self.fresh();
+                    self.e(&format!("{empty_ptr} = getelementptr i8, ptr %buf, i64 0"));
+                    (empty_ptr, "0".into())
+                }
+            }
+            Expr::Ident(name) => {
+                if name == "req" {
+                    self.gen_expr(
+                        &ExprNode::new(0, Span::new(0, 0),
+                            Expr::Field(Box::new(ExprNode::new(0, Span::new(0, 0), Expr::Ident("req".into()))), "body".into())),
+                    )
+                } else {
+                    let empty_ptr = self.fresh();
+                    self.e(&format!("{empty_ptr} = getelementptr i8, ptr %buf, i64 0"));
+                    (empty_ptr, "0".into())
+                }
+            }
+            Expr::BinOp(l, op, r) if *op == BinOp::Add => {
+                let (l_ptr, l_len) = self.gen_expr(l);
+                let (r_ptr, r_len) = self.gen_expr(r);
+
+                let total = self.fresh();
+                self.e(&format!("{total} = add i64 {l_len}, {r_len}")); // unused, replaced by clamped
+
+                // Clamp left to buf_len
+                let l_clamped = self.fresh();
+                self.e(&format!("{l_clamped} = icmp ugt i64 {l_len}, %buf_len"));
+                let l_actual = self.fresh();
+                self.e(&format!("{l_actual} = select i1 {l_clamped}, i64 %buf_len, i64 {l_len}"));
+                self.e(&format!("call void @llvm.memcpy.p0.p0.i64(ptr %buf, ptr {l_ptr}, i64 {l_actual}, i1 false)"));
+
+                let r_offset = self.fresh();
+                self.e(&format!("{r_offset} = getelementptr i8, ptr %buf, i64 {l_actual}"));
+                let r_remaining = self.fresh();
+                self.e(&format!("{r_remaining} = sub i64 %buf_len, {l_actual}"));
+                let r_clamped = self.fresh();
+                self.e(&format!("{r_clamped} = icmp ugt i64 {r_len}, {r_remaining}"));
+                let r_actual = self.fresh();
+                self.e(&format!("{r_actual} = select i1 {r_clamped}, i64 {r_remaining}, i64 {r_len}"));
+                self.e(&format!("call void @llvm.memcpy.p0.p0.i64(ptr {r_offset}, ptr {r_ptr}, i64 {r_actual}, i1 false)"));
+
+                let actual_len = self.fresh();
+                self.e(&format!("{actual_len} = add i64 {l_actual}, {r_actual}"));
+
+                ("%buf".into(), actual_len)
+            }
+            Expr::Block(stmts) => {
+                if let Some(ret) = find_return_expr(stmts) {
+                    self.gen_expr(ret)
+                } else {
+                    let empty_ptr = self.fresh();
+                    self.e(&format!("{empty_ptr} = getelementptr i8, ptr %buf, i64 0"));
+                    (empty_ptr, "0".into())
+                }
+            }
+            _ => {
+                let empty_ptr = self.fresh();
+                self.e(&format!("{empty_ptr} = getelementptr i8, ptr %buf, i64 0"));
+                (empty_ptr, "0".into())
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1329,5 +1945,84 @@ mod tests {
         eprintln!("LLVM OUTPUT:\n{}", llvm);
         assert!(llvm.contains("i64, i64, i64"));
         assert!(llvm.contains("insertvalue"));
+    }
+
+    #[test]
+    fn test_generate_fn_handler_ir_literal() {
+        // Manually construct a FnDef that returns a string literal
+        use crate::syntax::ast::{Param, TypeNode, Stmt};
+        use crate::interpret::FnDef;
+        let param = Param {
+            name: "req".into(),
+            type_expr: TypeNode::new(fresh_id(), Span::new(0, 0), TypeExpr::Infer),
+            is_ref: false,
+        };
+        let body = vec![
+            StmtNode::new(fresh_id(), Span::new(0, 0), Stmt::Return(Some(
+                ExprNode::new(fresh_id(), Span::new(0, 0), Expr::LitStr("Hello World".into()))
+            ))),
+        ];
+        let fndef = FnDef::new(vec![param], body);
+        let ir = generate_fn_handler_ir("test_fn_handler", &fndef)
+            .expect("Should generate IR");
+        assert!(ir.contains("define void @test_fn_handler"));
+        assert!(ir.contains("target triple = \"x86_64-pc-windows-msvc\""));
+        assert!(ir.contains("%YkResponse = type { ptr, i64, i32 }"));
+        assert!(ir.contains("store i32 200"));
+        assert!(ir.contains("Hello World"));
+    }
+
+    #[test]
+    fn test_generate_fn_handler_ir_req_body() {
+        use crate::syntax::ast::{Param, TypeNode, Stmt};
+        use crate::interpret::FnDef;
+
+        // Build: return req.body
+        let param = Param {
+            name: "req".into(),
+            type_expr: TypeNode::new(fresh_id(), Span::new(0, 0), TypeExpr::Infer),
+            is_ref: false,
+        };
+        let req_ident = ExprNode::new(fresh_id(), Span::new(0, 0), Expr::Ident("req".into()));
+        let body_field = ExprNode::new(fresh_id(), Span::new(0, 0),
+            Expr::Field(Box::new(req_ident), "body".into()));
+        let body = vec![
+            StmtNode::new(fresh_id(), Span::new(0, 0), Stmt::Return(Some(body_field))),
+        ];
+        let fndef = FnDef::new(vec![param], body);
+        let ir = generate_fn_handler_ir("test_req_body", &fndef)
+            .expect("Should generate IR");
+        assert!(ir.contains("define void @test_req_body"));
+        assert!(ir.contains("Load req.body"));
+        assert!(ir.contains("getelementptr i8, ptr %req, i32 32")); // body ptr offset
+        assert!(ir.contains("getelementptr i8, ptr %req, i32 40")); // body len offset
+    }
+
+    #[test]
+    fn test_generate_fn_handler_ir_concat() {
+        use crate::syntax::ast::{Param, TypeNode, Stmt};
+        use crate::interpret::FnDef;
+
+        // Build: return "Prefix: " + req.body
+        let param = Param {
+            name: "req".into(),
+            type_expr: TypeNode::new(fresh_id(), Span::new(0, 0), TypeExpr::Infer),
+            is_ref: false,
+        };
+        let prefix = ExprNode::new(fresh_id(), Span::new(0, 0), Expr::LitStr("Prefix: ".into()));
+        let req_ident = ExprNode::new(fresh_id(), Span::new(0, 0), Expr::Ident("req".into()));
+        let req_body = ExprNode::new(fresh_id(), Span::new(0, 0),
+            Expr::Field(Box::new(req_ident), "body".into()));
+        let concat = ExprNode::new(fresh_id(), Span::new(0, 0),
+            Expr::BinOp(Box::new(prefix), BinOp::Add, Box::new(req_body)));
+        let body = vec![
+            StmtNode::new(fresh_id(), Span::new(0, 0), Stmt::Return(Some(concat))),
+        ];
+        let fndef = FnDef::new(vec![param], body);
+        let ir = generate_fn_handler_ir("test_concat", &fndef)
+            .expect("Should generate IR");
+        assert!(ir.contains("define void @test_concat"));
+        assert!(ir.contains("call void @llvm.memcpy.p0.p0.i64"));
+        assert!(ir.contains("Prefix:"));
     }
 }

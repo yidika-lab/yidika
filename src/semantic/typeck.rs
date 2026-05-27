@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use crate::diagnostics::error::{self, ErrorKind, Result};
-use crate::semantic::env::{Env, FnSig};
+use crate::semantic::env::{Env, FnSig, MethodDef, StructDef, ClassDef};
 use crate::syntax::ast::*;
 
 #[derive(Clone)]
@@ -15,6 +15,7 @@ pub struct TypeChecker<'a> {
     types: HashMap<String, TypeExpr>,
     vars: HashMap<String, VarInfo>,
     local_fns: HashMap<String, FnSig>,
+    fn_generics: HashMap<String, Vec<String>>,
     builtin_modules: std::collections::HashSet<String>,
     std_imported: bool,
     has_error: bool,
@@ -27,6 +28,13 @@ fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
     if matches!(expected, TypeExpr::Named(n) if n == "auto") { return true; }
     if matches!(actual, TypeExpr::Named(n) if n == "auto") { return true; }
     if expected == actual { return true; }
+    // Generic("Pair", [int, str]) is compatible with Named("Pair")
+    if let (TypeExpr::Generic(e_name, _), TypeExpr::Named(a_name)) = (expected, actual) {
+        if e_name == a_name { return true; }
+    }
+    if let (TypeExpr::Named(e_name), TypeExpr::Generic(a_name, _)) = (expected, actual) {
+        if e_name == a_name { return true; }
+    }
     match (expected, actual) {
         (TypeExpr::Rint(_), TypeExpr::Int(_)) => true,
         (TypeExpr::Real(_), TypeExpr::Int(_) | TypeExpr::Rint(_)) => true,
@@ -51,6 +59,37 @@ fn wider_type(a: &TypeExpr, b: &TypeExpr) -> TypeExpr {
     }
 }
 
+fn infer_type_args(param_type: &TypeExpr, arg_type: &TypeExpr, generic_params: &[String], inferred: &mut HashMap<String, TypeExpr>) {
+    if let TypeExpr::Named(gname) = param_type {
+        if generic_params.contains(gname) {
+            inferred.entry(gname.clone()).or_insert_with(|| arg_type.clone());
+        }
+        return;
+    }
+    match (param_type, arg_type) {
+        (TypeExpr::List(p), TypeExpr::List(a)) => infer_type_args(p, a, generic_params, inferred),
+        (TypeExpr::Set(p), TypeExpr::Set(a)) => infer_type_args(p, a, generic_params, inferred),
+        (TypeExpr::Vector(p), TypeExpr::Vector(a)) => infer_type_args(p, a, generic_params, inferred),
+        (TypeExpr::Matrix(p), TypeExpr::Matrix(a)) => infer_type_args(p, a, generic_params, inferred),
+        (TypeExpr::Nullable(p), TypeExpr::Nullable(a)) => infer_type_args(p, a, generic_params, inferred),
+        (TypeExpr::Map(pk, pv), TypeExpr::Map(ak, av)) => {
+            infer_type_args(pk, ak, generic_params, inferred);
+            infer_type_args(pv, av, generic_params, inferred);
+        }
+        (TypeExpr::Tuple(pts), TypeExpr::Tuple(ats)) => {
+            for (p, a) in pts.iter().zip(ats.iter()) {
+                infer_type_args(p, a, generic_params, inferred);
+            }
+        }
+        (TypeExpr::Generic(pn, pargs), TypeExpr::Generic(an, aargs)) if pn == an => {
+            for (p, a) in pargs.iter().zip(aargs.iter()) {
+                infer_type_args(p, a, generic_params, inferred);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn is_copy_type(t: &TypeExpr) -> bool {
     matches!(t, TypeExpr::Int(_) | TypeExpr::Rint(_)
         | TypeExpr::Real(_) | TypeExpr::Bool
@@ -61,7 +100,7 @@ fn is_copy_type(t: &TypeExpr) -> bool {
 impl<'a> TypeChecker<'a> {
     pub fn new(env: &'a mut Env) -> Self {
         let types = env.types.clone();
-        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, has_error: false, current_fn_ret_type: None }
+        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), fn_generics: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, has_error: false, current_fn_ret_type: None }
     }
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
@@ -84,7 +123,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-                "io" | "json" | "datetime" | "path" | "base64" | "re" | "math" | "time" => {
+                "io" | "json" | "datetime" | "path" | "base64" | "re" | "math" | "time" | "net" => {
                     for (name, _) in &import.names { self.builtin_modules.insert(name.clone()); }
                 }
                 _ => {}
@@ -111,11 +150,16 @@ impl<'a> TypeChecker<'a> {
     fn check_item(&mut self, item: &ItemNode, exported: &std::collections::HashSet<&str>) -> Result<()> {
         let is_exported = item.decorators.contains(&"export".to_string()) || exported.contains(item_name(&item.value).as_deref().unwrap_or(""));
         match &item.value {
-            ItemKind::Fn { name, params, ret_type, body, .. } => {
+            ItemKind::Fn { name, params, ret_type, body, generics, .. } => {
+                let resolved_params: Vec<TypeExpr> = params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect();
                 let sig = FnSig {
-                    params: params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect(),
+                    params: resolved_params,
                     ret_type: ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_),
+                    self_is_ref: params.first().map(|p| p.is_ref).unwrap_or(false),
                 };
+                if !generics.is_empty() {
+                    self.fn_generics.insert(name.clone(), generics.clone());
+                }
                 self.local_fns.insert(name.clone(), sig.clone());
                 if is_exported {
                     self.env.add_fn(name.clone(), sig);
@@ -133,11 +177,53 @@ impl<'a> TypeChecker<'a> {
                 self.current_fn_ret_type = None;
                 Ok(())
             }
-            ItemKind::Struct { name, .. } => {
+            ItemKind::Struct { name, fields, generics } => {
                 if is_exported {
                     self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
                 }
                 self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                self.env.add_struct(name.clone(), StructDef { fields: fields.clone(), generics: generics.clone() });
+                Ok(())
+            }
+            ItemKind::Class { name, fields, methods, generics, .. } => {
+                if is_exported {
+                    self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
+                }
+                self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                let mut method_map: HashMap<String, MethodDef> = HashMap::new();
+                for m in methods {
+                    if let ItemKind::Fn { name: mname, params, ret_type, generics: mgens, .. } = m {
+                        let rt = ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_);
+                        method_map.insert(mname.clone(), MethodDef { params: params.clone(), ret_type: rt, generics: mgens.clone() });
+                    }
+                }
+                self.env.add_class(name.clone(), ClassDef { fields: fields.clone(), methods: method_map, generics: generics.clone() });
+                Ok(())
+            }
+            ItemKind::Enum { name, .. } => {
+                if is_exported {
+                    self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
+                }
+                self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                Ok(())
+            }
+            ItemKind::Object { name, fields, methods, init_body } => {
+                if is_exported {
+                    self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
+                }
+                self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                let saved = self.vars.clone();
+                for f in fields {
+                    let t = self.resolve_type(&f.type_expr.value);
+                    self.vars.insert(f.name.clone(), VarInfo { type_expr: t, is_const: false, moved: false });
+                }
+                for s in init_body {
+                    self.check_stmt(s)?;
+                }
+                for m in methods {
+                    self.check_item(&ItemNode::new(0, crate::diagnostics::span::Span::new(0,0), m.clone()), &std::collections::HashSet::new())?;
+                }
+                self.vars = saved;
                 Ok(())
             }
             ItemKind::TypeAlias { name, type_expr } => {
@@ -179,6 +265,9 @@ impl<'a> TypeChecker<'a> {
                     }
                 }
             }
+            Expr::Variant(_, _, args) => {
+                for arg in args { self.mark_moved(arg, &TypeExpr::Infer); }
+            }
             Expr::AsConst(inner) => self.mark_moved(inner, ty),
             _ => {}
         }
@@ -197,8 +286,23 @@ impl<'a> TypeChecker<'a> {
                         let expr_ty = self.check_expr(value)?;
                         self.mark_moved(value, &resolved);
                         if !types_compatible(&resolved, &expr_ty) {
-                            return self.fail(ErrorKind::TypeError, stmt.span,
-                                format!("Type mismatch: variable '{}' declared as {} but expression has type {}", name, resolved, expr_ty));
+                            // Check if expr_ty implements resolved as an interface
+                            let implements_iface = match (&resolved, &expr_ty) {
+                                (TypeExpr::Named(iface_name), TypeExpr::Named(type_name)) => {
+                                    self.env.get_class_interfaces(type_name)
+                                        .map(|ifaces| ifaces.contains(iface_name))
+                                        .unwrap_or(false)
+                                }
+                                _ => false,
+                            };
+                            if !implements_iface {
+                                return self.fail(ErrorKind::TypeError, stmt.span,
+                                    format!("Type mismatch: variable '{}' declared as {} but expression has type {}", name, resolved, expr_ty));
+                            }
+                        }
+                        // Validate struct/class literal fields with type args from annotation
+                        if let Expr::StructLit(struct_name, struct_fields) = &value.value {
+                            self.check_struct_fields_with_type_args(struct_name, struct_fields, &resolved, stmt.span)?;
                         }
                         resolved
                     }
@@ -311,8 +415,14 @@ impl<'a> TypeChecker<'a> {
                         }
                         Ok(var_info.type_expr.clone())
                     }
-                    None => self.fail(ErrorKind::NameError, expr.span,
-                        format!("Variable '{}' not found", name)),
+                    None => {
+                        if let Some(sig) = self.env.get_fn(name).or_else(|| self.local_fns.get(name)) {
+                            Ok(sig.ret_type.clone())
+                        } else {
+                            self.fail(ErrorKind::NameError, expr.span,
+                                format!("Variable '{}' not found", name))
+                        }
+                    }
                 }
             }
             Expr::BinOp(l, op, r) => {
@@ -386,18 +496,41 @@ impl<'a> TypeChecker<'a> {
                         } else if let Some(sig) = self.env.get_fn(name).or_else(|| self.local_fns.get(name)) {
                             let param_types = sig.params.clone();
                             let ret_type = sig.ret_type.clone();
-                            for (i, (a, t)) in args.iter().zip(arg_types.iter()).enumerate() {
-                                if let Some(pt) = param_types.get(i) {
-                                    if !types_compatible(pt, t) {
-                                        return self.fail(ErrorKind::TypeError, expr.span,
-                                            format!("Type mismatch: parameter {} of function '{}' expects {} but got {}", i, name, pt, t));
-                                    }
-                                    if !is_copy_type(pt) {
-                                        self.mark_moved(a, t);
+                            let type_args = self.fn_generics.get(name).map(|generic_params| {
+                                let mut inferred: HashMap<String, TypeExpr> = HashMap::new();
+                                for (pt, t) in param_types.iter().zip(arg_types.iter()) {
+                                    infer_type_args(pt, t, generic_params, &mut inferred);
+                                }
+                                inferred
+                            });
+                            if let Some(ref type_args) = type_args {
+                                for (i, (a, t)) in args.iter().zip(arg_types.iter()).enumerate() {
+                                    if let Some(pt) = param_types.get(i) {
+                                        let substituted_pt = substitute_type(pt, type_args);
+                                        if !types_compatible(&substituted_pt, t) {
+                                            return self.fail(ErrorKind::TypeError, expr.span,
+                                                format!("Type mismatch: parameter {} of function '{}' expects {} but got {}", i, name, substituted_pt, t));
+                                        }
+                                        if !is_copy_type(&substituted_pt) {
+                                            self.mark_moved(a, t);
+                                        }
                                     }
                                 }
+                                Ok(substitute_type(&ret_type, &type_args))
+                            } else {
+                                for (i, (a, t)) in args.iter().zip(arg_types.iter()).enumerate() {
+                                    if let Some(pt) = param_types.get(i) {
+                                        if !types_compatible(pt, t) {
+                                            return self.fail(ErrorKind::TypeError, expr.span,
+                                                format!("Type mismatch: parameter {} of function '{}' expects {} but got {}", i, name, pt, t));
+                                        }
+                                        if !is_copy_type(pt) {
+                                            self.mark_moved(a, t);
+                                        }
+                                    }
+                                }
+                                Ok(ret_type)
                             }
-                            Ok(ret_type)
                         } else if self.vars.contains_key(name) {
                             Ok(TypeExpr::Infer)
                         } else {
@@ -476,6 +609,58 @@ impl<'a> TypeChecker<'a> {
                                 _ => Ok(TypeExpr::Infer),
                             }
                         } else {
+                            // Check class method calls (on variables) or type.method calls (on types/objects)
+                            let obj_type = match &obj.value {
+                                Expr::Ident(obj_name) => {
+                                    // Try variable lookup first
+                                    if let Some(var_info) = self.vars.get(obj_name) {
+                                        Some(var_info.type_expr.clone())
+                                    } else if let Some(ty) = self.types.get(obj_name).or_else(|| self.env.get_type(obj_name)) {
+                                        Some(ty.clone())
+                                    } else {
+                                        None
+                                    }
+                                }
+                                _ => match self.check_expr(obj) { Ok(t) => Some(t), Err(_) => None },
+                            };
+                            if let Some(obj_type) = obj_type {
+                                let type_name = match &obj_type {
+                                    TypeExpr::Named(n) => Some(n.clone()),
+                                    TypeExpr::Generic(n, _) => Some(n.clone()),
+                                    _ => None,
+                                };
+                                if let Some(cls_name) = type_name {
+                                    let cls_def_opt = self.env.get_class(&cls_name).cloned();
+                                    if let Some(cls_def) = cls_def_opt {
+                                        if let Some(method) = cls_def.methods.get(&func_name) {
+                                            let mut type_args = HashMap::new();
+                                            if let TypeExpr::Generic(_, cls_type_args) = &obj_type {
+                                                for (g, ta) in cls_def.generics.iter().zip(cls_type_args.iter()) {
+                                                    type_args.insert(g.clone(), ta.clone());
+                                                }
+                                            }
+                                            let method_params: Vec<&Param> = method.params.iter().skip(1).collect();
+                                            for (i, (a, t)) in args.iter().zip(arg_types.iter()).enumerate() {
+                                                if let Some(param_def) = method_params.get(i) {
+                                                    let param_ty = substitute_type(&param_def.type_expr.value, &type_args);
+                                                    if !types_compatible(&param_ty, t) {
+                                                        return self.fail(ErrorKind::TypeError, expr.span,
+                                                            format!("Type mismatch: parameter {} of method '{}' expects {} but got {}", i, func_name, param_ty, t));
+                                                    }
+                                                    if !is_copy_type(&param_ty) {
+                                                        self.mark_moved(a, t);
+                                                    }
+                                                }
+                                            }
+                                            let ret_ty = substitute_type(&method.ret_type, &type_args);
+                                            return Ok(ret_ty);
+                                        } else {
+                                            return self.fail(ErrorKind::NameError, expr.span,
+                                                format!("Class '{}' has no method '{}'", cls_name, func_name));
+                                        }
+                                    }
+                                }
+                            }
                             Ok(TypeExpr::Infer)
                         }
                     }
@@ -521,6 +706,23 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(TypeExpr::Map(Box::new(key_ty), Box::new(val_ty)))
             }
+            Expr::Variant(enum_name, _variant_name, args) => {
+                let mut arg_types = Vec::new();
+                for a in args {
+                    let t = self.check_expr(a)?;
+                    self.mark_moved(a, &t);
+                    arg_types.push(t);
+                }
+                Ok(TypeExpr::Named(enum_name.clone()))
+            }
+            Expr::ListLit(items) => {
+                let mut elem_ty = TypeExpr::Infer;
+                for (i, item) in items.iter().enumerate() {
+                    let t = self.check_expr(item)?;
+                    if i == 0 { elem_ty = t; }
+                }
+                Ok(TypeExpr::List(Box::new(elem_ty)))
+            }
             Expr::SetLit(items) => {
                 let mut elem_ty = TypeExpr::Infer;
                 for (i, item) in items.iter().enumerate() {
@@ -561,8 +763,76 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(TypeExpr::Fn(param_types, Box::new(rt)))
             }
+            Expr::StructLit(name, fields) => {
+                let struct_def_opt = self.env.get_struct(name).cloned();
+                if let Some(struct_def) = struct_def_opt {
+                    for (field_name, field_expr) in fields {
+                        self.check_expr(field_expr)?;
+                        if !struct_def.fields.iter().any(|f| f.name == *field_name) {
+                            return self.fail(ErrorKind::TypeError, expr.span,
+                                format!("Unknown field '{}' for struct '{}'", field_name, name));
+                        }
+                    }
+                    Ok(TypeExpr::Named(name.clone()))
+                } else {
+                    for (_, field_expr) in fields {
+                        self.check_expr(field_expr)?;
+                    }
+                    Ok(TypeExpr::Infer)
+                }
+            }
+            Expr::As(inner, target_type) => {
+                let inner_ty = self.check_expr(inner)?;
+                let target_ty = self.resolve_type(&target_type.value);
+                // Allow casts from generic type params (Named) to anything
+                if matches!(&inner_ty, TypeExpr::Named(_)) {
+                    return Ok(target_ty);
+                }
+                match (&inner_ty, &target_ty) {
+                    (TypeExpr::Int(_), TypeExpr::Str) => Ok(TypeExpr::Str),
+                    (TypeExpr::Rint(_), TypeExpr::Str) => Ok(TypeExpr::Str),
+                    (TypeExpr::Real(_), TypeExpr::Str) => Ok(TypeExpr::Str),
+                    (TypeExpr::Bool, TypeExpr::Str) => Ok(TypeExpr::Str),
+                    (TypeExpr::Real(_), TypeExpr::Int(_)) => Ok(TypeExpr::Int(0)),
+                    (TypeExpr::Rint(_), TypeExpr::Int(_)) => Ok(TypeExpr::Int(0)),
+                    (TypeExpr::Int(_), TypeExpr::Int(_)) => Ok(TypeExpr::Int(0)),
+                    (TypeExpr::Str, TypeExpr::Named(n)) if n == "symbol" => Ok(TypeExpr::Symbol),
+                    _ => self.fail(ErrorKind::TypeError, expr.span,
+                        format!("Cannot cast {} to {}", inner_ty, target_ty)),
+                }
+            }
             _ => Ok(TypeExpr::Infer),
         }
+    }
+
+    fn check_struct_fields_with_type_args(&mut self, struct_name: &str, fields: &[(String, ExprNode)], resolved_annotation: &TypeExpr, span: crate::diagnostics::span::Span) -> Result<()> {
+        let type_args = match resolved_annotation {
+            TypeExpr::Generic(base_name, args) if base_name == struct_name => {
+                let mut map = HashMap::new();
+                if let Some(struct_def) = self.env.get_struct(struct_name) {
+                    for (g, a) in struct_def.generics.iter().zip(args.iter()) {
+                        map.insert(g.clone(), a.clone());
+                    }
+                }
+                map
+            }
+            _ => HashMap::new(),
+        };
+        if type_args.is_empty() { return Ok(()); }
+        let struct_def_opt = self.env.get_struct(struct_name).cloned();
+        if let Some(struct_def) = struct_def_opt {
+            for (field_name, _field_expr) in fields {
+                if let Some(field_def) = struct_def.fields.iter().find(|f| f.name == *field_name) {
+                    let expected_ty = substitute_type(&field_def.type_expr.value, &type_args);
+                    let field_expr_ty = self.check_expr(_field_expr)?;
+                    if !types_compatible(&expected_ty, &field_expr_ty) {
+                        return self.fail(ErrorKind::TypeError, span,
+                            format!("Type mismatch: field '{}' of struct '{}' expects {} but got {}", field_name, struct_name, expected_ty, field_expr_ty));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     fn resolve_type(&self, t: &TypeExpr) -> TypeExpr {
@@ -581,7 +851,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     match kind {
         ItemKind::Fn { name, .. } | ItemKind::Struct { name, .. }
         | ItemKind::Class { name, .. } | ItemKind::Interface { name, .. }
-        | ItemKind::Union { name, .. } | ItemKind::TypeAlias { name, .. }
+        | ItemKind::Union { name, .. } | ItemKind::Enum { name, .. } | ItemKind::Object { name, .. } | ItemKind::TypeAlias { name, .. }
         | ItemKind::Const { name, .. } => Some(name.clone()),
     }
 }
