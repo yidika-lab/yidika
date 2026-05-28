@@ -58,6 +58,22 @@ impl Lexer {
             if c.is_alphanumeric() || c == '_' { self.advance(); } else { break; }
         }
         let s: String = self.source[start..self.pos].iter().collect();
+        // Check fixed-width type prefixes before exact keyword matching
+        if let Some(rest) = s.strip_prefix("int") {
+            if let Ok(w) = rest.parse::<u8>() {
+                if matches!(w, 8 | 16 | 32 | 64) { return Token::TInt(w); }
+            }
+        }
+        if let Some(rest) = s.strip_prefix("rint") {
+            if let Ok(w) = rest.parse::<u8>() {
+                if matches!(w, 8 | 16 | 32 | 64) { return Token::TRint(w); }
+            }
+        }
+        if let Some(rest) = s.strip_prefix("real") {
+            if let Ok(w) = rest.parse::<u8>() {
+                if matches!(w, 16 | 32 | 64) { return Token::TReal(w); }
+            }
+        }
         match s.as_str() {
             "fn" => Token::Fn, "const" => Token::Const,
             "if" => Token::If, "else" => Token::Else,
@@ -80,8 +96,8 @@ impl Lexer {
             "Ok" => Token::OkKw, "Error" => Token::ErrorKw,
             "mut" => Token::Mut, "ref" => Token::Ref,
             "match" => Token::Match, "super" => Token::Super,
-            "int" => Token::TInt, "rint" => Token::TRint,
-            "real" => Token::TReal, "complex" => Token::TComplex,
+            "int" => Token::TInt(0), "rint" => Token::TRint(0),
+            "real" => Token::TReal(0), "complex" => Token::TComplex,
             "bool" => Token::TBool, "str" => Token::TStr,
             "symbol" => Token::TSymbol,
             "vector" => Token::TVector, "matrix" => Token::TMatrix,
@@ -172,7 +188,19 @@ impl Iterator for Lexer {
                 else if self.peek() == Some(':') { self.advance(); Token::Elvis }
                 else { Token::Question }
             },
-            Some('@') => Token::At, Some('#') => Token::Hash,
+            Some('@') => {
+                let sym_start = self.pos;
+                while let Some(c) = self.peek() {
+                    if c.is_alphanumeric() || c == '_' { self.advance(); } else { break; }
+                }
+                if sym_start < self.pos {
+                    let sym: String = self.source[sym_start..self.pos].iter().collect();
+                    Token::SymbolLit(format!("@{}", sym))
+                } else {
+                    Token::At
+                }
+            }
+            Some('#') => Token::Hash,
             Some('"') => self.string(start),
             Some('`') => {
                 let content_start = self.pos;
@@ -205,7 +233,17 @@ impl Iterator for Lexer {
                     if c == '\\' { self.advance(); continue; }
                     if c == '\'' { break; }
                 }
-                Token::StrLit(self.source[start..self.pos].iter().collect())
+                let raw: String = self.source[start + 1..self.pos - 1].iter().collect();
+                if raw.len() == 1 || (raw.starts_with('\\') && raw.len() == 2 && matches!(raw.as_str(), "\\n" | "\\t" | "\\r" | "\\0" | "\\\\" | "\\'" | "\\\"")) {
+                    let c = match raw.as_str() {
+                        "\\n" => '\n', "\\t" => '\t', "\\r" => '\r', "\\0" => '\0',
+                        "\\\\" => '\\', "\\'" => '\'', "\\\"" => '"',
+                        s => s.chars().next().unwrap_or('\0'),
+                    };
+                    Token::CharLit(c)
+                } else {
+                    Token::StrLit(self.source[start..self.pos].iter().collect())
+                }
             }
             Some(c) => Token::Error(format!("unexpected '{}'", c)),
         };

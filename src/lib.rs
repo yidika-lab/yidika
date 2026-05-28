@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod codegen;
+pub mod compat;
 pub mod diagnostics;
 pub mod hardware;
 pub mod interpret;
@@ -274,6 +275,38 @@ mod tests {
     }
 
     #[test]
+    fn inferred_return_type() {
+        check("
+            fn add(a: int, b: int) { return a + b; }
+            fn main() { x: int = add(1, 2); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn inferred_return_type_void() {
+        check("
+            fn greet(name: str) { print(\"hello \" + name); }
+            fn main() { greet(\"world\"); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn inferred_return_type_mismatch() {
+        assert!(check("
+            fn add(a: int, b: int) { return a + b; return \"bad\"; }
+            fn main() { add(1, 2); }
+        ").is_err());
+    }
+
+    #[test]
+    fn cpp_ffi_parses() {
+        check("
+            use { compute } from \"c++:./engine.hpp\";
+            fn main() { compute(42); }
+        ").unwrap();
+    }
+
+    #[test]
     fn parse_spawn_async() {
         check("
             async fn work() -> int { return 42; }
@@ -447,8 +480,21 @@ mod tests {
     fn enum_match() {
         check("
             enum Color { Red; Green; Blue; }
-            fn main() { c: Color = Color::Red; match c { Red => 1 }; }
+            fn main() { c: Color = Color::Red; match c { _ => 1 }; }
         ").unwrap();
+    }
+
+    #[test]
+    fn enum_match_non_exhaustive_rejected() {
+        assert!(check("
+            enum Color { Red; Green; Blue; }
+            fn main() { c: Color = Color::Red; match c { Red => 1; Green => 2 }; }
+        ").is_err());
+    }
+
+    #[test]
+    fn enum_match_bool_non_exhaustive_rejected() {
+        assert!(check("fn main() { b: bool = true; match b { true => 1 }; }").is_err());
     }
 
     // ─── Object tests ──────────────────────────────────
@@ -472,6 +518,141 @@ mod tests {
                 init { debug = true; }
             }
             fn main() { x: bool = Config.debug; }
+        ").unwrap();
+    }
+
+    // ─── Math module tests ───────────────────────────────
+
+    #[test]
+    fn math_module_abs_int() {
+        check("
+            use {abs} from \"math\"
+            fn main() { print(abs(-5)); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn math_module_sqrt() {
+        check("
+            use {sqrt} from \"math\"
+            fn main() { print(sqrt(64.0)); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn math_module_field_access() {
+        check("
+            use {abs, sqrt} from \"math\"
+            fn main() {
+                print(abs(-5));
+                print(sqrt(64.0));
+            }
+        ").unwrap();
+    }
+
+    // ─── Time module tests ───────────────────────────────
+
+    #[test]
+    fn time_module_now() {
+        check("
+            use {now} from \"time\"
+            fn main() { print(now()); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn time_module_timestamp() {
+        check("
+            use {timestamp} from \"time\"
+            fn main() { print(timestamp()); }
+        ").unwrap();
+    }
+
+    // ─── Sys module tests ────────────────────────────────
+
+    #[test]
+    fn sys_module_platform() {
+        check("
+            use {sys} from \"std\"
+            fn main() { print(sys.platform()); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn sys_module_pid() {
+        check("
+            use {sys} from \"std\"
+            fn main() { print(sys.pid()); }
+        ").unwrap();
+    }
+
+    // ─── Path module tests ───────────────────────────────
+
+    #[test]
+    fn path_module_dirname() {
+        check("
+            use {path} from \"std\"
+            fn main() { print(path.dirname(\"a/b/c.yk\")); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn path_module_basename() {
+        check("
+            use {path} from \"std\"
+            fn main() { print(path.basename(\"a/b/c.yk\")); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn path_module_extension() {
+        check("
+            use {path} from \"std\"
+            fn main() { print(path.extension(\"a/b/c.yk\")); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn path_module_is_absolute() {
+        check("
+            use {path} from \"std\"
+            fn main() { print(path.is_absolute(\"/foo\")); print(path.is_absolute(\"foo\")); }
+        ").unwrap();
+    }
+
+    // ─── FS module tests ─────────────────────────────────
+
+    #[test]
+    fn fs_module_read() {
+        check("
+            use {fs} from \"std\"
+            fn main() { print(fs.read(\"test.txt\")); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn fs_module_write() {
+        check("
+            use {fs} from \"std\"
+            fn main() { fs.write(\"out.txt\", \"hello\"); }
+        ").unwrap();
+    }
+
+    #[test]
+    fn fs_module_exists() {
+        check("
+            use {fs} from \"std\"
+            fn main() { print(fs.exists(\"test.txt\")); }
+        ").unwrap();
+    }
+
+    // ─── Base64 module tests ─────────────────────────────
+
+    #[test]
+    fn base64_encode_decode() {
+        check("
+            use {base64} from \"std\"
+            fn main() { print(base64.encode(\"hello\")); }
         ").unwrap();
     }
 }

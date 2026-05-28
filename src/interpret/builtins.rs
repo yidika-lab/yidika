@@ -77,6 +77,12 @@ pub fn call_time(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default().as_secs())))
         }
+        "timestamp" => {
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default().as_secs() as i64;
+            Ok(Value::Int(secs))
+        }
         "sleep" => {
             let ms = args.into_iter().next()
                 .ok_or_else(|| error::err(ErrorKind::Runtime, span, "time.sleep() requires 1 argument"))?;
@@ -275,7 +281,7 @@ pub fn call_ffi(name: &str, field: &str, args: Vec<Value>, span: Span, ffi_path:
     };
     let func_name = format!("yk_{}_{}", name, field);
 
-    let func: libloading::Symbol<unsafe extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64> = unsafe {
+    let func: libloading::Symbol<unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64> = unsafe {
         match lib.get(func_name.as_bytes()) {
             Ok(f) => f,
             Err(_) => return Err(error::err(ErrorKind::Runtime, span, format!("FFI function '{}' not found in {}", func_name, lib_name))),
@@ -323,7 +329,31 @@ pub fn call_ffi(name: &str, field: &str, args: Vec<Value>, span: Span, ffi_path:
             let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
             f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5])
         }
-        _ => return Err(error::err(ErrorKind::Runtime, span, format!("FFI: too many arguments (max 6, got {})", raw_args.len()))),
+        7 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6])
+        }
+        8 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6], raw_args[7])
+        }
+        9 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6], raw_args[7], raw_args[8])
+        }
+        10 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6], raw_args[7], raw_args[8], raw_args[9])
+        }
+        11 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6], raw_args[7], raw_args[8], raw_args[9], raw_args[10])
+        }
+        12 => unsafe {
+            let f: unsafe extern "C" fn(i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) -> i64 = std::mem::transmute(fp);
+            f(raw_args[0], raw_args[1], raw_args[2], raw_args[3], raw_args[4], raw_args[5], raw_args[6], raw_args[7], raw_args[8], raw_args[9], raw_args[10], raw_args[11])
+        }
+        _ => return Err(error::err(ErrorKind::Runtime, span, format!("FFI: too many arguments (max 12, got {})", raw_args.len()))),
     };
     Ok(Value::Int(result))
 }
@@ -486,7 +516,7 @@ pub fn call_sys(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
     }
 }
 
-fn json_to_value(v: serde_json::Value) -> Value {
+pub fn json_to_value(v: serde_json::Value) -> Value {
     match v {
         serde_json::Value::Null => Value::None_,
         serde_json::Value::Bool(b) => Value::Bool(b),
@@ -503,7 +533,7 @@ fn json_to_value(v: serde_json::Value) -> Value {
     }
 }
 
-fn value_to_json(v: &Value) -> serde_json::Value {
+pub fn value_to_json(v: &Value) -> serde_json::Value {
     match v {
         Value::Int(i) => serde_json::Value::Number((*i).into()),
         Value::Real(f) => serde_json::Value::Number(serde_json::Number::from_f64(*f).unwrap_or(serde_json::Number::from(0))),
@@ -533,6 +563,7 @@ fn value_to_json(v: &Value) -> serde_json::Value {
             m.insert("fields".to_string(), serde_json::Value::Array(fields.iter().map(value_to_json).collect()));
             serde_json::Value::Object(m)
         }
+        Value::Fn(_) => serde_json::Value::Null,
     }
 }
 

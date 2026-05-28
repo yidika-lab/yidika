@@ -189,9 +189,68 @@ mod tests {
     }
 
     #[test]
+    fn set_dedup() {
+        let out = run(r#"fn main() { print(set { 1, 2, 2, 3, 1 }); }"#);
+        assert_eq!(out, "set{1, 2, 3}\n");
+        let out = run(r#"fn main() { s: auto = set { 1, 2, 3 }; s.add(2); s.add(4); print(s); }"#);
+        assert_eq!(out, "set{1, 2, 3, 4}\n");
+    }
+
+    #[test]
+    fn set_has() {
+        let out = run(r#"fn main() { s: auto = set { 1, 2, 3 }; print(s.has(2)); print(s.has(5)); }"#);
+        assert_eq!(out, "true\nfalse\n");
+    }
+
+    #[test]
+    fn set_add_remove() {
+        let out = run(r#"
+            fn main() {
+                s: auto = set { 1, 2, 3 };
+                s.remove(2);
+                s.add(4);
+                print(s);
+            }
+        "#);
+        assert_eq!(out, "set{1, 3, 4}\n");
+    }
+
+    #[test]
+    fn set_len() {
+        let out = run(r#"fn main() { s: auto = set { 10, 20, 30 }; print(s.len()); }"#);
+        assert_eq!(out, "3\n");
+    }
+
+    #[test]
+    fn set_to_list() {
+        let out = run(r#"fn main() { s: auto = set { 1, 2, 3 }; print(s.to_list()); }"#);
+        assert_eq!(out, "[1, 2, 3]\n");
+    }
+
+    #[test]
+    fn set_union_intersection_difference() {
+        let out = run(r#"
+            fn main() {
+                a: auto = set { 1, 2, 3, 4 };
+                b: auto = set { 3, 4, 5, 6 };
+                print(a.union(b));
+                print(a.intersection(b));
+                print(a.difference(b));
+            }
+        "#);
+        assert_eq!(out, "set{1, 2, 3, 4, 5, 6}\nset{3, 4}\nset{1, 2}\n");
+    }
+
+    #[test]
+    fn set_equality() {
+        let out = run(r#"fn main() { a: auto = set { 1, 2, 3 }; b: auto = set { 3, 2, 1 }; print(a == b); print(a == set { 1, 2 }); }"#);
+        assert_eq!(out, "true\nfalse\n");
+    }
+
+    #[test]
     fn fn_literal() {
         let out = run(r#"fn main() { print(fn () -> Int { 42 }); }"#);
-        assert_eq!(out, "42\n");
+        assert_eq!(out, "<fn>\n");
     }
 
     #[test]
@@ -369,5 +428,43 @@ mod tests {
             }
         ");
         assert_eq!(out, "circle\nsquare\ncircle\nsquare\n");
+    }
+
+    #[test]
+    fn union_type_annotation() {
+        let out = run("fn main() { x: int | str = 42; print(x); x = \"hello\"; print(x); }");
+        assert_eq!(out, "42\nhello\n");
+    }
+
+    #[test]
+    fn union_type_param() {
+        let out = run("
+            fn foo(x: int | str) {
+                print(x);
+            }
+            fn main() {
+                foo(42);
+                foo(\"hello\");
+            }
+        ");
+        assert_eq!(out, "42\nhello\n");
+    }
+
+    #[test]
+    fn union_match_int_or_str() {
+        let out = run("
+            fn describe(x: int | str) -> str {
+                return match x {
+                    42 => \"answer\",
+                    \"hello\" => \"greeting\",
+                    _ => \"other\",
+                };
+            }
+            fn main() {
+                print(describe(42));
+                print(describe(\"hello\"));
+            }
+        ");
+        assert_eq!(out, "answer\ngreeting\n");
     }
 }

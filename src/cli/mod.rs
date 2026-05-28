@@ -7,8 +7,7 @@ use crate::interpret::Interpreter;
 use crate::module::ModuleLoader;
 use crate::semantic::env::Env;
 use crate::semantic::typeck::TypeChecker;
-use crate::syntax::ast::{self, Module};
-use crate::syntax::parser::Parser;
+use crate::syntax::ast::Module;
 
 pub enum Command {
     Run(String, bool),
@@ -24,6 +23,7 @@ pub fn parse_args() -> Command {
     if args.len() < 2 {
         eprintln!("Usage:");
         eprintln!("  yidi <file>              Run a .yk file (interpreter)");
+        eprintln!("  yidi run <file>          Run a .yk file (interpreter)");
         eprintln!("  yidi <file> --watch      Run file and watch for changes");
         eprintln!("  yidi build <file>        Build a .yk file");
         eprintln!("  yidi build <file> --watch Rebuild on file change");
@@ -42,12 +42,18 @@ pub fn parse_args() -> Command {
             if verbose { Command::BuildWithInfo(args[2].clone(), watch) }
             else { Command::Build(args[2].clone(), watch) }
         }
+        "run" => {
+            if args.len() < 3 { eprintln!("Usage: yidi run <file>"); std::process::exit(1); }
+            let watch = args.iter().any(|a| a == "--watch");
+            Command::Run(args[2].clone(), watch)
+        }
         "add" => {
             if args.len() < 3 { eprintln!("Usage: yidi add <package>"); std::process::exit(1); }
             Command::Add(args[2].clone())
         }
         "sync" => Command::Sync,
         _ => {
+            // backward compatibility: treat bare path as "run"
             let watch = args.iter().any(|a| a == "--watch");
             Command::Run(args[1].clone(), watch)
         }
@@ -85,13 +91,12 @@ fn load(path: &PathBuf) -> Result<Vec<LoadedFile>, String> {
         .map_err(|e| e.to_string())?;
 
     let mut files = Vec::new();
-    for path in loader.iter() {
-        let source = fs::read_to_string(path)
-            .map_err(|e| format!("IO error: {}", e))?;
-        ast::reset_ids();
-        let module = Parser::parse(&source)
-            .map_err(|e| format!("{}", e.with_source(&source).with_file(&path.to_string_lossy())))?;
-        files.push(LoadedFile { path: path.clone(), source, module });
+    for loaded in loader.iter() {
+        files.push(LoadedFile {
+            path: loaded.path.clone(),
+            source: loaded.source.clone(),
+            module: loaded.module.clone(),
+        });
     }
     Ok(files)
 }
@@ -114,6 +119,7 @@ fn run_program(path: &PathBuf, watch: bool) -> Result<String, String> {
 
     let mut interp = Interpreter::new();
     interp.tui_mode = true;
+    interp.source_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
     for lf in &files {
         interp.load_module(&lf.module);
     }
@@ -146,7 +152,7 @@ fn watch_and_run(path: &PathBuf) -> Result<(), String> {
     }
 }
 
-fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show_info: bool) -> Result<String, String> {
+pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show_info: bool) -> Result<String, String> {
     let files = load(path)?;
     typecheck_all(&files)?;
 
@@ -158,7 +164,9 @@ fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show
     let hw = hardware::detect();
     let output_path = path.with_extension("");
 
-    backend.compile_with_info(&files[0].module, &output_path, &hw)
+    let modules: Vec<&Module> = files.iter().map(|f| &f.module).collect();
+    let file_paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
+    backend.compile_with_paths(&modules, &file_paths, &output_path, &hw)
         .map_err(|e| e.to_string())?;
 
     if watch {
@@ -196,7 +204,7 @@ fn sync_packages() -> Result<String, String> {
 #[cfg(test)]
 fn load_module(source: &str) -> Module {
     crate::syntax::ast::reset_ids();
-    Parser::parse(source).unwrap()
+    crate::syntax::parser::Parser::parse(source).unwrap()
 }
 
 #[cfg(test)]

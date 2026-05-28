@@ -39,6 +39,7 @@ impl SubInterpreterPool {
 pub struct Interpreter {
     pub globals: HashMap<String, Value>,
     pub const_vars: HashSet<String>,
+    pub json_files: HashMap<String, std::path::PathBuf>,
     pub struct_defs: Arc<HashMap<String, Vec<String>>>,
     pub classes: Arc<HashMap<String, ClassDef>>,
     pub objects: Arc<HashMap<String, ObjectDef>>,
@@ -56,6 +57,7 @@ pub struct Interpreter {
     pub next_task_id: u64,
     pub task_rxs: HashMap<u64, std::sync::mpsc::Receiver<Value>>,
     pub value_pool: crate::memory::arena::ValuePool,
+    pub source_dir: std::path::PathBuf,
 }
 
 impl Interpreter {
@@ -63,6 +65,7 @@ impl Interpreter {
         Self {
             globals: HashMap::new(),
             const_vars: HashSet::new(),
+            json_files: HashMap::new(),
             struct_defs: Arc::new(HashMap::new()),
             classes: Arc::new(HashMap::new()),
             objects: Arc::new(HashMap::new()),
@@ -80,6 +83,7 @@ impl Interpreter {
             next_task_id: 0,
             task_rxs: HashMap::new(),
             value_pool: crate::memory::arena::ValuePool::new(),
+            source_dir: std::path::PathBuf::from("."),
         }
     }
 
@@ -87,6 +91,7 @@ impl Interpreter {
         Self {
             globals: HashMap::new(),
             const_vars: HashSet::new(),
+            json_files: other.json_files.clone(),
             struct_defs: other.struct_defs.clone(),
             classes: other.classes.clone(),
             objects: other.objects.clone(),
@@ -104,6 +109,7 @@ impl Interpreter {
             next_task_id: 0,
             task_rxs: HashMap::new(),
             value_pool: crate::memory::arena::ValuePool::new(),
+            source_dir: other.source_dir.clone(),
         }
     }
 
@@ -118,6 +124,7 @@ impl Interpreter {
         self.builtin_funcs = base.builtin_funcs.clone();
         self.std_imported = base.std_imported;
         self.ffi_libs = base.ffi_libs.clone();
+        self.source_dir = base.source_dir.clone();
         self.clear_state();
     }
 
@@ -169,16 +176,43 @@ impl Interpreter {
                     }
                     _ => {
                         if let Some(lang) = &import.lang {
-                            for (name, _) in &import.names {
-                                builtin_modules.insert(name.clone(), format!("{}:{}", lang, source));
-                            }
-                            let lib_name = format!("yk_ffi_{}", import.source.replace('/', "_").replace('.', ""));
-                            let ext = std::env::consts::DLL_EXTENSION;
-                            let lib_path = std::path::Path::new("lib").join("ffi").join(format!("{}.{}", lib_name, ext));
-                            if lib_path.exists() {
-                                match unsafe { libloading::Library::new(&lib_path) } {
-                                    Ok(lib) => { self.ffi_libs.insert(lib_name, Arc::new(lib)); }
-                                    Err(e) => { eprintln!("Warning: failed to load FFI library '{}': {}", lib_path.display(), e); }
+                            if lang == "json" {
+                                let json_path = self.source_dir.join(&import.source);
+                                let json_str = match std::fs::read_to_string(&json_path) {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        eprintln!("Warning: failed to read JSON file '{}': {}", json_path.display(), e);
+                                        continue;
+                                    }
+                                };
+                                let json_val: serde_json::Value = match serde_json::from_str(&json_str) {
+                                    Ok(v) => v,
+                                    Err(e) => {
+                                        eprintln!("Warning: failed to parse JSON file '{}': {}", json_path.display(), e);
+                                        continue;
+                                    }
+                                };
+                                let val = crate::interpret::builtins::json_to_value(json_val);
+                                for (i, (name, _)) in import.names.iter().enumerate() {
+                                    builtin_modules.insert(name.clone(), "json".to_string());
+                                    self.globals.insert(name.clone(), val.clone());
+                                    if import.is_const.get(i).copied().unwrap_or(false) {
+                                        self.const_vars.insert(name.clone());
+                                    }
+                                    self.json_files.insert(name.clone(), json_path.clone());
+                                }
+                            } else {
+                                for (name, _) in &import.names {
+                                    builtin_modules.insert(name.clone(), format!("{}:{}", lang, source));
+                                }
+                                let lib_name = format!("yk_ffi_{}", import.source.replace('/', "_").replace('.', ""));
+                                let ext = std::env::consts::DLL_EXTENSION;
+                                let lib_path = std::path::Path::new("lib").join("ffi").join(format!("{}.{}", lib_name, ext));
+                                if lib_path.exists() {
+                                    match unsafe { libloading::Library::new(&lib_path) } {
+                                        Ok(lib) => { self.ffi_libs.insert(lib_name, Arc::new(lib)); }
+                                        Err(e) => { eprintln!("Warning: failed to load FFI library '{}': {}", lib_path.display(), e); }
+                                    }
                                 }
                             }
                         }
@@ -279,12 +313,15 @@ impl Interpreter {
         let tui_mode = self.tui_mode;
         let std_imported = self.std_imported;
         let ffi_libs = self.ffi_libs.clone();
+        let source_dir = self.source_dir.clone();
+        let json_files = self.json_files.clone();
         let result = builder.spawn(move || {
             let mut interp = Interpreter {
                 frames: vec![Frame::new()],
                 frame_pool: Vec::new(),
                 globals,
                 const_vars,
+                json_files,
                 struct_defs,
                 classes,
                 functions,
@@ -300,6 +337,7 @@ impl Interpreter {
                 next_task_id: 0,
                 task_rxs: HashMap::new(),
                 value_pool: crate::memory::arena::ValuePool::new(),
+                source_dir,
             };
             let fndef = interp.functions.get("main").cloned();
             match fndef {

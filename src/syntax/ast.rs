@@ -124,6 +124,7 @@ pub enum Expr {
     VectorLit(Vec<ExprNode>),
     MatrixLit(Vec<Vec<ExprNode>>),
     FnLit(Vec<Param>, Option<TypeNode>, Box<ExprNode>),
+    Closure(Vec<Param>, Box<ExprNode>),
     LitComplex(Box<ExprNode>, Box<ExprNode>),
     PostInc(Box<ExprNode>),
     PostDec(Box<ExprNode>),
@@ -180,7 +181,7 @@ pub enum Stmt {
     Decl { name: String, type_expr: Option<TypeNode>, value: ExprNode, is_const: bool },
     Expr(ExprNode),
     Return(Option<ExprNode>),
-    For(String, ExprNode, Vec<StmtNode>),
+    For(String, ExprNode, Vec<StmtNode>, bool), // bool = true for for-of (colon), false for for-in (in)
     While(ExprNode, Vec<StmtNode>),
     Loop(Vec<StmtNode>),
     If(ExprNode, Vec<StmtNode>, Option<Vec<StmtNode>>),
@@ -245,12 +246,14 @@ pub enum ItemKind {
 pub struct Import {
     pub span: Span,
     pub names: Vec<(String, Option<String>)>,
+    pub is_const: Vec<bool>,
     pub source: String,
     pub lang: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Module {
+    pub name: String,
     pub span: Span,
     pub imports: Vec<Import>,
     pub exports: Vec<String>,
@@ -409,6 +412,14 @@ pub fn substitute_in_expr(expr: &ExprNode, type_args: &HashMap<String, TypeExpr>
             ret_type.as_ref().map(|rt| substitute_type_node(rt, type_args)),
             Box::new(substitute_in_expr(body, type_args)),
         ),
+        Expr::Closure(params, body) => Expr::Closure(
+            params.iter().map(|p| Param {
+                name: p.name.clone(),
+                type_expr: substitute_type_node(&p.type_expr, type_args),
+                is_ref: p.is_ref,
+            }).collect(),
+            Box::new(substitute_in_expr(body, type_args)),
+        ),
         Expr::LitComplex(r, im) => Expr::LitComplex(
             Box::new(substitute_in_expr(r, type_args)),
             Box::new(substitute_in_expr(im, type_args)),
@@ -453,10 +464,11 @@ pub fn substitute_in_stmt(stmt: &StmtNode, type_args: &HashMap<String, TypeExpr>
         },
         Stmt::Expr(e) => Stmt::Expr(substitute_in_expr(e, type_args)),
         Stmt::Return(e) => Stmt::Return(e.as_ref().map(|x| substitute_in_expr(x, type_args))),
-        Stmt::For(name, iter, body) => Stmt::For(
+        Stmt::For(name, iter, body, is_for_of) => Stmt::For(
             name.clone(),
             substitute_in_expr(iter, type_args),
             body.iter().map(|s| substitute_in_stmt(s, type_args)).collect(),
+            *is_for_of,
         ),
         Stmt::While(cond, body) => Stmt::While(
             substitute_in_expr(cond, type_args),

@@ -49,23 +49,84 @@ impl Interpreter {
                 };
                 return Ok(Some(val));
             }
-            Stmt::For(var, iter, body) => {
+            Stmt::For(var, iter, body, is_for_of) => {
                 let iter_val = match self.eval_expr(iter)? {
                     EvalResult::Value(v) => v,
                     EvalResult::Return(v) => return Ok(Some(v)),
                 };
-                let (start, end) = match iter_val {
-                    Value::Range(s, e) => (s, e),
-                    Value::Int(end) => (0, end),
-                    _ => return Err(self.err(stmt.span, "For-in requires a range or integer")),
-                };
-                for i in start..end {
-                    self.push_frame();
-                    self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
-                    for s in body {
-                        if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                match iter_val {
+                    Value::Range(s, e) => {
+                        if s <= e {
+                            for i in s..e {
+                                self.push_frame();
+                                self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
+                                for s in body {
+                                    if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                }
+                                self.pop_frame();
+                            }
+                        } else {
+                            for i in ((e + 1)..=s).rev() {
+                                self.push_frame();
+                                self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
+                                for s in body {
+                                    if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                }
+                                self.pop_frame();
+                            }
+                        }
                     }
-                    self.pop_frame();
+                    Value::Int(end) => {
+                        for i in 0..end {
+                            self.push_frame();
+                            self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
+                            for s in body {
+                                if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                            }
+                            self.pop_frame();
+                        }
+                    }
+                    Value::List(items) => {
+                        let iterable: Vec<Value> = if *is_for_of {
+                            items.iter().cloned().collect()
+                        } else {
+                            (0..items.len()).map(|i| Value::Int(i as i64)).collect()
+                        };
+                        for val in iterable {
+                            self.push_frame();
+                            self.frames.last_mut().unwrap().insert(var.clone(), val);
+                            for s in body {
+                                if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                            }
+                            self.pop_frame();
+                        }
+                    }
+                    Value::Map(map) => {
+                        let iterable: Vec<Value> = if *is_for_of {
+                            map.values().cloned().collect()
+                        } else {
+                            map.keys().map(|k| Value::Str(k.clone())).collect()
+                        };
+                        for val in iterable {
+                            self.push_frame();
+                            self.frames.last_mut().unwrap().insert(var.clone(), val);
+                            for s in body {
+                                if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                            }
+                            self.pop_frame();
+                        }
+                    }
+                    Value::Set(set) => {
+                        for val in set {
+                            self.push_frame();
+                            self.frames.last_mut().unwrap().insert(var.clone(), val);
+                            for s in body {
+                                if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                            }
+                            self.pop_frame();
+                        }
+                    }
+                    _ => return Err(self.err(stmt.span, "For-in requires a range, integer, list, map, or set")),
                 }
                 Ok(None)
             }

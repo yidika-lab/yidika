@@ -6,9 +6,9 @@ use crate::syntax::token::Token;
 
 fn keyword_to_ident(tok: &Token) -> String {
     match tok {
-        Token::TInt => "int".into(),
-        Token::TRint => "rint".into(),
-        Token::TReal => "real".into(),
+        Token::TInt(w) => if *w == 0 { "int".into() } else { format!("int{}", w) },
+        Token::TRint(w) => if *w == 0 { "rint".into() } else { format!("rint{}", w) },
+        Token::TReal(w) => if *w == 0 { "real".into() } else { format!("real{}", w) },
         Token::TComplex => "complex".into(),
         Token::TBool => "bool".into(),
         Token::TStr => "str".into(),
@@ -42,7 +42,14 @@ impl Parser {
         let mut tokens = lexer::lex(source);
         tokens.push((Token::Eof, Span::new(source.len(), source.len())));
         let mut p = Parser { tokens, pos: 0, source: source.to_string(), no_struct: false };
-        p.module()
+        p.module("")
+    }
+
+    pub fn parse_with_name(source: &str, name: &str) -> Result<Module> {
+        let mut tokens = lexer::lex(source);
+        tokens.push((Token::Eof, Span::new(source.len(), source.len())));
+        let mut p = Parser { tokens, pos: 0, source: source.to_string(), no_struct: false };
+        p.module(name)
     }
 
     fn peek(&self) -> &(Token, Span) { &self.tokens[self.pos] }
@@ -61,12 +68,18 @@ impl Parser {
         else { Err(error::err(ErrorKind::Syntax, s, format!("Expected {:?}, found {:?}", expected, t))) }
     }
 
+    fn opt_semicolon(&mut self) {
+        if self.tok() == &Token::Semicolon {
+            self.advance();
+        }
+    }
+
     fn ident(&mut self) -> Result<String> {
         match self.tok() {
             Token::Ident(s) => { let s = s.clone(); self.pos += 1; Ok(s) }
-            Token::TInt => { self.pos += 1; Ok("int".into()) }
-            Token::TRint => { self.pos += 1; Ok("rint".into()) }
-            Token::TReal => { self.pos += 1; Ok("real".into()) }
+            Token::TInt(w) => { let w = *w; self.pos += 1; Ok(if w == 0 { "int".into() } else { format!("int{}", w) }) }
+            Token::TRint(w) => { let w = *w; self.pos += 1; Ok(if w == 0 { "rint".into() } else { format!("rint{}", w) }) }
+            Token::TReal(w) => { let w = *w; self.pos += 1; Ok(if w == 0 { "real".into() } else { format!("real{}", w) }) }
             Token::TComplex => { self.pos += 1; Ok("complex".into()) }
             Token::TBool => { self.pos += 1; Ok("bool".into()) }
             Token::TStr => { self.pos += 1; Ok("str".into()) }
@@ -138,9 +151,9 @@ impl Parser {
             Token::OkKw => "Ok".into(),
             Token::ErrorKw => "Error".into(),
             Token::Const => "const".into(),
-            Token::TInt => "int".into(),
-            Token::TRint => "rint".into(),
-            Token::TReal => "real".into(),
+            Token::TInt(w) => if *w == 0 { "int".into() } else { format!("int{}", w) },
+            Token::TRint(w) => if *w == 0 { "rint".into() } else { format!("rint{}", w) },
+            Token::TReal(w) => if *w == 0 { "real".into() } else { format!("real{}", w) },
             Token::TComplex => "complex".into(),
             Token::TBool => "bool".into(),
             Token::TStr => "str".into(),
@@ -165,7 +178,7 @@ impl Parser {
 
     // ─── Module ───────────────────────────────────────
 
-    fn module(&mut self) -> Result<Module> {
+    fn module(&mut self, name: &str) -> Result<Module> {
         let mut imports = Vec::new();
         let mut exports = Vec::new();
         let mut items = Vec::new();
@@ -184,7 +197,7 @@ impl Parser {
                 _ => items.push(self.item()?),
             }
         }
-        Ok(Module { span: Span::new(0, self.source.len()), imports, exports, items })
+        Ok(Module { name: name.to_string(), span: Span::new(0, self.source.len()), imports, exports, items })
     }
 
 fn item_name(kind: &ItemKind) -> Option<String> {
@@ -199,74 +212,73 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn import(&mut self) -> Result<Import> {
         let span = self.advance().1;
         let mut names = Vec::new();
+        let mut is_const = Vec::new();
         if self.tok() == &Token::LBrace {
             self.advance();
             loop {
                 let name = self.ident()?;
-                let alias = if self.tok() == &Token::As { self.advance(); Some(self.ident()?) } else { None };
+                let alias = if self.tok() == &Token::As {
+                    self.advance();
+                    Some(self.ident()?)
+                } else { None };
                 names.push((name, alias));
+                is_const.push(false);
                 if self.tok() == &Token::Comma { self.advance(); } else { break; }
             }
             self.eat(Token::RBrace)?;
         } else {
             let name = self.ident()?;
-            let alias = if self.tok() == &Token::As { self.advance(); Some(self.ident()?) } else { None };
+            let (alias, const_flag) = if self.tok() == &Token::As {
+                self.advance();
+                if self.tok() == &Token::Const {
+                    self.advance();
+                    (None, true)
+                } else {
+                    (Some(self.ident()?), false)
+                }
+            } else { (None, false) };
             names.push((name, alias));
+            is_const.push(const_flag);
         }
         self.eat(Token::From)?;
         let source = self.str_lit()?;
         let lang = source.find(':').map(|i| source[..i].to_string());
         let source = lang.as_ref().map(|l| source[l.len()+1..].to_string()).unwrap_or(source);
-        self.eat(Token::Semicolon)?;
-        Ok(Import { span, names, source, lang })
+        self.opt_semicolon();
+        Ok(Import { span, names, source, lang, is_const })
     }
 
     // ─── Items ────────────────────────────────────────
 
     fn item(&mut self) -> Result<ItemNode> {
         // @use() or @align(N) decorators — consume and apply to next item
-        if self.tok() == &Token::At {
+        if let Token::SymbolLit(sym) = self.tok() {
+            let name = sym[1..].to_string(); // strip @
             self.advance();
-            let decorator_name = if matches!(self.tok(), Token::Ident(_)) {
-                Some(self.ident()?)
-            } else {
-                None
-            };
-            if let Some(name) = decorator_name {
-                match name.as_str() {
-                    "use" => {
-                        self.eat(Token::LParen)?;
-                        self.expr(0)?;
-                        self.eat(Token::RParen)?;
-                        let mut item = self.item()?;
-                        item.decorators.push("use".to_string());
-                        return Ok(item);
-                    }
-                    "align" => {
-                        self.eat(Token::LParen)?;
-                        let align_val = match self.expr(0)? {
-                            ExprNode { value: Expr::LitInt(n), .. } => n,
-                            _ => { return Err(error::err(ErrorKind::Syntax, self.span(), "Invalid align value, expected integer")); }
-                        };
-                        self.eat(Token::RParen)?;
-                        let mut item = self.item()?;
-                        item.decorators.push(format!("align({})", align_val));
-                        return Ok(item);
-                    }
-                    _ => {
-                        let mut item = self.item()?;
-                        item.decorators.push(name);
-                        return Ok(item);
-                    }
+            match name.as_str() {
+                "use" => {
+                    self.eat(Token::LParen)?;
+                    self.expr(0)?;
+                    self.eat(Token::RParen)?;
+                    let mut item = self.item()?;
+                    item.decorators.push("use".to_string());
+                    return Ok(item);
+                }
+                "align" => {
+                    self.eat(Token::LParen)?;
+                    let align_val = match self.expr(0)? {
+                        ExprNode { value: Expr::LitInt(n), .. } => n,
+                        _ => { return Err(error::err(ErrorKind::Syntax, self.span(), "Invalid align value, expected integer")); }
+                    };
+                    self.eat(Token::RParen)?;
+                    let mut item = self.item()?;
+                    item.decorators.push(format!("align({})", align_val));
+                    return Ok(item);
+                }
+                _ => {
+                    return Err(error::err(ErrorKind::Syntax, self.span(), format!("Unknown decorator @{}", name)));
                 }
             }
-            // Fallback: consume parenthesized expression
-            self.eat(Token::LParen)?;
-            self.expr(0)?;
-            self.eat(Token::RParen)?;
-            let mut item = self.item()?;
-            item.decorators.push("use".to_string());
-            return Ok(item);
         }
         match self.tok() {
             Token::Fn => self.fn_item(false),
@@ -355,8 +367,8 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 self.eat(Token::RBrace)?;
                 Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Object { name: n, fields, methods, init_body }))
             }
-            Token::Type => { self.advance(); let n=self.ident()?; self.eat(Token::Eq)?; let t=self.type_()?; self.eat(Token::Semicolon)?; Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::TypeAlias{name:n,type_expr:t})) }
-            Token::Const => { self.advance(); let n=self.ident()?; self.eat(Token::Colon)?; let t=self.type_()?; self.eat(Token::Eq)?; let v=self.expr(0)?; self.eat(Token::Semicolon)?; Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Const{name:n,type_expr:t,value:v})) }
+            Token::Type => { self.advance(); let n=self.ident()?; self.eat(Token::Eq)?; let t=self.type_()?; self.opt_semicolon(); Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::TypeAlias{name:n,type_expr:t})) }
+            Token::Const => { self.advance(); let n=self.ident()?; self.eat(Token::Colon)?; let t=self.type_()?; self.eat(Token::Eq)?; let v=self.expr(0)?; self.opt_semicolon(); Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Const{name:n,type_expr:t,value:v})) }
             _ => Err(error::err(ErrorKind::Syntax, self.span(), format!("Expected item, found {:?}", self.tok()))),
         }
     }
@@ -527,16 +539,20 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn type_(&mut self) -> Result<TypeNode> {
         let (tok, span) = self.advance();
         let first = match tok {
-            Token::TInt => {
-                if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Int(v)) }
+            Token::TInt(w) => {
+                // Support both "int8" (TInt(8)) and "int 8" (TInt(0) + IntLit) syntaxes
+                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Int(w)) }
+                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Int(v)) }
                 else { TypeNode::new(fresh_id(),span,TypeExpr::Int(0)) }
             }
-            Token::TRint => {
-                if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Rint(v)) }
+            Token::TRint(w) => {
+                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Rint(w)) }
+                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Rint(v)) }
                 else { TypeNode::new(fresh_id(),span,TypeExpr::Rint(0)) }
             }
-            Token::TReal => {
-                if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Real(v)) }
+            Token::TReal(w) => {
+                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Real(w)) }
+                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Real(v)) }
                 else { TypeNode::new(fresh_id(),span,TypeExpr::Real(0)) }
             }
             Token::TComplex => {
@@ -670,7 +686,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::Return => {
                 self.advance();
                 if self.tok() == &Token::Semicolon { self.advance(); Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Return(None))) }
-                else { let e=self.expr(0)?; self.eat(Token::Semicolon)?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Return(Some(e)))) }
+                else { let e=self.expr(0)?; self.opt_semicolon(); Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Return(Some(e)))) }
             }
             Token::LBrace => {
                 let saved = self.pos;
@@ -694,7 +710,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 if is_destruct && self.tok() == &Token::Eq {
                     self.advance();
                     let expr = self.expr(0)?;
-                    self.eat(Token::Semicolon)?;
+                    self.opt_semicolon();
                     let fields: Vec<(String, Pattern)> = names.into_iter().map(|n| (n.clone(), Pattern::Ident(n))).collect();
                     return Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Destruct(Pattern::Destruct(fields), expr)));
                 }
@@ -706,7 +722,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 let pattern = self.list_destruct_pattern()?;
                 self.eat(Token::Eq)?;
                 let expr = self.expr(0)?;
-                self.eat(Token::Semicolon)?;
+                self.opt_semicolon();
                 Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Destruct(pattern, expr)))
             }
             // Declaration: ident ':' (const | type) ['=' expr ['as' 'const']] ';'
@@ -720,15 +736,15 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 if self.tok() == &Token::Eq {
                     self.advance();
                     let e = self.expr(0)?;
-                    self.eat(Token::Semicolon)?;
+                    self.opt_semicolon();
                     return Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Assign(name, e)));
                 }
                 self.pos = saved;
                 let e = self.expr(0)?;
-                self.eat(Token::Semicolon)?;
+                self.opt_semicolon();
                 Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(e)))
             }
-            _ => { let e=self.expr(0)?; self.eat(Token::Semicolon)?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Expr(e))) }
+            _ => { let e=self.expr(0)?; self.opt_semicolon(); Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Expr(e))) }
         }
     }
 
@@ -755,10 +771,10 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 value = ExprNode::new(fresh_id(), value.span, Expr::AsConst(Box::new(value)));
             }
 
-            self.eat(Token::Semicolon)?;
+            self.opt_semicolon();
             Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Decl { name, type_expr, value, is_const }))
         } else {
-            self.eat(Token::Semicolon)?;
+            self.opt_semicolon();
             let null = ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitNull);
             Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Decl { name, type_expr, value: null, is_const }))
         }
@@ -802,15 +818,16 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn for_stmt(&mut self) -> Result<StmtNode> {
         self.advance();
         self.eat(Token::LParen)?;
-        // Peek: if ident is followed by 'in' → for-in, else → C-style for
+        // Peek: if ident is followed by 'in' → for-in, ':' → for-of, else → C-style for
         let saved = self.pos;
         let first = self.ident()?;
-        if self.tok() == &Token::In {
+        if self.tok() == &Token::In || self.tok() == &Token::Colon {
+            let is_for_of = self.tok() == &Token::Colon;
             self.advance();
             let iterable = self.expr(0)?;
             self.eat(Token::RParen)?;
             let body = self.block_stmts()?;
-            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(first,iterable,body)))
+            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(first,iterable,body,is_for_of)))
         } else {
             self.pos = saved;
             let _init = self.expr(0)?;
@@ -938,6 +955,36 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             let rhs = self.expr(min_prec)?;
             lhs = ExprNode::new(fresh_id(), lhs.span, Expr::Range(Box::new(lhs), Box::new(rhs)));
         }
+        // Trailing closure: call():(params) { body }
+        if self.tok() == &Token::Colon {
+            if let Expr::Call(_, ref mut args) = &mut lhs.value {
+                self.advance();
+                self.eat(Token::LParen)?;
+                // Parse params without type annotations (all auto)
+                let mut closure_params = Vec::new();
+                loop {
+                    match self.tok() {
+                        Token::RParen | Token::Eof => break,
+                        _ => {
+                            let pname = self.ident()?;
+                            closure_params.push(Param {
+                                name: pname,
+                                type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer),
+                                is_ref: false,
+                            });
+                            if self.tok() == &Token::Comma { self.advance(); }
+                            else { break; }
+                        }
+                    }
+                }
+                self.eat(Token::RParen)?;
+                self.eat(Token::LBrace)?;
+                let body_expr = self.expr(0)?;
+                self.eat(Token::RBrace)?;
+                let lambda = ExprNode::new(fresh_id(), Span::new(0,0), Expr::Closure(closure_params, Box::new(body_expr)));
+                args.push(lambda);
+            }
+        }
         Ok(lhs)
     }
 
@@ -992,7 +1039,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 else if !self.no_struct && self.tok() == &Token::LBrace { self.struct_lit(name, span) }
                 else { Ok(ExprNode::new(fresh_id(),span,Expr::Ident(name))) }
             }
-            Token::TInt | Token::TRint | Token::TReal | Token::TComplex
+            Token::TInt(_) | Token::TRint(_) | Token::TReal(_) | Token::TComplex
             | Token::TBool | Token::TStr | Token::TSymbol
             | Token::TVector | Token::TMatrix | Token::TMap
             | Token::Infiny | Token::Open | Token::Abstract | Token::Data | Token::Init | Token::Super | Token::Override | Token::Final => {
@@ -1023,20 +1070,38 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                         if self.tok() != &Token::Comma { break; }
                     }
                     self.eat(Token::RParen)?;
-                    // Check if all items are list literals → matrix
-                    let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
-                    if all_list && items.len() >= 1 {
-                        let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
-                            Expr::ListLit(v) => v,
-                            _ => unreachable!(),
+                    if self.tok() == &Token::FatArrow {
+                        self.advance();
+                        let body = self.expr(0)?;
+                        let params = items.into_iter().map(|item| {
+                            let name = match &item.value { Expr::Ident(n) => n.clone(), _ => String::new() };
+                            Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }
                         }).collect();
-                        Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
+                        Ok(ExprNode::new(fresh_id(), span, Expr::FnLit(params, None, Box::new(body))))
                     } else {
-                        Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
+                        // Check if all items are list literals → matrix
+                        let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
+                        if all_list && items.len() >= 1 {
+                            let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
+                                Expr::ListLit(v) => v,
+                                _ => unreachable!(),
+                            }).collect();
+                            Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
+                        } else {
+                            Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
+                        }
                     }
                 } else {
                     self.eat(Token::RParen)?;
-                    Ok(e)
+                    if self.tok() == &Token::FatArrow {
+                        self.advance();
+                        let body = self.expr(0)?;
+                        let name = match &e.value { Expr::Ident(n) => n.clone(), _ => String::new() };
+                        let params = vec![Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }];
+                        Ok(ExprNode::new(fresh_id(), span, Expr::FnLit(params, None, Box::new(body))))
+                    } else {
+                        Ok(e)
+                    }
                 }
             }
             Token::LBrace => {
@@ -1075,7 +1140,24 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             }
             Token::Fn => {
                 self.eat(Token::LParen)?;
-                let params = self.params()?;
+                let mut params = Vec::new();
+                loop {
+                    match self.tok() {
+                        Token::RParen | Token::Eof => break,
+                        _ => {
+                            let pname = self.ident()?;
+                            let type_expr = if self.tok() == &Token::Colon {
+                                self.advance();
+                                self.type_()?
+                            } else {
+                                TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer)
+                            };
+                            params.push(Param { name: pname, type_expr, is_ref: false });
+                            if self.tok() == &Token::Comma { self.advance(); }
+                            else { break; }
+                        }
+                    }
+                }
                 self.eat(Token::RParen)?;
                 let ret_type = if self.tok() == &Token::Arrow { self.advance(); Some(self.type_()?) } else { None };
                 self.eat(Token::LBrace)?;
@@ -1142,6 +1224,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 Token::RBrace => { self.advance(); break; }
                 _ => {
                     let key = self.expr(0)?;
+                    let key = if let Expr::Ident(s) = &key.value {
+                        ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(s.clone()))
+                    } else { key };
                     self.eat(Token::Colon)?;
                     let val = self.expr(0)?;
                     pairs.push((key, val));
@@ -1425,7 +1510,7 @@ fn tokens_match(a: &Token, b: &Token) -> bool {
         |(Struct,Struct)|(Class,Class)|(Interface,Interface)|(Union,Union)|(Enum,Enum)|(Type,Type)|(Use,Use)|(Export,Export)|(As,As)|(From,From)
         |(Async,Async)|(Await,Await)|(Spawn,Spawn)|(Try,Try)|(Catch,Catch)|(Init,Init)|(Open,Open)|(Abstract,Abstract)|(Data,Data)|(Override,Override)|(Final,Final)|(True,True)|(False,False)|(Null,Null)|(None,None)
         |(OkKw,OkKw)|(ErrorKw,ErrorKw)|(Mut,Mut)|(Ref,Ref)|(Match,Match)|(Super,Super)
-        |(TInt,TInt)|(TRint,TRint)|(TReal,TReal)|(TComplex,TComplex)|(TBool,TBool)|(TStr,TStr)|(TSymbol,TSymbol)|(TVector,TVector)|(TMatrix,TMatrix)|(TMap,TMap)
+        |(TInt(_),TInt(_))|(TRint(_),TRint(_))|(TReal(_),TReal(_))|(TComplex,TComplex)|(TBool,TBool)|(TStr,TStr)|(TSymbol,TSymbol)|(TVector,TVector)|(TMatrix,TMatrix)|(TMap,TMap)
         |(Plus,Plus)|(Minus,Minus)|(Star,Star)|(Slash,Slash)|(Eq,Eq)|(EqEq,EqEq)|(NotEq,NotEq)
         |(Lt,Lt)|(Gt,Gt)|(LtEq,LtEq)|(GtEq,GtEq)|(Bang,Bang)|(And,And)|(Or,Or)|(Pipe,Pipe)|(Inc,Inc)|(Dec,Dec)|(Question,Question)|(QuestionDot,QuestionDot)|(Elvis,Elvis)|(Arrow,Arrow)|(FatArrow,FatArrow)
         |(LParen,LParen)|(RParen,RParen)|(LBrace,LBrace)|(RBrace,RBrace)|(LBracket,LBracket)|(RBracket,RBracket)

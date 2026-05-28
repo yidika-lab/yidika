@@ -1,7 +1,7 @@
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
     Real(f64),
@@ -18,9 +18,37 @@ pub enum Value {
     Complex(f64, f64),
     Instance(String, Vec<Value>),
     Variant(String, Vec<Value>),
+    Fn(crate::interpret::class::FnDef),
     Result(bool, Box<Value>),
     Null,
     None_,
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Real(a), Value::Real(b)) => a == b,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Str(a), Value::Str(b)) => a == b,
+            (Value::Char(a), Value::Char(b)) => a == b,
+            (Value::Range(a1, a2), Value::Range(b1, b2)) => a1 == b1 && a2 == b2,
+            (Value::List(a), Value::List(b)) => a == b,
+            (Value::Struct(a, b), Value::Struct(c, d)) => a == c && b == d,
+            (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Dict(a), Value::Dict(b)) => a == b,
+            (Value::Set(a), Value::Set(b)) => a.len() == b.len() && a.iter().all(|x| b.contains(x)),
+            (Value::Map(a), Value::Map(b)) => a == b,
+            (Value::Complex(a1, a2), Value::Complex(b1, b2)) => a1 == b1 && a2 == b2,
+            (Value::Instance(a, b), Value::Instance(c, d)) => a == c && b == d,
+            (Value::Variant(a, b), Value::Variant(c, d)) => a == c && b == d,
+            (Value::Fn(_), Value::Fn(_)) => false, // fn values never compare equal
+            (Value::Result(a1, a2), Value::Result(b1, b2)) => a1 == b1 && a2 == b2,
+            (Value::Null, Value::Null) => true,
+            (Value::None_, Value::None_) => true,
+            _ => false,
+        }
+    }
 }
 
 use std::collections::HashMap;
@@ -110,6 +138,7 @@ impl std::fmt::Display for Value {
                 }
                 Ok(())
             }
+            Value::Fn(_) => write!(f, "<fn>"),
         }
     }
 }
@@ -127,6 +156,7 @@ pub fn is_truthy(v: &Value) -> bool {
         Value::Real(f) => *f != 0.0,
         Value::None_ => false,
         Value::Null => false,
+        Value::Fn(_) => true,
         _ => true,
     }
 }

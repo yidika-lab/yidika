@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::syntax::ast::{TypeExpr, Param};
+use crate::syntax::ast::{EnumVariant, TypeExpr, Param};
 
 #[derive(Debug, Clone)]
 pub struct FnSig {
@@ -31,6 +31,8 @@ pub struct ClassDef {
     pub fields: Vec<Param>,
     pub methods: HashMap<String, MethodDef>,
     pub generics: Vec<String>,
+    pub interfaces: Vec<String>,
+    pub extends: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +49,7 @@ pub struct Env {
     pub(crate) class_interfaces: HashMap<String, Vec<String>>,
     pub(crate) classes: HashMap<String, ClassDef>,
     pub(crate) structs: HashMap<String, StructDef>,
+    pub(crate) enums: HashMap<String, Vec<EnumVariant>>,
 }
 
 impl Env {
@@ -59,7 +62,7 @@ impl Env {
         types.insert("bool".into(), TypeExpr::Bool);
         types.insert("str".into(), TypeExpr::Str);
         types.insert("symbol".into(), TypeExpr::Symbol);
-        Self { types, fns: HashMap::new(), interfaces: HashMap::new(), class_interfaces: HashMap::new(), classes: HashMap::new(), structs: HashMap::new() }
+        Self { types, fns: HashMap::new(), interfaces: HashMap::new(), class_interfaces: HashMap::new(), classes: HashMap::new(), structs: HashMap::new(), enums: HashMap::new() }
     }
 
     pub fn add_type(&mut self, name: String, ty: TypeExpr) {
@@ -108,5 +111,13 @@ impl Env {
 
     pub fn get_struct(&self, name: &str) -> Option<&StructDef> {
         self.structs.get(name)
+    }
+
+    pub fn add_enum(&mut self, name: String, variants: Vec<EnumVariant>) {
+        self.enums.insert(name, variants);
+    }
+
+    pub fn get_enum(&self, name: &str) -> Option<&Vec<EnumVariant>> {
+        self.enums.get(name)
     }
 }

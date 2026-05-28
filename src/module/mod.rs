@@ -8,6 +8,7 @@ use crate::syntax::parser::Parser;
 
 pub type FileId = usize;
 
+#[derive(Clone)]
 pub struct LoadedModule {
     pub id: FileId,
     pub path: PathBuf,
@@ -16,7 +17,7 @@ pub struct LoadedModule {
 }
 
 pub struct ModuleLoader {
-    files: Vec<PathBuf>,
+    files: Vec<LoadedModule>,
     loaded: HashMap<PathBuf, FileId>,
     visiting: Vec<PathBuf>,
     root: PathBuf,
@@ -50,15 +51,22 @@ impl ModuleLoader {
                 format!("Failed to read '{}': {}", canonical.display(), e)))?;
 
         ast::reset_ids();
-        let module = Parser::parse(&source)
+        let stem = canonical.file_stem().and_then(|s| s.to_str()).unwrap_or("yk");
+        let module = Parser::parse_with_name(&source, stem)
             .map_err(|e| e.with_source(&source).with_file(&canonical.to_string_lossy()))?;
 
         let id = self.files.len();
-        self.files.push(canonical.clone());
+        self.files.push(LoadedModule {
+            id,
+            path: canonical.clone(),
+            module,
+            source,
+        });
         self.loaded.insert(canonical.clone(), id);
         self.visiting.push(canonical.clone());
 
-        for import in &module.imports {
+        let imports = self.files[id].module.imports.clone();
+        for import in &imports {
             self.resolve_import(import, &canonical)?;
         }
 
@@ -77,7 +85,11 @@ impl ModuleLoader {
                     self.compile_rust_ffi(current, &import.source, &ffi_dir)?;
                 }
                 "c++" => {
-                    // C++ FFI not yet implemented
+                    let ffi_dir = self.root.join("lib").join("ffi");
+                    fs::create_dir_all(&ffi_dir)
+                        .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+                            format!("Failed to create ffi dir: {}", e)))?;
+                    self.compile_cpp_ffi(current, &import.source, &ffi_dir)?;
                 }
                 _ => {}
             }
@@ -171,7 +183,83 @@ impl ModuleLoader {
         Ok(())
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &PathBuf> {
+    fn detect_cxx_compiler() -> Option<String> {
+        // Try clang++ first
+        if let Ok(out) = std::process::Command::new("clang++").arg("--version").output() {
+            if out.status.success() { return Some("clang++".into()); }
+        }
+        // Try MSVC cl.exe
+        if let Ok(out) = std::process::Command::new("cl.exe").output() {
+            if out.status.success() { return Some("cl.exe".into()); }
+        }
+        None
+    }
+
+    fn compile_cpp_ffi(&self, current: &Path, source: &str, out_dir: &Path) -> Result<()> {
+        let base = current.parent().unwrap_or(Path::new("."));
+        let src_path = base.join(source);
+
+        if !src_path.exists() {
+            // Source not found; FFI will fail at runtime if the DLL is also missing
+            return Ok(());
+        }
+
+        let dll_name = format!("yk_ffi_{}.dll", source.replace('/', "_").replace('.', ""));
+        let dll_path = out_dir.join(&dll_name);
+
+        if dll_path.exists() {
+            return Ok(());
+        }
+
+        let compiler = match Self::detect_cxx_compiler() {
+            Some(c) => c,
+            None => {
+                // No C++ compiler; FFI will fail at runtime
+                return Ok(());
+            }
+        };
+
+        let output = if compiler == "cl.exe" {
+            std::process::Command::new("cl.exe")
+                .args(["/LD", "/nologo", "/Fo:"])
+                .arg(out_dir.join("yk_ffi_obj.obj"))
+                .arg(&src_path)
+                .arg("/link")
+                .arg(&format!("/OUT:{}", dll_path.to_string_lossy()))
+                .output()
+                .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+                    format!("Failed to run cl.exe for C++ FFI: {}", e)))?
+        } else {
+            let lib_name = format!("yk_ffi_{}.lib", source.replace('/', "_").replace('.', ""));
+            let lib_path = out_dir.join(&lib_name);
+            std::process::Command::new(&compiler)
+                .args(["-shared", "-fPIC", "-o"])
+                .arg(&dll_path)
+                .arg(&src_path)
+                .arg("-Xlinker")
+                .arg(&format!("/IMPLIB:{}", lib_path.to_string_lossy()))
+                .output()
+                .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
+                    format!("Failed to run clang++ for C++ FFI: {}", e)))?
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                format!("C++ compiler failed for FFI: {}", stderr)));
+        }
+
+        // Clean up cl.exe's side-effect files
+        if compiler == "cl.exe" {
+            let _ = std::fs::remove_file(out_dir.join("yk_ffi_obj.obj"));
+            let _ = std::fs::remove_file(out_dir.join("yk_ffi_obj.lib"));
+            let _ = std::fs::remove_file(out_dir.join("yk_ffi_obj.exp"));
+        }
+
+        Ok(())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &LoadedModule> {
         self.files.iter()
     }
 

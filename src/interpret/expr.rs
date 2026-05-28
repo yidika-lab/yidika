@@ -189,13 +189,26 @@ impl Interpreter {
                     if let Expr::Field(obj, field_name) = &l.value {
                         if let Expr::Ident(obj_name) = &obj.value {
                             if let Ok(val) = self.get_var(obj_name) {
-                                if let Value::Instance(cls_name, mut cls_fields) = val {
-                                    if let Some(cls) = self.classes.get(&cls_name) {
-                                        if let Some(idx) = cls.fields.iter().position(|f| f == field_name) {
-                                            cls_fields[idx] = rv.clone();
-                                            self.set_var(obj_name, Value::Instance(cls_name, cls_fields))?;
+                                match val {
+                                    Value::Instance(cls_name, mut cls_fields) => {
+                                        if let Some(cls) = self.classes.get(&cls_name) {
+                                            if let Some(idx) = cls.fields.iter().position(|f| f == field_name) {
+                                                cls_fields[idx] = rv.clone();
+                                                self.set_var(obj_name, Value::Instance(cls_name, cls_fields))?;
+                                            }
                                         }
                                     }
+                                    Value::Map(mut m) => {
+                                        m.insert(field_name.clone(), rv.clone());
+                                        self.globals.insert(obj_name.clone(), Value::Map(m.clone()));
+                                        if let Some(json_path) = self.json_files.get(obj_name) {
+                                            let json_val = crate::interpret::builtins::value_to_json(&Value::Map(m));
+                                            if let Ok(json_str) = serde_json::to_string_pretty(&json_val) {
+                                                let _ = std::fs::write(json_path, json_str);
+                                            }
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
                         }
@@ -296,6 +309,42 @@ impl Interpreter {
                                 if line.ends_with('\r') { line.pop(); }
                                 Ok(EvalResult::Value(Value::Str(line)))
                             }
+                            "fetch" => {
+                                let url = arg_vals.get(0)
+                                    .ok_or_else(|| self.err(expr.span, "fetch() requires at least 1 argument"))?;
+                                let url_str = url.to_string();
+                                let (method, body) = if let Some(Value::Dict(pairs)) = arg_vals.get(1) {
+                                    let mut m = "GET".to_string();
+                                    let mut b = String::new();
+                                    for (k, v) in pairs {
+                                        let ks = match k {
+                                            Value::Str(s) => s.clone(),
+                                            _ => k.to_string(),
+                                        };
+                                        match ks.as_str() {
+                                            "method" => m = v.to_string().to_uppercase(),
+                                            "body" => b = v.to_string(),
+                                            _ => {}
+                                        }
+                                    }
+                                    (m, b)
+                                } else {
+                                    let m = arg_vals.get(1).map(|v| v.to_string().to_uppercase()).unwrap_or_else(|| "GET".into());
+                                    let b = arg_vals.get(2).map(|v| v.to_string()).unwrap_or_default();
+                                    (m, b)
+                                };
+                                let req = ureq::http::Request::builder()
+                                    .method(method.as_str())
+                                    .uri(&url_str)
+                                    .body(body)
+                                    .map_err(|e| self.err(expr.span, format!("fetch build error: {}", e)))?;
+                                let mut response = ureq::run(req)
+                                    .map_err(|e| self.err(expr.span, format!("fetch error: {}", e)))?;
+                                let body_text = response.body_mut()
+                                    .read_to_string()
+                                    .map_err(|e| self.err(expr.span, format!("fetch read error: {}", e)))?;
+                                Ok(EvalResult::Value(Value::Str(body_text)))
+                            }
                             _ => {
                                 if let Some(module) = self.builtin_funcs.get(name).cloned() {
                                     let span = expr.span;
@@ -318,7 +367,25 @@ impl Interpreter {
                                             self.pop_frame();
                                             Ok(EvalResult::Value(result.unwrap_or(Value::None_)))
                                         }
-                                        None => Err(self.err(expr.span, format!("Unknown function '{}'", name))),
+                                        None => {
+                                            // Check if name is a variable holding a function value
+                                            match self.get_var(name) {
+                                                Ok(val) => match val {
+                                                    Value::Fn(fn_def) => {
+                                                        self.push_frame();
+                                                        for (i, param) in fn_def.params.iter().enumerate() {
+                                                            let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
+                                                            self.frames.last_mut().unwrap().insert(param.name.clone(), val);
+                                                        }
+                                                        let result = self.run_fn_body(&fn_def)?;
+                                                        self.pop_frame();
+                                                        Ok(EvalResult::Value(result.unwrap_or(Value::None_)))
+                                                    }
+                                                    _ => Err(self.err(expr.span, format!("'{}' is not a function", name))),
+                                                },
+                                                Err(_) => Err(self.err(expr.span, format!("Unknown function '{}'", name))),
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -482,7 +549,16 @@ impl Interpreter {
                                             if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
                                             Ok(EvalResult::Value(Value::None_))
                                         }
-                                        _ => Err(self.err(expr.span, "remove requires a list")),
+                                        Value::Set(items) => {
+                                            let val = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "remove requires 1 argument"))?;
+                                            if let Some(pos) = items.iter().position(|x| x == &val) {
+                                                items.remove(pos);
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(EvalResult::Value(Value::None_))
+                                        }
+                                        _ => Err(self.err(expr.span, "remove requires a list or set")),
                                     },
                                     "clear" => match &mut receiver {
                                         Value::List(items) => {
@@ -496,7 +572,9 @@ impl Interpreter {
                                         Value::Str(s) => Ok(EvalResult::Value(Value::Int(s.chars().count() as i64))),
                                         Value::List(l) => Ok(EvalResult::Value(Value::Int(l.len() as i64))),
                                         Value::Map(m) => Ok(EvalResult::Value(Value::Int(m.len() as i64))),
-                                        _ => Err(self.err(expr.span, "len requires a string, list, or map")),
+                                        Value::Dict(d) => Ok(EvalResult::Value(Value::Int(d.len() as i64))),
+                                        Value::Set(s) => Ok(EvalResult::Value(Value::Int(s.len() as i64))),
+                                        _ => Err(self.err(expr.span, "len requires a string, list, map, dict, or set")),
                                     },
                                     "split" => match &receiver {
                                         Value::Str(s) => {
@@ -724,15 +802,20 @@ impl Interpreter {
                                     },
                                     "keys" => match &receiver {
                                         Value::Map(m) => Ok(EvalResult::Value(Value::List(m.keys().map(|k| Value::Str(k.clone())).collect()))),
+                                        Value::Dict(d) => Ok(EvalResult::Value(Value::List(d.iter().map(|(k, _)| k.clone()).collect()))),
                                         _ => Err(self.err(expr.span, "keys requires a map")),
                                     },
                                     "values" => match &receiver {
                                         Value::Map(m) => Ok(EvalResult::Value(Value::List(m.values().cloned().collect()))),
+                                        Value::Dict(d) => Ok(EvalResult::Value(Value::List(d.iter().map(|(_, v)| v.clone()).collect()))),
                                         _ => Err(self.err(expr.span, "values requires a map")),
                                     },
                                     "entries" => match &receiver {
                                         Value::Map(m) => Ok(EvalResult::Value(Value::List(m.iter().map(|(k, v)| {
                                             Value::Tuple(vec![Value::Str(k.clone()), v.clone()])
+                                        }).collect()))),
+                                        Value::Dict(d) => Ok(EvalResult::Value(Value::List(d.iter().map(|(k, v)| {
+                                            Value::Tuple(vec![k.clone(), v.clone()])
                                         }).collect()))),
                                         _ => Err(self.err(expr.span, "entries requires a map")),
                                     },
@@ -745,7 +828,18 @@ impl Interpreter {
                                                 _ => Err(self.err(expr.span, "has requires a string key")),
                                             }
                                         }
-                                        _ => Err(self.err(expr.span, "has requires a map")),
+                                        Value::Dict(d) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "has requires 1 argument"))?;
+                                            let found = d.iter().any(|(k, _)| k == &key);
+                                            Ok(EvalResult::Value(Value::Bool(found)))
+                                        }
+                                        Value::Set(items) => {
+                                            let target = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "has requires 1 argument"))?;
+                                            Ok(EvalResult::Value(Value::Bool(items.contains(&target))))
+                                        }
+                                        _ => Err(self.err(expr.span, "has requires a map, dict, or set")),
                                     },
                                     "get" => match &receiver {
                                         Value::Map(m) => {
@@ -755,6 +849,12 @@ impl Interpreter {
                                                 Value::Str(k) => Ok(EvalResult::Value(m.get(&k).cloned().unwrap_or(Value::None_))),
                                                 _ => Err(self.err(expr.span, "get requires a string key")),
                                             }
+                                        }
+                                        Value::Dict(d) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "get requires 1 argument"))?;
+                                            let found = d.iter().find(|(k, _)| k == &key).map(|(_, v)| v.clone()).unwrap_or(Value::None_);
+                                            Ok(EvalResult::Value(found))
                                         }
                                         _ => Err(self.err(expr.span, "get requires a map")),
                                     },
@@ -766,6 +866,18 @@ impl Interpreter {
                                             match key {
                                                 Value::Str(k) => { m.insert(k, val); }
                                                 _ => return Err(self.err(expr.span, "set key must be a string")),
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(EvalResult::Value(Value::None_))
+                                        }
+                                        Value::Dict(d) => {
+                                            let mut args = arg_vals.into_iter();
+                                            let key = args.next().ok_or_else(|| self.err(expr.span, "set requires 2 arguments"))?;
+                                            let val = args.next().ok_or_else(|| self.err(expr.span, "set requires 2 arguments"))?;
+                                            if let Some(pos) = d.iter().position(|(k, _)| k == &key) {
+                                                d[pos] = (key, val);
+                                            } else {
+                                                d.push((key, val));
                                             }
                                             if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
                                             Ok(EvalResult::Value(Value::None_))
@@ -783,7 +895,83 @@ impl Interpreter {
                                             if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
                                             Ok(EvalResult::Value(Value::None_))
                                         }
+                                        Value::Dict(d) => {
+                                            let key = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "delete requires 1 argument"))?;
+                                            if let Some(pos) = d.iter().position(|(k, _)| k == &key) {
+                                                d.remove(pos);
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(EvalResult::Value(Value::None_))
+                                        }
                                         _ => Err(self.err(expr.span, "delete requires a map")),
+                                    },
+                                    "add" => match &mut receiver {
+                                        Value::Set(items) => {
+                                            let val = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "add requires 1 argument"))?;
+                                            if !items.contains(&val) {
+                                                items.push(val);
+                                            }
+                                            if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
+                                            Ok(EvalResult::Value(Value::None_))
+                                        }
+                                        _ => Err(self.err(expr.span, "add requires a set")),
+                                    },
+                                    "to_list" => match &receiver {
+                                        Value::Set(items) => {
+                                            Ok(EvalResult::Value(Value::List(items.clone())))
+                                        }
+                                        _ => Err(self.err(expr.span, "to_list requires a set")),
+                                    },
+                                    "union" => match &receiver {
+                                        Value::Set(items) => {
+                                            let other = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "union requires 1 argument"))?;
+                                            match other {
+                                                Value::Set(other_set) => {
+                                                    let mut result = items.clone();
+                                                    for v in other_set {
+                                                        if !result.contains(&v) { result.push(v); }
+                                                    }
+                                                    Ok(EvalResult::Value(Value::Set(result)))
+                                                }
+                                                _ => Err(self.err(expr.span, "union requires a set argument")),
+                                            }
+                                        }
+                                        _ => Err(self.err(expr.span, "union requires a set")),
+                                    },
+                                    "intersection" => match &receiver {
+                                        Value::Set(items) => {
+                                            let other = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "intersection requires 1 argument"))?;
+                                            match other {
+                                                Value::Set(other_set) => {
+                                                    let result: Vec<Value> = items.iter()
+                                                        .filter(|v| other_set.contains(v))
+                                                        .cloned().collect();
+                                                    Ok(EvalResult::Value(Value::Set(result)))
+                                                }
+                                                _ => Err(self.err(expr.span, "intersection requires a set argument")),
+                                            }
+                                        }
+                                        _ => Err(self.err(expr.span, "intersection requires a set")),
+                                    },
+                                    "difference" => match &receiver {
+                                        Value::Set(items) => {
+                                            let other = arg_vals.into_iter().next()
+                                                .ok_or_else(|| self.err(expr.span, "difference requires 1 argument"))?;
+                                            match other {
+                                                Value::Set(other_set) => {
+                                                    let result: Vec<Value> = items.iter()
+                                                        .filter(|v| !other_set.contains(v))
+                                                        .cloned().collect();
+                                                    Ok(EvalResult::Value(Value::Set(result)))
+                                                }
+                                                _ => Err(self.err(expr.span, "difference requires a set argument")),
+                                            }
+                                        }
+                                        _ => Err(self.err(expr.span, "difference requires a set")),
                                     },
                                     _ => Err(self.err(expr.span, format!("Unknown method '{}'", field))),
                                 }
@@ -820,8 +1008,19 @@ impl Interpreter {
                 let e = eval!(end);
                 match (s, e) {
                     (Value::Int(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a, b))),
-                    _ => Err(self.err(expr.span, "Range bounds must be integers")),
+                    (Value::Char(a), Value::Char(b)) if a as i64 <= b as i64 => Ok(EvalResult::Value(Value::Range(a as i64, b as i64 + 1))),
+                    (Value::Char(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a as i64, b as i64 - 1))),
+                    (Value::Char(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a as i64, b))),
+                    (Value::Int(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a, b as i64 + 1))),
+                    _ => Err(self.err(expr.span, "Range bounds must be integers or characters")),
                 }
+            }
+            Expr::Closure(params, body) => {
+                let body_stmts = vec![
+                    crate::syntax::ast::StmtNode::new(0, crate::diagnostics::span::Span::new(0,0), crate::syntax::ast::Stmt::Return(Some(*(*body).clone())))
+                ];
+                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts);
+                Ok(EvalResult::Value(Value::Fn(fn_def)))
             }
             Expr::ListLit(items) => {
                 let mut vals = self.value_pool.take_list_with_capacity(items.len());
@@ -847,6 +1046,10 @@ impl Interpreter {
                         let i = if i < 0 { (s.len() as i64 + i) as usize } else { i as usize };
                         s.chars().nth(i).map(|c| EvalResult::Value(Value::Str(c.to_string())))
                             .ok_or_else(|| self.err(expr.span, format!("Index {} out of bounds for string of length {}", i, s.len())))
+                    }
+                    (Value::Dict(d), idx_val) => {
+                        let found = d.iter().find(|(k, _)| k == &idx_val).map(|(_, v)| v.clone()).unwrap_or(Value::None_);
+                        Ok(EvalResult::Value(found))
                     }
                     _ => Err(self.err(expr.span, "Cannot index non-indexable value")),
                 }
@@ -896,6 +1099,14 @@ impl Interpreter {
                         "conj" => Ok(EvalResult::Value(Value::Complex(r, -i))),
                         _ => Err(self.err(expr.span, format!("Complex has no field '{}'", field))),
                     },
+                    Value::Map(m) => {
+                        Ok(EvalResult::Value(m.get(field).cloned().unwrap_or(Value::None_)))
+                    }
+                    Value::Dict(d) => {
+                        let key = Value::Str(field.clone());
+                        let found = d.iter().find(|(k, _)| k == &key).map(|(_, v)| v.clone()).unwrap_or(Value::None_);
+                        Ok(EvalResult::Value(found))
+                    }
                     _ => Err(self.err(expr.span, "Cannot access field on non-struct value")),
                 }
             }
@@ -921,6 +1132,9 @@ impl Interpreter {
                             .map_err(|_| self.err(expr.span, format!("Invalid tuple index '{}'", field)))?;
                         Ok(EvalResult::Value(items.get(idx).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Tuple index {} out of bounds", idx)))?))
+                    }
+                    Value::Map(m) => {
+                        Ok(EvalResult::Value(m.get(field).cloned().unwrap_or(Value::None_)))
                     }
                     _ => Err(self.err(expr.span, "Cannot access field on non-struct value")),
                 }
@@ -987,7 +1201,10 @@ impl Interpreter {
             Expr::SetLit(items) => {
                 let mut set = Vec::new();
                 for item in items {
-                    set.push(eval!(item));
+                    let val = eval!(item);
+                    if !set.contains(&val) {
+                        set.push(val);
+                    }
                 }
                 Ok(EvalResult::Value(Value::Set(set)))
             }
@@ -1007,11 +1224,12 @@ impl Interpreter {
                 }).collect()).collect();
                 Ok(EvalResult::Value(Value::List(vals?.into_iter().map(|r| Value::List(r)).collect())))
             }
-            Expr::FnLit(_, _, body) => {
-                Ok(EvalResult::Value(match self.eval_expr(body)? {
-                    EvalResult::Value(v) => v,
-                    EvalResult::Return(v) => v,
-                }))
+            Expr::FnLit(params, _, body) => {
+                let body_stmts = vec![
+                    crate::syntax::ast::StmtNode::new(0, crate::diagnostics::span::Span::new(0,0), crate::syntax::ast::Stmt::Return(Some(*body.clone())))
+                ];
+                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts);
+                Ok(EvalResult::Value(Value::Fn(fn_def)))
             }
             Expr::PostInc(i) | Expr::PostDec(i) => {
                 let val = eval!(i);
@@ -1089,6 +1307,7 @@ impl Interpreter {
                     let mut mini = Interpreter {
                         globals: HashMap::new(),
                         const_vars: HashSet::new(),
+                        json_files: HashMap::new(),
                         struct_defs: structs,
                         classes,
                         objects: Arc::new(HashMap::new()),
@@ -1106,6 +1325,7 @@ impl Interpreter {
                         next_task_id: 0,
                         task_rxs: HashMap::new(),
                         value_pool: crate::memory::arena::ValuePool::new(),
+                        source_dir: std::path::PathBuf::from("."),
                     };
                     mini.push_frame();
                     let result = mini.eval_expr(&expr_clone);

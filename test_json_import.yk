@@ -1,0 +1,8 @@
+use data as const from "json:./data.json";
+
+fn main() {
+    print(data.name);
+    print(data.age);
+    data.age = 30;
+    print(data.age);
+}

@@ -55,7 +55,7 @@ impl BorrowChecker {
                 self.check_expr(expr);
             }
             Stmt::Return(None) => {}
-            Stmt::For(_, expr, body) => {
+            Stmt::For(_, expr, body, _) => {
                 self.check_expr(expr);
                 for s in body {
                     self.check_stmt(s);
@@ -148,6 +148,14 @@ impl BorrowChecker {
             }
             Expr::FnLit(params, _, body) => {
                 // Nested function creates a new scope
+                let mut nested = BorrowChecker::new();
+                for p in params {
+                    nested.vars.insert(p.name.clone(), VarState::Live);
+                }
+                nested.check_expr(body);
+                self.errors.extend(nested.errors);
+            }
+            Expr::Closure(params, body) => {
                 let mut nested = BorrowChecker::new();
                 for p in params {
                     nested.vars.insert(p.name.clone(), VarState::Live);

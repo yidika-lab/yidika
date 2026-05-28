@@ -1,0 +1,21 @@
+fn call_it(val: auto, cb: auto) -> auto {
+    return cb(val);
+}
+
+fn main() {
+    // trailing closure
+    r1: auto = call_it(5):(x) { x * 2 };
+    print(r1);
+
+    // inline fn with auto-inferred types
+    r2: auto = call_it(10, fn (x) { x * 3 });
+    print(r2);
+
+    // arrow function single param
+    r3: auto = call_it(7, (x) => x * 4);
+    print(r3);
+
+    // arrow function multi param
+    adder: auto = fn (a, b) { a + b };
+    print(adder(3, 4));
+}

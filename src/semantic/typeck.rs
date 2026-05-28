@@ -38,12 +38,22 @@ fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
     match (expected, actual) {
         (TypeExpr::Rint(_), TypeExpr::Int(_)) => true,
         (TypeExpr::Real(_), TypeExpr::Int(_) | TypeExpr::Rint(_)) => true,
+        (TypeExpr::Nullable(inner), actual) if types_compatible(inner, actual) => true,
         (TypeExpr::Complex(er, ei), TypeExpr::Complex(ar, ai)) => {
             types_compatible(er, ar) && types_compatible(ei, ai)
         }
         (TypeExpr::Complex(_, _), TypeExpr::Int(_) | TypeExpr::Rint(_) | TypeExpr::Real(_)) => true,
+        (TypeExpr::Union(elems), _) => elems.iter().any(|e| types_compatible(e, actual)),
+        (_, TypeExpr::Union(elems)) => elems.iter().all(|a| types_compatible(expected, a)),
         _ => false,
     }
+}
+
+fn types_compatible_params(expected: &[TypeExpr], actual: &[TypeExpr]) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    expected.iter().zip(actual).all(|(e, a)| types_compatible(e, a))
 }
 
 fn wider_type(a: &TypeExpr, b: &TypeExpr) -> TypeExpr {
@@ -105,7 +115,7 @@ impl<'a> TypeChecker<'a> {
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
         // Register universally available builtins
-        for name in &["print", "println", "len", "str", "input", "typeof", "int", "real", "bool"] {
+        for name in &["print", "println", "len", "str", "input", "fetch", "typeof", "int", "real", "bool"] {
             self.builtin_modules.insert(name.to_string());
         }
         // Register builtin module imports
@@ -126,11 +136,40 @@ impl<'a> TypeChecker<'a> {
                 "io" | "json" | "datetime" | "path" | "base64" | "re" | "math" | "time" | "net" => {
                     for (name, _) in &import.names { self.builtin_modules.insert(name.clone()); }
                 }
-                _ => {}
+                _ => {
+                    if let Some(lang) = &import.lang {
+                        if lang == "json" {
+                            for (i, (name, _)) in import.names.iter().enumerate() {
+                                self.builtin_modules.insert(name.clone());
+                                if import.is_const.get(i).copied().unwrap_or(false) {
+                                    self.vars.insert(name.clone(), VarInfo { type_expr: TypeExpr::Infer, is_const: true, moved: false });
+                                }
+                            }
+                        } else {
+                            for (name, _) in &import.names {
+                                self.builtin_modules.insert(name.clone());
+                            }
+                        }
+                    }
+                }
             }
         }
         let exported: std::collections::HashSet<&str> =
             module.exports.iter().map(|s| s.as_str()).collect();
+        // Pass 1: register all interfaces first (so classes can reference them)
+        for item in &module.items {
+            if let ItemKind::Interface { name, methods } = &item.value {
+                let mut method_map: HashMap<String, FnSig> = HashMap::new();
+                for m in methods {
+                    let params: Vec<TypeExpr> = m.params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect();
+                    let ret = m.ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_);
+                    method_map.insert(m.name.clone(), FnSig { params, ret_type: ret, self_is_ref: false });
+                }
+                self.env.add_interface(name.clone(), crate::semantic::env::InterfaceDef { methods: method_map });
+                self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+            }
+        }
+        // Pass 2: check all items (classes can now validate interface implementations)
         for item in &module.items {
             self.check_item(item, &exported)?;
             if self.has_error { break; }
@@ -169,11 +208,21 @@ impl<'a> TypeChecker<'a> {
                     let t = self.resolve_type(&p.type_expr.value);
                     self.vars.insert(p.name.clone(), VarInfo { type_expr: t, is_const: false, moved: false });
                 }
-                self.current_fn_ret_type = Some(ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_));
+                self.current_fn_ret_type = Some(ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::Infer));
                 for s in body {
                      self.check_stmt(s)?;
                      if self.has_error { break; }
                  }
+                // Infer return type if not explicitly annotated
+                if ret_type.is_none() {
+                    let inferred = self.current_fn_ret_type.as_ref().map(|t| {
+                        if *t == TypeExpr::Infer { TypeExpr::None_ } else { t.clone() }
+                    }).unwrap_or(TypeExpr::None_);
+                    self.local_fns.get_mut(name).map(|sig| sig.ret_type = inferred.clone());
+                    if is_exported {
+                        self.env.add_fn(name.clone(), self.local_fns[name].clone());
+                    }
+                }
                 self.current_fn_ret_type = None;
                 Ok(())
             }
@@ -185,26 +234,80 @@ impl<'a> TypeChecker<'a> {
                 self.env.add_struct(name.clone(), StructDef { fields: fields.clone(), generics: generics.clone() });
                 Ok(())
             }
-            ItemKind::Class { name, fields, methods, generics, .. } => {
+            ItemKind::Class { name, fields, methods, generics, implements, extends, .. } => {
                 if is_exported {
                     self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
                 }
                 self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                let mut all_fields: Vec<Param> = Vec::new();
                 let mut method_map: HashMap<String, MethodDef> = HashMap::new();
+                if let Some(parent) = extends {
+                    if let Some(parent_cls) = self.env.get_class(parent) {
+                        all_fields.extend(parent_cls.fields.clone());
+                        for (mname, mdef) in &parent_cls.methods {
+                            method_map.insert(mname.clone(), mdef.clone());
+                        }
+                    } else {
+                        return self.fail(ErrorKind::NameError, item.span,
+                            format!("Parent class '{}' not found", parent));
+                    }
+                }
+                all_fields.extend(fields.clone());
                 for m in methods {
                     if let ItemKind::Fn { name: mname, params, ret_type, generics: mgens, .. } = m {
                         let rt = ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::None_);
                         method_map.insert(mname.clone(), MethodDef { params: params.clone(), ret_type: rt, generics: mgens.clone() });
                     }
                 }
-                self.env.add_class(name.clone(), ClassDef { fields: fields.clone(), methods: method_map, generics: generics.clone() });
+                // Validate that all interface methods are implemented
+                for iface_name in implements {
+                    self.env.add_class_interface(name.clone(), iface_name.clone());
+                    if let Some(iface) = self.env.get_interface(iface_name) {
+                        for (mname, isig) in &iface.methods {
+                            let mmethod = method_map.get(mname);
+                            match mmethod {
+                                Some(mdef) => {
+                                    let iface_params: Vec<TypeExpr> = isig.params.iter().map(|p| self.resolve_type(p)).collect();
+                                    let impl_params: Vec<TypeExpr> = mdef.params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect();
+                                    if !types_compatible_params(&iface_params, &impl_params) {
+                                        return self.fail(ErrorKind::TypeError, item.span,
+                                            format!("Class '{}' method '{}' parameter types don't match interface '{}'", name, mname, iface_name));
+                                    }
+                                    let iface_ret = isig.ret_type.clone();
+                                    let impl_ret = mdef.ret_type.clone();
+                                    if !types_compatible(&iface_ret, &impl_ret) {
+                                        return self.fail(ErrorKind::TypeError, item.span,
+                                            format!("Class '{}' method '{}' return type doesn't match interface '{}'", name, mname, iface_name));
+                                    }
+                                }
+                                None => {
+                                    return self.fail(ErrorKind::TypeError, item.span,
+                                        format!("Class '{}' does not implement method '{}' required by interface '{}'", name, mname, iface_name));
+                                }
+                            }
+                        }
+                    } else {
+                        return self.fail(ErrorKind::NameError, item.span,
+                            format!("Interface '{}' not found", iface_name));
+                    }
+                }
+                self.env.add_class(name.clone(), ClassDef { fields: all_fields, methods: method_map, generics: generics.clone(), interfaces: implements.clone(), extends: extends.clone() });
                 Ok(())
             }
-            ItemKind::Enum { name, .. } => {
+            ItemKind::Enum { name, variants } => {
+                self.env.add_enum(name.clone(), variants.clone());
                 if is_exported {
                     self.env.add_type(name.clone(), TypeExpr::Named(name.clone()));
                 }
                 self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
+                Ok(())
+            }
+            ItemKind::Union { name, variants } => {
+                let variant_types: Vec<TypeExpr> = variants.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect();
+                if is_exported {
+                    self.env.add_type(name.clone(), TypeExpr::Union(variant_types.clone()));
+                }
+                self.types.insert(name.clone(), TypeExpr::Union(variant_types));
                 Ok(())
             }
             ItemKind::Object { name, fields, methods, init_body } => {
@@ -321,7 +424,10 @@ impl<'a> TypeChecker<'a> {
                 if let Some(x) = e {
                     let t = self.check_expr(x)?;
                     self.mark_moved(x, &t);
-                    if let Some(ref ret_ty) = self.current_fn_ret_type {
+                    let should_update = self.current_fn_ret_type.as_ref().map_or(false, |rt| *rt == TypeExpr::Infer);
+                    if should_update {
+                        self.current_fn_ret_type = Some(t.clone());
+                    } else if let Some(ref ret_ty) = self.current_fn_ret_type {
                         if !types_compatible(ret_ty, &t) {
                             return self.fail(ErrorKind::TypeError, stmt.span,
                                 format!("Type mismatch: function returns {} but expression has type {}", ret_ty, t));
@@ -329,7 +435,10 @@ impl<'a> TypeChecker<'a> {
                     }
                     Ok(t)
                 } else {
-                    if let Some(ref ret_ty) = self.current_fn_ret_type {
+                    let should_update = self.current_fn_ret_type.as_ref().map_or(false, |rt| *rt == TypeExpr::Infer);
+                    if should_update {
+                        self.current_fn_ret_type = Some(TypeExpr::None_);
+                    } else if let Some(ref ret_ty) = self.current_fn_ret_type {
                         if !types_compatible(ret_ty, &TypeExpr::None_) {
                             return self.fail(ErrorKind::TypeError, stmt.span,
                                 format!("Type mismatch: function returns {} but no value returned", ret_ty));
@@ -338,10 +447,18 @@ impl<'a> TypeChecker<'a> {
                     Ok(TypeExpr::None_)
                 }
             }
-            Stmt::For(name, it, body) => {
-                self.check_expr(it)?;
+            Stmt::For(name, it, body, is_for_of) => {
+                let iter_ty = self.check_expr(it)?;
+                let var_ty = match (&iter_ty, *is_for_of) {
+                    (TypeExpr::List(elem), true) => *elem.clone(),
+                    (TypeExpr::List(_), false) => TypeExpr::Int(0),
+                    (TypeExpr::Set(elem), _) => *elem.clone(),
+                    (TypeExpr::Map(_, v), true) => *v.clone(),
+                    (TypeExpr::Map(k, _), false) => *k.clone(),
+                    _ => TypeExpr::Int(0),
+                };
                 let saved = self.vars.clone();
-                self.vars.insert(name.clone(), VarInfo { type_expr: TypeExpr::Int(0), is_const: false, moved: false });
+                self.vars.insert(name.clone(), VarInfo { type_expr: var_ty, is_const: false, moved: false });
                 for s in body { self.check_stmt(s)?; }
                 self.vars = saved;
                 Ok(TypeExpr::None_)
@@ -477,7 +594,7 @@ impl<'a> TypeChecker<'a> {
                                 "year" | "month" | "day" | "hour" | "minute" | "second" => Ok(TypeExpr::Int(0)),
                                 "join" | "dirname" | "basename" | "extension" => Ok(TypeExpr::Str),
                                 "is_absolute" => Ok(TypeExpr::Bool),
-                                "encode" | "decode" | "stringify" => Ok(TypeExpr::Str),
+                                "encode" | "decode" | "stringify" | "fetch" => Ok(TypeExpr::Str),
                                 "find" | "split" => Ok(TypeExpr::List(Box::new(TypeExpr::Str))),
                                 "replace" => Ok(TypeExpr::Str),
                                 "match" => Ok(TypeExpr::Bool),
@@ -682,8 +799,8 @@ impl<'a> TypeChecker<'a> {
                 if let Some(x) = e { self.check_expr(x)?; }
                 Ok(r)
             }
-            Expr::ResultOk(i) => self.check_expr(i),
-            Expr::ResultErr(i) => self.check_expr(i),
+            Expr::ResultOk(i) => { self.check_expr(i)?; Ok(TypeExpr::Named("auto".into())) }
+            Expr::ResultErr(i) => { self.check_expr(i)?; Ok(TypeExpr::Named("auto".into())) }
             Expr::Spawn(i) => self.check_expr(i),
             Expr::AsConst(i) => self.check_expr(i),
             Expr::PostInc(i) | Expr::PostDec(i) => self.check_expr(i),
@@ -750,10 +867,12 @@ impl<'a> TypeChecker<'a> {
                 Ok(TypeExpr::Matrix(Box::new(elem_ty)))
             }
             Expr::FnLit(params, ret_type, body) => {
+                let saved = self.vars.clone();
                 let mut param_types = Vec::new();
                 for p in params {
                     let pt = self.resolve_type(&p.type_expr.value);
                     param_types.push(pt);
+                    self.vars.insert(p.name.clone(), VarInfo { type_expr: self.resolve_type(&p.type_expr.value), is_const: false, moved: false });
                 }
                 let rt = ret_type.as_ref().map(|t| self.resolve_type(&t.value)).unwrap_or(TypeExpr::Infer);
                 if !matches!(rt, TypeExpr::Infer) {
@@ -761,7 +880,20 @@ impl<'a> TypeChecker<'a> {
                 } else {
                     self.check_expr(body)?;
                 }
+                self.vars = saved;
                 Ok(TypeExpr::Fn(param_types, Box::new(rt)))
+            }
+            Expr::Closure(params, body) => {
+                let saved = self.vars.clone();
+                let mut param_types = Vec::new();
+                for p in params {
+                    let pt = self.resolve_type(&p.type_expr.value);
+                    param_types.push(pt);
+                    self.vars.insert(p.name.clone(), VarInfo { type_expr: self.resolve_type(&p.type_expr.value), is_const: false, moved: false });
+                }
+                self.check_expr(body)?;
+                self.vars = saved;
+                Ok(TypeExpr::Fn(param_types, Box::new(TypeExpr::Infer)))
             }
             Expr::StructLit(name, fields) => {
                 let struct_def_opt = self.env.get_struct(name).cloned();
@@ -800,6 +932,21 @@ impl<'a> TypeChecker<'a> {
                     _ => self.fail(ErrorKind::TypeError, expr.span,
                         format!("Cannot cast {} to {}", inner_ty, target_ty)),
                 }
+            }
+            Expr::Match(scrutinee, arms) => {
+                let scrutinee_ty = self.check_expr(scrutinee)?;
+                self.check_match_exhaustive(&scrutinee_ty, arms, expr.span)?;
+                let mut result_ty = TypeExpr::Infer;
+                for (i, arm) in arms.iter().enumerate() {
+                    if let Some(guard) = &arm.guard {
+                        self.check_expr(guard)?;
+                    }
+                    let arm_ty = self.check_expr(&arm.body)?;
+                    if i == 0 {
+                        result_ty = arm_ty;
+                    }
+                }
+                Ok(result_ty)
             }
             _ => Ok(TypeExpr::Infer),
         }
@@ -844,6 +991,38 @@ impl<'a> TypeChecker<'a> {
                 }),
             other => other.clone(),
         }
+    }
+
+    fn check_match_exhaustive(&self, scrutinee_ty: &TypeExpr, arms: &[MatchArm], span: crate::diagnostics::span::Span) -> Result<()> {
+        let has_catch_all = arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Ignore | Pattern::Ident(_) | Pattern::Rest(_)));
+        if has_catch_all {
+            return Ok(());
+        }
+        match scrutinee_ty {
+            TypeExpr::Bool => {
+                let has_true = arms.iter().any(|arm| matches!(&arm.pattern, Pattern::LitBool(true)));
+                let has_false = arms.iter().any(|arm| matches!(&arm.pattern, Pattern::LitBool(false)));
+                if !has_true {
+                    return Err(error::err(ErrorKind::TypeError, span, format!("Non-exhaustive match: missing arm for `true`")));
+                }
+                if !has_false {
+                    return Err(error::err(ErrorKind::TypeError, span, format!("Non-exhaustive match: missing arm for `false`")));
+                }
+            }
+            TypeExpr::Named(name) => {
+                if let Some(variants) = self.env.get_enum(name) {
+                    for variant in variants {
+                        let covered = arms.iter().any(|arm| matches!(&arm.pattern, Pattern::Variant(vn, _) if vn == &variant.name));
+                        if !covered {
+                            return Err(error::err(ErrorKind::TypeError, span,
+                                format!("Non-exhaustive match: missing arm for `{}::{}`", name, variant.name)));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 }
 

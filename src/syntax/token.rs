@@ -4,7 +4,7 @@ pub enum Token {
     Struct, Class, Interface, Union, Enum, Object, Type, Use, Export, As, From,
     Async, Await, Spawn, Try, Catch, Init, Open, Abstract, Data, Override, Final, True, False, Null, None, Mut, Ref, Match, Super,
     OkKw, ErrorKw,
-    TInt, TRint, TReal, TComplex, TBool, TStr, TSymbol, TVector, TMatrix, TMap,
+    TInt(u8), TRint(u8), TReal(u8), TComplex, TBool, TStr, TSymbol, TVector, TMatrix, TMap,
     IntLit(String), HexLit(String), RealLit(String),
     ImagInt(String), ImagReal(String),
     StrLit(String), SymbolLit(String), CharLit(char),

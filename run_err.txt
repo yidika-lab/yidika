@@ -1,11 +1,15 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target\debug\yidi.exe run test_server.yk`
 ═══ Yidika Hardware Info ═══
 OS:      windows (x86_64-pc-windows)
 CPU:     x86_64 [AuthenticAMD]
 Cores:   6 physical, 6 logical (arch: x86_64)
 Cache:   L1=32 KB, L2=512 KB, L3=8.0 MB
 SIMD:    avx2 (["+sse", "+sse2", "+sse3", "+ssse3", "+sse4.1", "+sse4.2", "+avx", "+avx2"])
-RAM:     15.4 GB total, 5.2 GB available
+RAM:     15.4 GB total, 2.3 GB available
 GPU[0]: Unknown (no GPU detected) (unknown, shared)
 Opt:     O3 (high RAM) recommended
 Mode:    multi-core
 ═══════════════════════════════
+error[Io] at 0:0: File not found: 'run'
+error: process didn't exit successfully: `target\debug\yidi.exe run test_server.yk` (exit code: 1)
