@@ -1,18 +1,484 @@
-   0.563233700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: stale: changed "D:\\dev\\yidika\\src\\netlib\\mod.rs"
-   0.563771700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:           (vs) "D:\\dev\\yidika\\target\\debug\\.fingerprint\\yidi-4a9cd186bad79921\\dep-lib-yidi"
-   0.563831800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 13425918176, nanos: 958467600 } < FileTime { seconds: 13425927806, nanos: 790104300 }
-   0.584724700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint dirty for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
-   0.585751200s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "D:\\dev\\yidika\\target\\debug\\.fingerprint\\yidi-4a9cd186bad79921\\dep-lib-yidi", reference_mtime: FileTime { seconds: 13425918176, nanos: 958467600 }, stale: "D:\\dev\\yidika\\src\\netlib\\mod.rs", stale_mtime: FileTime { seconds: 13425927806, nanos: 790104300 } }))
-   1.381092100s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: stale: changed "D:\\dev\\yidika\\src\\codegen\\llvm.rs"
-   1.381196600s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:           (vs) "D:\\dev\\yidika\\target\\debug\\.fingerprint\\yidi-13d9ecd2391c26ea\\dep-test-lib-yidi"
-   1.381219700s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:                FileTime { seconds: 13425918176, nanos: 959475400 } < FileTime { seconds: 13425938949, nanos: 390200300 }
-   1.401085400s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint dirty for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
-   1.401136900s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleItem(ChangedFile { reference: "D:\\dev\\yidika\\target\\debug\\.fingerprint\\yidi-13d9ecd2391c26ea\\dep-test-lib-yidi", reference_mtime: FileTime { seconds: 13425918176, nanos: 959475400 }, stale: "D:\\dev\\yidika\\src\\codegen\\llvm.rs", stale_mtime: FileTime { seconds: 13425938949, nanos: 390200300 } }))
-   1.664842300s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint dirty for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
-   1.664912600s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { unit: UnitIndex(127) })
-   1.686984500s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint dirty for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
-   1.687054800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { unit: UnitIndex(127) })
-   1.707803800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="interpret"}: cargo::core::compiler::fingerprint: fingerprint dirty for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { kind: "bench", name: "interpret", tested: false, harness: false, ..: with_path("D:\\dev\\yidika\\benches\\interpret.rs", Edition2021) }
-   1.707906300s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="interpret"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(StaleDepFingerprint { unit: UnitIndex(127) })
+   0.206082800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
+   0.206149000s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-168c868e09c4ab44\lib-yidi`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_libgit2_prerelease
+  12: <unknown>
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.234834800s  INFO prepare_target{force=false package_id=tokio v1.52.3 target="tokio"}: cargo::core::compiler::fingerprint: fingerprint error for tokio v1.52.3/Check { test: false }/TargetInner { ..: lib_target("tokio", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\tokio-1.52.3\\src\\lib.rs", Edition2021) }
+   0.234872000s  INFO prepare_target{force=false package_id=tokio v1.52.3 target="tokio"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\tokio-747c4d30cef968b9\lib-tokio`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.235753500s  INFO prepare_target{force=false package_id=mio v1.2.1 target="mio"}: cargo::core::compiler::fingerprint: fingerprint error for mio v1.2.1/Check { test: false }/TargetInner { ..: lib_target("mio", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\mio-1.2.1\\src\\lib.rs", Edition2021) }
+   0.235787100s  INFO prepare_target{force=false package_id=mio v1.2.1 target="mio"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\mio-3feb8cca22072ff5\lib-mio`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.236198200s  INFO prepare_target{force=false package_id=windows-sys v0.61.2 target="windows_sys"}: cargo::core::compiler::fingerprint: fingerprint error for windows-sys v0.61.2/Check { test: false }/TargetInner { tested: false, doctest: false, ..: lib_target("windows_sys", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\windows-sys-0.61.2\\src\\lib.rs", Edition2021) }
+   0.236222700s  INFO prepare_target{force=false package_id=windows-sys v0.61.2 target="windows_sys"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\windows-sys-790289b05e0e7282\lib-windows_sys`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.237158700s  INFO prepare_target{force=false package_id=parking_lot v0.12.5 target="parking_lot"}: cargo::core::compiler::fingerprint: fingerprint error for parking_lot v0.12.5/Check { test: false }/TargetInner { ..: lib_target("parking_lot", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\parking_lot-0.12.5\\src\\lib.rs", Edition2021) }
+   0.237200900s  INFO prepare_target{force=false package_id=parking_lot v0.12.5 target="parking_lot"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\parking_lot-5f78e2d34dce3c3c\lib-parking_lot`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.239944800s  INFO prepare_target{force=false package_id=socket2 v0.6.4 target="socket2"}: cargo::core::compiler::fingerprint: fingerprint error for socket2 v0.6.4/Check { test: false }/TargetInner { ..: lib_target("socket2", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\socket2-0.6.4\\src\\lib.rs", Edition2021) }
+   0.239983500s  INFO prepare_target{force=false package_id=socket2 v0.6.4 target="socket2"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\socket2-9ff9c58c22700e32\lib-socket2`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.243361900s  INFO prepare_target{force=false package_id=ureq v3.3.0 target="ureq"}: cargo::core::compiler::fingerprint: fingerprint error for ureq v3.3.0/Check { test: false }/TargetInner { ..: lib_target("ureq", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\ureq-3.3.0\\src\\lib.rs", Edition2024) }
+   0.243398400s  INFO prepare_target{force=false package_id=ureq v3.3.0 target="ureq"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\ureq-38213c971a172f27\lib-ureq`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.254322000s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name_inferred: true, ..: lib_target("yidi", ["lib"], "D:\\dev\\yidika\\src\\lib.rs", Edition2021) }
+   0.254366800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-4f365ae2fae3a1ff\test-lib-yidi`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_libgit2_prerelease
+  12: <unknown>
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.255234100s  INFO prepare_target{force=false package_id=criterion v0.5.1 target="criterion"}: cargo::core::compiler::fingerprint: fingerprint error for criterion v0.5.1/Check { test: false }/TargetInner { name_inferred: true, benched: false, ..: lib_target("criterion", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\criterion-0.5.1\\src\\lib.rs", Edition2018) }
+   0.255275700s  INFO prepare_target{force=false package_id=criterion v0.5.1 target="criterion"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\criterion-7624f6a84e6a77b3\lib-criterion`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_libgit2_prerelease
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.259321600s  INFO prepare_target{force=false package_id=is-terminal v0.4.17 target="is_terminal"}: cargo::core::compiler::fingerprint: fingerprint error for is-terminal v0.4.17/Check { test: false }/TargetInner { ..: lib_target("is_terminal", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\is-terminal-0.4.17\\src\\lib.rs", Edition2018) }
+   0.259374800s  INFO prepare_target{force=false package_id=is-terminal v0.4.17 target="is_terminal"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\is-terminal-bb8e5f0a18d7437e\lib-is_terminal`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.260517500s  INFO prepare_target{force=false package_id=walkdir v2.5.0 target="walkdir"}: cargo::core::compiler::fingerprint: fingerprint error for walkdir v2.5.0/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("walkdir", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\walkdir-2.5.0\\src\\lib.rs", Edition2018) }
+   0.260556200s  INFO prepare_target{force=false package_id=walkdir v2.5.0 target="walkdir"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\walkdir-baad2bf222352225\lib-walkdir`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_libgit2_prerelease
+  14: <unknown>
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.261033700s  INFO prepare_target{force=false package_id=same-file v1.0.6 target="same_file"}: cargo::core::compiler::fingerprint: fingerprint error for same-file v1.0.6/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("same_file", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\same-file-1.0.6\\src\\lib.rs", Edition2018) }
+   0.261068100s  INFO prepare_target{force=false package_id=same-file v1.0.6 target="same_file"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\same-file-06ba7bd90e2eacad\lib-same_file`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_libgit2_prerelease
+  15: <unknown>
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: git_midx_writer_dump
+  20: git_filter_source_repo
+  21: git_midx_writer_dump
+  22: BaseThreadInitThunk
+  23: RtlUserThreadStart
+   0.261446400s  INFO prepare_target{force=false package_id=winapi-util v0.1.11 target="winapi_util"}: cargo::core::compiler::fingerprint: fingerprint error for winapi-util v0.1.11/Check { test: false }/TargetInner { ..: lib_target("winapi_util", ["lib"], "D:\\.caches\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\winapi-util-0.1.11\\src\\lib.rs", Edition2021) }
+   0.261466200s  INFO prepare_target{force=false package_id=winapi-util v0.1.11 target="winapi_util"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\winapi-util-0821e1b170263c3b\lib-winapi_util`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_libgit2_prerelease
+  16: <unknown>
+  17: <unknown>
+  18: <unknown>
+  19: <unknown>
+  20: git_midx_writer_dump
+  21: git_filter_source_repo
+  22: git_midx_writer_dump
+  23: BaseThreadInitThunk
+  24: RtlUserThreadStart
+   0.261896900s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: false }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
+   0.261933200s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-a959dc2a439e55db\bin-yidi`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_libgit2_prerelease
+  12: <unknown>
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.262831600s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { name: "yidi", doc: true, ..: with_path("D:\\dev\\yidika\\src\\main.rs", Edition2021) }
+   0.262865100s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="yidi"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-80c3f799d00d4dd3\test-bin-yidi`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_libgit2_prerelease
+  12: <unknown>
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.263805300s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="interpret"}: cargo::core::compiler::fingerprint: fingerprint error for yidi v0.1.0 (D:\dev\yidika)/Check { test: true }/TargetInner { kind: "bench", name: "interpret", tested: false, harness: false, ..: with_path("D:\\dev\\yidika\\benches\\interpret.rs", Edition2021) }
+   0.263837800s  INFO prepare_target{force=false package_id=yidi v0.1.0 (D:\dev\yidika) target="interpret"}: cargo::core::compiler::fingerprint:     err: failed to read `D:\dev\yidika\target\debug\.fingerprint\yidi-3c8ea2cebd0c48e4\test-bench-interpret`
+
+Caused by:
+    Le fichier spécifié est introuvable. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_repo
+   6: git_filter_source_repo
+   7: git_filter_source_repo
+   8: git_filter_source_repo
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_libgit2_prerelease
+  12: <unknown>
+  13: <unknown>
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+    Checking windows-sys v0.61.2
+    Checking parking_lot v0.12.5
+    Checking ureq v3.3.0
+    Checking winapi-util v0.1.11
+    Checking mio v1.2.1
+    Checking socket2 v0.6.4
+    Checking is-terminal v0.4.17
+    Checking same-file v1.0.6
+    Checking walkdir v2.5.0
+    Checking tokio v1.52.3
+    Checking criterion v0.5.1
     Checking yidi v0.1.0 (D:\dev\yidika)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.01s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.09s

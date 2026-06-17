@@ -1,4 +1,7 @@
 #![allow(dead_code)]
+mod hyper_server;
+pub use hyper_server::start_hyper_server;
+
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -637,7 +640,7 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
                     // On Windows, a warm-up accept at startup reduces first-connect latency
                     // from ~3s to ~60ms by triggering Windows Defender/WFP socket classification
                     // before the first real request.
-                    standard_accept_loop(&listener, &evt_server, evt_pool, &*evt_conn_count);
+                    standard_accept_loop(&listener, &evt_server, evt_pool, evt_conn_count);
                 });
 
                 let _ = evt_handle.join();
@@ -792,8 +795,8 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
 fn standard_accept_loop(
     listener: &std::net::TcpListener,
     server: &ServerInstance,
-    pool: &SubInterpreterPool,
-    conn_count: &AtomicU64,
+    pool: &'static SubInterpreterPool,
+    conn_count: Arc<AtomicU64>,
 ) {
     // Warm-up: connect+accept to trigger Windows Defender/WFP socket classification
     // slow-path before the first real request. We connect from THIS thread (not a
@@ -808,12 +811,17 @@ fn standard_accept_loop(
             drop(warmup);
         }
     }
+    let server = server.clone();
     loop {
         match listener.accept() {
             Ok((stream, _addr)) => {
+                let server = server.clone();
+                let conn_count = conn_count.clone();
                 conn_count.fetch_add(1, Ordering::Relaxed);
-                handle_connection(stream, server, pool);
-                conn_count.fetch_sub(1, Ordering::Relaxed);
+                std::thread::spawn(move || {
+                    handle_connection(stream, &server, pool);
+                    conn_count.fetch_sub(1, Ordering::Relaxed);
+                });
             }
             Err(e) => {
                 eprintln!("Accept error: {}", e);
