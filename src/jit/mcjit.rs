@@ -39,7 +39,7 @@ impl McJit {
             if let Some(f) = api.LLVMInitializeX86AsmParser { f(); }
 
             let create_ee = api.LLVMCreateExecutionEngineForModule.as_ref()
-                .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+                .ok_or_else(|| error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: LLVMCreateExecutionEngineForModule not found"))?;
 
             // Create a minimal empty module to bootstrap the engine.
@@ -59,7 +59,7 @@ impl McJit {
                 };
                 (api.LLVMDisposeModule)(module);
                 (api.LLVMContextDispose)(ctx);
-                return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                return Err(error::err(ErrorKind::JitError, Span::new(0, 0),
                     format!("MCJIT: engine creation failed: {}", err_str)));
             }
 
@@ -80,12 +80,12 @@ impl McJit {
     pub fn add_module(&self, ir: &str, module_name: &str) -> Result<()> {
         unsafe {
             let add_module = self.api.LLVMAddModule.as_ref()
-                .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+                .ok_or_else(|| error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: LLVMAddModule not found"))?;
 
             let ctx = (self.api.LLVMContextCreate)();
             let ir_cstr = CString::new(ir)
-                .map_err(|_| error::err(ErrorKind::Internal, Span::new(0, 0),
+                .map_err(|_| error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: IR contains null byte"))?;
             let membuf_name = CString::new(module_name)
                 .unwrap_or_else(|_| CString::new("yk_ir").unwrap());
@@ -94,7 +94,7 @@ impl McJit {
 
             if membuf.is_null() {
                 (self.api.LLVMContextDispose)(ctx);
-                return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                return Err(error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: failed to create memory buffer"));
             }
 
@@ -110,7 +110,7 @@ impl McJit {
                 };
                 (self.api.LLVMDisposeMemoryBuffer)(membuf);
                 (self.api.LLVMContextDispose)(ctx);
-                return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                return Err(error::err(ErrorKind::JitError, Span::new(0, 0),
                     format!("MCJIT: IR parse failed for '{}': {}", module_name, err_str)));
             }
             // NOTE: Do NOT dispose membuf here! LLVMParseIRInContext
@@ -138,11 +138,11 @@ impl McJit {
     pub fn lookup(&self, name: &str) -> Result<*mut std::ffi::c_void> {
         unsafe {
             let get_addr = self.api.LLVMGetFunctionAddress.as_ref()
-                .ok_or_else(|| error::err(ErrorKind::Internal, Span::new(0, 0),
+                .ok_or_else(|| error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: LLVMGetFunctionAddress not found"))?;
 
             let name_cstr = CString::new(name)
-                .map_err(|_| error::err(ErrorKind::Internal, Span::new(0, 0),
+                .map_err(|_| error::err(ErrorKind::JitError, Span::new(0, 0),
                     "MCJIT: function name contains null byte"))?;
 
             let inner = self.inner.lock().unwrap();
@@ -154,7 +154,7 @@ impl McJit {
 
             let addr = get_addr(inner.engine, name_cstr.as_ptr());
             if addr == 0 {
-                return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                return Err(error::err(ErrorKind::JitError, Span::new(0, 0),
                     format!("MCJIT: symbol '{}' not found", name)));
             }
 

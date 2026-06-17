@@ -1,0 +1,5 @@
+fn main() {
+    // This will cause a type error!
+    x: int = "hello world!";
+    print(x);
+}

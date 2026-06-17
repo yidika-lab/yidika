@@ -777,27 +777,29 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             // Declaration: ident ':' (const | type) ['=' expr ['as' 'const']] ';'
             Token::Ident(_) | Token::Data | Token::Open | Token::Abstract | Token::Init | Token::Super | Token::Override | Token::Final => {
                 let saved = self.pos;
+                let start_span = self.span();
                 let name = self.ident()?;
                 if self.tok() == &Token::Colon {
                     self.advance();
-                    return self.decl_stmt(name);
+                    return self.decl_stmt(name, start_span);
                 }
                 if self.tok() == &Token::Eq {
                     self.advance();
                     let e = self.expr(0)?;
                     self.opt_semicolon();
-                    return Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Assign(name, e)));
+                    let span = start_span.merge(e.span);
+                    return Ok(StmtNode::new(fresh_id(), span, Stmt::Assign(name, e)));
                 }
                 self.pos = saved;
                 let e = self.expr(0)?;
                 self.opt_semicolon();
-                Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(e)))
+                Ok(StmtNode::new(fresh_id(), e.span, Stmt::Expr(e)))
             }
-            _ => { let e=self.expr(0)?; self.opt_semicolon(); Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Expr(e))) }
+            _ => { let e=self.expr(0)?; self.opt_semicolon(); Ok(StmtNode::new(fresh_id(),e.span,Stmt::Expr(e))) }
         }
     }
 
-    fn decl_stmt(&mut self, name: String) -> Result<StmtNode> {
+    fn decl_stmt(&mut self, name: String, start_span: Span) -> Result<StmtNode> {
         let is_const: bool;
         let type_expr: Option<TypeNode>;
 
@@ -828,11 +830,13 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             }
 
             self.opt_semicolon();
-            Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Decl { name, type_expr, value, is_const }))
+            let span = start_span.merge(value.span);
+            Ok(StmtNode::new(fresh_id(), span, Stmt::Decl { name, type_expr, value, is_const }))
         } else {
             self.opt_semicolon();
-            let null = ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitNull);
-            Ok(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Decl { name, type_expr, value: null, is_const }))
+            let null = ExprNode::new(fresh_id(), start_span, Expr::LitNull);
+            let span = type_expr.as_ref().map_or(start_span, |t| start_span.merge(t.span));
+            Ok(StmtNode::new(fresh_id(), span, Stmt::Decl { name, type_expr, value: null, is_const }))
         }
     }
 

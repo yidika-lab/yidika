@@ -18,7 +18,7 @@ pub struct TypeChecker<'a> {
     fn_generics: HashMap<String, Vec<String>>,
     builtin_modules: std::collections::HashSet<String>,
     std_imported: bool,
-    has_error: bool,
+    error: Option<error::YkError>,
     current_fn_ret_type: Option<TypeExpr>,
 }
 
@@ -110,7 +110,7 @@ fn is_copy_type(t: &TypeExpr) -> bool {
 impl<'a> TypeChecker<'a> {
     pub fn new(env: &'a mut Env) -> Self {
         let types = env.types.clone();
-        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), fn_generics: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, has_error: false, current_fn_ret_type: None }
+        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), fn_generics: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, error: None, current_fn_ret_type: None }
     }
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
@@ -171,19 +171,22 @@ impl<'a> TypeChecker<'a> {
         }
         // Pass 2: check all items (classes can now validate interface implementations)
         for item in &module.items {
-            self.check_item(item, &exported)?;
-            if self.has_error { break; }
+            if let Err(e) = self.check_item(item, &exported) {
+                self.error = Some(e);
+                break;
+            }
         }
-        if self.has_error {
-            Err(error::err(ErrorKind::TypeError, module.span, "Type checking failed"))
+        if let Some(e) = self.error.take() {
+            Err(e)
         } else {
             Ok(())
         }
     }
 
     fn fail<T>(&mut self, kind: ErrorKind, span: crate::diagnostics::span::Span, msg: impl Into<String>) -> Result<T> {
-        self.has_error = true;
-        Err(error::err(kind, span, msg))
+        let err = error::err(kind, span, msg);
+        self.error = Some(err.clone());
+        Err(err)
     }
 
     fn check_item(&mut self, item: &ItemNode, exported: &std::collections::HashSet<&str>) -> Result<()> {
@@ -211,7 +214,6 @@ impl<'a> TypeChecker<'a> {
                 self.current_fn_ret_type = Some(ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::Infer));
                 for s in body {
                      self.check_stmt(s)?;
-                     if self.has_error { break; }
                  }
                 // Infer return type if not explicitly annotated (or annotated as auto)
                 if ret_type.as_ref().map_or(true, |r| r.value == TypeExpr::Infer) {
@@ -802,7 +804,6 @@ impl<'a> TypeChecker<'a> {
                 let saved = self.vars.clone();
                 for s in stmts {
                     self.check_stmt(s)?;
-                    if self.has_error { break; }
                 }
                 self.vars = saved;
                 Ok(TypeExpr::None_)
