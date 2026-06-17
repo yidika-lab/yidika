@@ -27,13 +27,18 @@ impl fmt::Display for YkError {
             // Find start and end of the surrounding block/function for context
             let mut block_start = start;
             let mut brace_count = 0;
-            // Look backwards to find the start of a block or function
+            // Look backwards to find the start of the surrounding scope
             while block_start > 0 {
                 let c = src.chars().nth(block_start - 1).unwrap_or('\0');
                 if c == '}' {
                     brace_count += 1;
                 } else if c == '{' {
                     if brace_count == 0 {
+                        // Also look a bit further back to include the function definition if possible
+                        while block_start > 0 && 
+                              !matches!(src.chars().nth(block_start - 1).unwrap_or('\0'), '\n' | ';') {
+                            block_start -= 1;
+                        }
                         break;
                     }
                     brace_count -= 1;
@@ -77,14 +82,14 @@ impl fmt::Display for YkError {
                 current_pos += line_len;
             }
 
-            // Display file name and location
+            // Display file name and location (clean format)
             let line_start = src[..self.span.start].rfind('\n').map(|i| i + 1).unwrap_or(0);
             let col = self.span.start.saturating_sub(line_start);
             if let Some(ref file) = self.file {
-                writeln!(f, "  \x1b[1;34mfile\x1b[0m: {}", file)?;
-                writeln!(f, "  \x1b[1;34m-->\x1b[0m {}:{}:{}", file, abs_line_num + error_line_idx, col + 1)?;
+                writeln!(f, "\n  \x1b[1;34min\x1b[0m: {}", file)?;
+                writeln!(f, "  \x1b[1;34mat\x1b[0m: line {}, column {}", abs_line_num + error_line_idx, col + 1)?;
             }
-            writeln!(f, "   \x1b[1;34m|\x1b[0m")?;
+            writeln!(f)?;
 
             // Calculate error range within the specific error line
             let line_start = src[..self.span.start].rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -98,20 +103,20 @@ impl fmt::Display for YkError {
                 1
             };
 
-            // Show only relevant lines (surrounding block)
+            // Show markdown-style code block (clean)
+            writeln!(f, "  \x1b[1;34mcode:\x1b[0m")?;
+            writeln!(f)?;
             for (i, line) in lines.iter().enumerate() {
-                writeln!(f, " {:>4} \x1b[1;34m|\x1b[0m {}", abs_line_num + i, line)?;
+                writeln!(f, "    {:>4} | {}", abs_line_num + i, line)?;
                 if i == error_line_idx {
-                    // Show the highlight
-                    writeln!(f, "   \x1b[1;34m|\x1b[0m {}{}",
+                    // Show the red highlight
+                    writeln!(f, "         | {}{}",
                         " ".repeat(error_start_col),
                         "\x1b[1;31m".to_string() + &"^".repeat(error_len) + "\x1b[0m"
                     )?;
                 }
             }
-
-            // Add closing vertical line for style
-            writeln!(f, "   \x1b[1;34m|\x1b[0m")?;
+            writeln!(f)?;
         }
 
         Ok(())
