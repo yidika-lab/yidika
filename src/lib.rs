@@ -411,10 +411,10 @@ mod tests {
     }
 
     #[test]
-    fn std_import_submodule_re() {
+    fn std_import_submodule_regex() {
         check("
-            use {re} from \"std\";
-            fn main() { x: bool = re.match(\"\\\\d+\", \"hi\"); }
+            use {regex} from \"std\";
+            fn main() { x: bool = regex.match(\"\\\\d+\", \"hi\"); }
         ").unwrap();
     }
 

@@ -133,7 +133,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-                "io" | "json" | "datetime" | "path" | "base64" | "re" | "math" | "time" | "net" => {
+                "io" | "json" | "datetime" | "path" | "base64" | "regex" | "math" | "time" | "net" => {
                     for (name, _) in &import.names { self.builtin_modules.insert(name.clone()); }
                 }
                 _ => {
@@ -213,8 +213,8 @@ impl<'a> TypeChecker<'a> {
                      self.check_stmt(s)?;
                      if self.has_error { break; }
                  }
-                // Infer return type if not explicitly annotated
-                if ret_type.is_none() {
+                // Infer return type if not explicitly annotated (or annotated as auto)
+                if ret_type.as_ref().map_or(true, |r| r.value == TypeExpr::Infer) {
                     let inferred = self.current_fn_ret_type.as_ref().map(|t| {
                         if *t == TypeExpr::Infer { TypeExpr::None_ } else { t.clone() }
                     }).unwrap_or(TypeExpr::None_);
@@ -415,7 +415,8 @@ impl<'a> TypeChecker<'a> {
                         inferred
                     }
                 };
-                let actual_const = *is_const || matches!(&value.value, Expr::AsConst(_));
+                let type_implies_const = type_expr.as_ref().map_or(false, |te| matches!(&te.value, TypeExpr::Const(_)));
+                let actual_const = *is_const || matches!(&value.value, Expr::AsConst(_)) || type_implies_const;
                 self.vars.insert(name.clone(), VarInfo { type_expr: t.clone(), is_const: actual_const, moved: false });
                 Ok(t)
             }
@@ -546,7 +547,9 @@ impl<'a> TypeChecker<'a> {
                 let lt = self.check_expr(l)?;
                 let rt = self.check_expr(r)?;
                 match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod
+                    | BinOp::Pow | BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor
+                    | BinOp::Shl | BinOp::Shr => {
                         if lt == TypeExpr::Infer { Ok(rt) }
                         else if rt == TypeExpr::Infer { Ok(lt) }
                         else if types_compatible(&lt, &rt) || types_compatible(&rt, &lt) {
@@ -573,6 +576,7 @@ impl<'a> TypeChecker<'a> {
                         _ => Ok(t),
                     }
                     UnOp::Not => Ok(t),
+                    UnOp::BitNot => Ok(t),
                 }
             }
             Expr::Call(callee, args) => {
@@ -650,6 +654,16 @@ impl<'a> TypeChecker<'a> {
                             }
                         } else if self.vars.contains_key(name) {
                             Ok(TypeExpr::Infer)
+                        } else if let Some(cls_def) = self.env.get_class(name) {
+                            for (i, (_, t)) in args.iter().zip(arg_types.iter()).enumerate() {
+                                if let Some(pt) = cls_def.fields.get(i) {
+                                    if !types_compatible(&pt.type_expr.value, t) {
+                                        return self.fail(ErrorKind::TypeError, expr.span,
+                                            format!("Type mismatch: parameter {} of constructor '{}' expects {} but got {}", i, name, pt.type_expr.value, t));
+                                    }
+                                }
+                            }
+                            Ok(TypeExpr::Named(name.clone()))
                         } else {
                             return self.fail(ErrorKind::NameError, expr.span,
                                 format!("Function '{}' not found or imported", name))
@@ -717,7 +731,7 @@ impl<'a> TypeChecker<'a> {
                                     "encode" | "decode" => Ok(TypeExpr::Str),
                                     _ => Ok(TypeExpr::Infer),
                                 },
-                                "re" => match func_name.as_str() {
+                                "regex" => match func_name.as_str() {
                                     "match" => Ok(TypeExpr::Bool),
                                     "find" | "split" => Ok(TypeExpr::List(Box::new(TypeExpr::Str))),
                                     "replace" => Ok(TypeExpr::Str),
@@ -948,6 +962,22 @@ impl<'a> TypeChecker<'a> {
                 }
                 Ok(result_ty)
             }
+            Expr::Field(obj, field) => {
+                match field.as_str() {
+                    "length" => {
+                        let obj_ty = self.check_expr(obj)?;
+                        match &obj_ty {
+                            TypeExpr::Str | TypeExpr::List(_) | TypeExpr::Set(_) | TypeExpr::Map(_, _) => Ok(TypeExpr::Int(0)),
+                            _ => Ok(TypeExpr::Infer),
+                        }
+                    }
+                    "toString" => {
+                        let _ = self.check_expr(obj)?;
+                        Ok(TypeExpr::Str)
+                    }
+                    _ => Ok(TypeExpr::Infer),
+                }
+            }
             _ => Ok(TypeExpr::Infer),
         }
     }
@@ -989,6 +1019,7 @@ impl<'a> TypeChecker<'a> {
                     self.env.get_type(name).cloned()
                         .unwrap_or_else(|| TypeExpr::Named(name.clone()))
                 }),
+            TypeExpr::Const(inner) => self.resolve_type(inner),
             other => other.clone(),
         }
     }

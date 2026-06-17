@@ -1,0 +1,10 @@
+use {fs, sys} from "io";
+use {cos, sin} from "math";
+use {dt} from "datetime";
+use {p} from "path";
+use {b} from "base64";
+use {regex} from "regex";
+use {json} from "json";
+fn main() {
+    print("all ok");
+}

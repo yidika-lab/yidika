@@ -1,0 +1,19 @@
+use {regex} from "regex";
+use {json} from "json";
+use {dt} from "datetime";
+use {p} from "path";
+fn main() {
+    parsed: auto = json.parse("{\"name\":\"Yidika\",\"ver\":1}");
+    print("JSON parsed: " + str(parsed));
+    print("JSON stringify: " + json.stringify(parsed));
+    print("Now: " + dt.now());
+    ts: int = dt.timestamp();
+    print("Year: " + str(dt.year(ts)));
+    print("Month: " + str(dt.month(ts)));
+    print("Day: " + str(dt.day(ts)));
+    print("Formatted: " + dt.format(ts, "%Y-%m-%d %H:%M:%S"));
+    print("Join: " + p.join("a", "b", "c.txt"));
+    print("Dirname: " + p.dirname("a/b/c.txt"));
+    print("Basename: " + p.basename("a/b/c.txt"));
+    print("Extension: " + p.extension("a/b/c.txt"));
+}

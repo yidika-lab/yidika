@@ -18,6 +18,8 @@ impl Interpreter {
                 match (&lv, &rv) {
                     (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
                     (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a + b)),
+                    (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a + *b as f64)),
+                    (Value::Int(a), Value::Real(b)) => Ok(Value::Real(*a as f64 + b)),
                     (Value::Str(a), Value::Str(b)) => Ok(Value::Str(format!("{}{}", a, b))),
                     _ => {
                         if let (Some((r1, i1)), Some((r2, i2))) = (to_c64(&lv), to_c64(&rv)) {
@@ -47,6 +49,24 @@ impl Interpreter {
                             BinOp::Sub => Value::Real(a - b),
                             BinOp::Mul => Value::Real(a * b),
                             BinOp::Div => Value::Real(a / b),
+                            _ => unreachable!(),
+                        };
+                        Ok(v)
+                    }
+                    (Value::Real(a), Value::Int(b)) => {
+                        let v = match op {
+                            BinOp::Sub => Value::Real(a - *b as f64),
+                            BinOp::Mul => Value::Real(a * *b as f64),
+                            BinOp::Div => Value::Real(a / *b as f64),
+                            _ => unreachable!(),
+                        };
+                        Ok(v)
+                    }
+                    (Value::Int(a), Value::Real(b)) => {
+                        let v = match op {
+                            BinOp::Sub => Value::Real(*a as f64 - b),
+                            BinOp::Mul => Value::Real(*a as f64 * b),
+                            BinOp::Div => Value::Real(*a as f64 / b),
                             _ => unreachable!(),
                         };
                         Ok(v)
@@ -85,6 +105,54 @@ impl Interpreter {
                 Ok(Value::Bool(b))
             }
             BinOp::Assign => Ok(rv),
+            BinOp::Mod => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
+                    (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a % b)),
+                    (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a % *b as f64)),
+                    (Value::Int(a), Value::Real(b)) => Ok(Value::Real(*a as f64 % b)),
+                    _ => Err(self.err(span, "Modulo requires numeric values")),
+                }
+            }
+            BinOp::Pow => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.pow(*b as u32))),
+                    (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a.powf(*b))),
+                    (Value::Int(a), Value::Real(b)) => Ok(Value::Real((*a as f64).powf(*b))),
+                    (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a.powf(*b as f64))),
+                    _ => Err(self.err(span, "Power requires numeric types")),
+                }
+            }
+            BinOp::BitAnd => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a & b)),
+                    _ => Err(self.err(span, "Bitwise AND requires two integers")),
+                }
+            }
+            BinOp::BitOr => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a | b)),
+                    _ => Err(self.err(span, "Bitwise OR requires two integers")),
+                }
+            }
+            BinOp::BitXor => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a ^ b)),
+                    _ => Err(self.err(span, "Bitwise XOR requires two integers")),
+                }
+            }
+            BinOp::Shl => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b)),
+                    _ => Err(self.err(span, "Shift left requires two integers")),
+                }
+            }
+            BinOp::Shr => {
+                match (&lv, &rv) {
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b)),
+                    _ => Err(self.err(span, "Shift right requires two integers")),
+                }
+            }
         }
     }
 
@@ -214,6 +282,11 @@ impl Interpreter {
                         }
                         return Ok(EvalResult::Value(rv));
                     }
+                    // Simple variable assignment (from desugared compound assign like x += 1)
+                    if let Expr::Ident(name) = &l.value {
+                        self.set_var(name, rv.clone())?;
+                        return Ok(EvalResult::Value(rv));
+                    }
                     return Ok(EvalResult::Value(rv));
                 }
                 let lv = eval!(l);
@@ -232,6 +305,10 @@ impl Interpreter {
                         Value::Bool(b) => Ok(EvalResult::Value(Value::Bool(!b))),
                         _ => Err(self.err(expr.span, "Cannot boolean not")),
                     },
+                    UnOp::BitNot => match v {
+                        Value::Int(i) => Ok(EvalResult::Value(Value::Int(!i))),
+                        _ => Err(self.err(expr.span, "Cannot bitwise not")),
+                    },
                 }
             }
             Expr::Call(callee, args) => {
@@ -239,7 +316,7 @@ impl Interpreter {
                 if let Expr::Field(obj, field) = &callee.value {
                     if let Ok(EvalResult::Value(obj_val)) = self.eval_expr(obj) {
                         if let Value::Instance(cls_name, _) = &obj_val {
-                            if cls_name == "Server" {
+                            if cls_name == "Server" || cls_name == "TcpStream" || cls_name == "UdpSocket" || cls_name == "TcpListener" || cls_name == "HTTP" {
                                 let mut processed_args = Vec::new();
                                 for a in args.iter() {
                                     let val = match &a.value {
@@ -368,6 +445,19 @@ impl Interpreter {
                                             Ok(EvalResult::Value(result.unwrap_or(Value::None_)))
                                         }
                                         None => {
+                                            // Check if name is a class (constructor call)
+                                            if let Some(cls) = self.classes.get(name).cloned() {
+                                                let mut vals = vec![Value::None_; cls.fields.len()];
+                                                for (i, param) in cls.constructor.iter().enumerate() {
+                                                    let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
+                                                    if let Some(field_idx) = cls.fields.iter().position(|f| f == &param.name) {
+                                                        vals[field_idx] = val;
+                                                    }
+                                                }
+                                                let instance = Value::Instance(name.clone(), vals);
+                                                let instance = self.run_init_blocks(&cls, instance, expr.span)?;
+                                                return Ok(EvalResult::Value(instance));
+                                            }
                                             // Check if name is a variable holding a function value
                                             match self.get_var(name) {
                                                 Ok(val) => match val {
@@ -406,7 +496,7 @@ impl Interpreter {
                                     "datetime" => Ok(EvalResult::Value(builtins::call_datetime(&func, arg_vals, expr.span)?)),
                                     "path" => Ok(EvalResult::Value(builtins::call_path_module(&func, arg_vals, expr.span)?)),
                                     "base64" => Ok(EvalResult::Value(builtins::call_base64(&func, arg_vals, expr.span)?)),
-                                    "re" => Ok(EvalResult::Value(builtins::call_re(&func, arg_vals, expr.span)?)),
+                                    "regex" => Ok(EvalResult::Value(builtins::call_regex(&func, arg_vals, expr.span)?)),
                                     "net" => Ok(EvalResult::Value(crate::netlib::call_net(&func, arg_vals, self, expr.span)?)),
                                     "math" => Ok(EvalResult::Value(builtins::call_math(&func, arg_vals, expr.span)?)),
                                     "time" => Ok(EvalResult::Value(builtins::call_time(&func, arg_vals, expr.span)?)),
@@ -490,6 +580,9 @@ impl Interpreter {
                                     }
                                 }
                                 match field.as_str() {
+                                    "toString" => {
+                                        Ok(EvalResult::Value(Value::Str(receiver.to_string())))
+                                    }
                                     "push" => match &mut receiver {
                                         Value::List(items) => {
                                             if let Some(val) = arg_vals.into_iter().next() {
@@ -1007,11 +1100,12 @@ impl Interpreter {
                 let s = eval!(start);
                 let e = eval!(end);
                 match (s, e) {
-                    (Value::Int(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a, b))),
-                    (Value::Char(a), Value::Char(b)) if a as i64 <= b as i64 => Ok(EvalResult::Value(Value::Range(a as i64, b as i64 + 1))),
-                    (Value::Char(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a as i64, b as i64 - 1))),
-                    (Value::Char(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a as i64, b))),
-                    (Value::Int(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a, b as i64 + 1))),
+                    (Value::Int(a), Value::Int(b)) if a <= b => Ok(EvalResult::Value(Value::Range(a, b + 1, false))),
+                    (Value::Int(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a, b - 1, false))),
+                    (Value::Char(a), Value::Char(b)) if (a as i64) <= (b as i64) => Ok(EvalResult::Value(Value::Range(a as i64, (b as i64) + 1, true))),
+                    (Value::Char(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a as i64, (b as i64) - 1, true))),
+                    (Value::Char(a), Value::Int(b)) => Ok(EvalResult::Value(Value::Range(a as i64, b + 1, true))),
+                    (Value::Int(a), Value::Char(b)) => Ok(EvalResult::Value(Value::Range(a, (b as i64) + 1, true))),
                     _ => Err(self.err(expr.span, "Range bounds must be integers or characters")),
                 }
             }
@@ -1057,11 +1151,34 @@ impl Interpreter {
             Expr::Field(obj, field) => {
                 let obj_val = eval!(obj);
                 match obj_val {
+                    Value::Str(s) if field == "length" => Ok(EvalResult::Value(Value::Int(s.len() as i64))),
+                    Value::List(items) if field == "length" => Ok(EvalResult::Value(Value::Int(items.len() as i64))),
+                    Value::Dict(pairs) if field == "length" => Ok(EvalResult::Value(Value::Int(pairs.len() as i64))),
+                    Value::Set(items) if field == "length" => Ok(EvalResult::Value(Value::Int(items.len() as i64))),
+                    Value::Map(m) if field == "length" => Ok(EvalResult::Value(Value::Int(m.len() as i64))),
+                    Value::Range(a, b, _) if field == "length" => Ok(EvalResult::Value(Value::Int((b - a).max(0)))),
                     Value::Struct(_, fields) => {
                         Ok(EvalResult::Value(fields.get(field).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Struct has no field '{}'", field)))?))
                     }
                     Value::Instance(cls_name, cls_fields) => {
+                        // HTTP pseudo-class field access (status, body, method)
+                        if cls_name == "HTTP" {
+                            let id = match cls_fields.first() {
+                                Some(Value::Int(id)) => *id,
+                                _ => return Err(self.err(expr.span, "Invalid HTTP instance id")),
+                            };
+                            let instances = crate::netlib::http_instances();
+                            let guard = instances.lock().unwrap();
+                            let http = guard.get(&(id as u64))
+                                .ok_or_else(|| self.err(expr.span, "HTTP instance not found"))?;
+                            return match field.as_str() {
+                                "status" => Ok(EvalResult::Value(Value::Int(http.last_status))),
+                                "body" => Ok(EvalResult::Value(Value::Str(http.last_body.clone()))),
+                                "method" => Ok(EvalResult::Value(Value::Str(http.default_method.clone()))),
+                                _ => Err(self.err(expr.span, format!("HTTP has no field '{}'", field))),
+                            };
+                        }
                         let fields = if let Some(cls) = self.classes.get(&cls_name) {
                             cls.fields.clone()
                         } else if let Some(obj) = self.objects.get(&cls_name) {
@@ -1114,6 +1231,12 @@ impl Interpreter {
                 let obj_val = eval!(obj);
                 match obj_val {
                     Value::Null => Ok(EvalResult::Value(Value::Null)),
+                    Value::Str(s) if field == "length" => Ok(EvalResult::Value(Value::Int(s.len() as i64))),
+                    Value::List(items) if field == "length" => Ok(EvalResult::Value(Value::Int(items.len() as i64))),
+                    Value::Dict(pairs) if field == "length" => Ok(EvalResult::Value(Value::Int(pairs.len() as i64))),
+                    Value::Set(items) if field == "length" => Ok(EvalResult::Value(Value::Int(items.len() as i64))),
+                    Value::Map(m) if field == "length" => Ok(EvalResult::Value(Value::Int(m.len() as i64))),
+                    Value::Range(a, b, _) if field == "length" => Ok(EvalResult::Value(Value::Int((b - a).max(0)))),
                     Value::Struct(_, fields) => {
                         Ok(EvalResult::Value(fields.get(field).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Struct has no field '{}'", field)))?))

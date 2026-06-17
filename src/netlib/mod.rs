@@ -2,6 +2,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::net::UdpSocket;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -248,6 +249,39 @@ fn sub_interpreter_pool() -> &'static SubInterpreterPool {
     POOL.get_or_init(|| SubInterpreterPool::new(64))
 }
 
+fn udp_sockets() -> &'static std::sync::Mutex<HashMap<u64, std::net::UdpSocket>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, std::net::UdpSocket>>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn tcp_listeners() -> &'static std::sync::Mutex<HashMap<u64, std::net::TcpListener>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, std::net::TcpListener>>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+fn tcp_streams() -> &'static std::sync::Mutex<HashMap<u64, std::net::TcpStream>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, std::net::TcpStream>>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+pub struct HttpInstance {
+    pub id: u64,
+    pub last_status: i64,
+    pub last_body: String,
+    pub default_method: String,
+}
+
+impl HttpInstance {
+    fn new(id: u64) -> Self {
+        HttpInstance { id, last_status: 0, last_body: String::new(), default_method: "GET".into() }
+    }
+}
+
+pub fn http_instances() -> &'static std::sync::Mutex<HashMap<u64, HttpInstance>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, HttpInstance>>> = std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
 fn ensure_server_class(interp: &mut Interpreter) {
     if !interp.classes.contains_key("Server") {
         Arc::make_mut(&mut interp.classes).insert("Server".into(), ClassDef {
@@ -397,28 +431,22 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                                 let mut interp = pool.take(base_interp());
                                 interp.push_frame();
 
-                                let has_req = fndef.params.iter().any(|p| p.name == "req");
-
-                                if has_req {
-                                    let mut fields = HashMap::with_capacity(4);
-                                    fields.insert(String::from("method"), Value::Str(method_raw));
-                                    fields.insert(String::from("path"), Value::Str(path_raw));
-                                    fields.insert(String::from("body"), Value::Str(body));
-                                    if !route_params.is_empty() {
-                                        let mut pmap = HashMap::with_capacity(route_params.len());
-                                        for (i, v) in route_params.iter().enumerate() {
-                                            pmap.insert(i.to_string(), Value::Str(v.clone()));
-                                        }
-                                        fields.insert(String::from("params"), Value::Struct(String::new(), pmap));
+                                let mut fields = HashMap::with_capacity(4);
+                                fields.insert(String::from("method"), Value::Str(method_raw));
+                                fields.insert(String::from("path"), Value::Str(path_raw));
+                                fields.insert(String::from("body"), Value::Str(body));
+                                if !route_params.is_empty() {
+                                    let mut pmap = HashMap::with_capacity(route_params.len());
+                                    for (i, v) in route_params.iter().enumerate() {
+                                        pmap.insert(i.to_string(), Value::Str(v.clone()));
                                     }
-                                    let req_val = Value::Struct("Request".into(), fields);
-
-                                    for param in fndef.params.iter() {
-                                        let val = if param.name == "req" { req_val.clone() } else { Value::None_ };
-                                        interp.frames.last_mut().unwrap().insert(param.name.clone(), val);
-                                    }
-                                } else {
-                                    for param in fndef.params.iter() {
+                                    fields.insert(String::from("params"), Value::Struct(String::new(), pmap));
+                                }
+                                let req_val = Value::Struct("Request".into(), fields);
+                                // Always inject req (matches AOT: handler always receives req)
+                                interp.frames.last_mut().unwrap().insert("req".into(), req_val);
+                                for param in fndef.params.iter() {
+                                    if param.name != "req" {
                                         interp.frames.last_mut().unwrap().insert(param.name.clone(), Value::None_);
                                     }
                                 }
@@ -451,7 +479,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
     }
 }
 
-pub fn call_net(func: &str, _args: Vec<Value>, interp: &mut Interpreter, span: Span) -> Result<Value> {
+pub fn call_net(func: &str, args: Vec<Value>, interp: &mut Interpreter, span: Span) -> Result<Value> {
     match func {
         "Server" => {
             ensure_server_class(interp);
@@ -460,100 +488,304 @@ pub fn call_net(func: &str, _args: Vec<Value>, interp: &mut Interpreter, span: S
             servers().lock().unwrap().insert(id, server);
             Ok(Value::Instance("Server".into(), vec![Value::Int(id as i64)]))
         }
+        "UdpSocket" => {
+            let addr = match args.first() {
+                Some(Value::Str(a)) => a.clone(),
+                _ => return Err(error::err(ErrorKind::Runtime, span, "UdpSocket(addr): expected string argument")),
+            };
+            let socket = UdpSocket::bind(&addr)
+                .map_err(|e| error::err(ErrorKind::Runtime, span, format!("UdpSocket bind failed: {}", e)))?;
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            udp_sockets().lock().unwrap().insert(id, socket);
+            Ok(Value::Instance("UdpSocket".into(), vec![Value::Int(id as i64)]))
+        }
+        "TcpStream" => {
+            let addr = match args.first() {
+                Some(Value::Str(a)) => a.clone(),
+                _ => return Err(error::err(ErrorKind::Runtime, span, "TcpStream(addr): expected string argument")),
+            };
+            let stream = TcpStream::connect(&addr)
+                .map_err(|e| error::err(ErrorKind::Runtime, span, format!("TcpStream connect failed: {}", e)))?;
+            let _ = stream.set_nodelay(true);
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            tcp_streams().lock().unwrap().insert(id, stream);
+            Ok(Value::Instance("TcpStream".into(), vec![Value::Int(id as i64)]))
+        }
+        "lookup" => {
+            let host = match args.first() {
+                Some(Value::Str(a)) => a.clone(),
+                _ => return Err(error::err(ErrorKind::Runtime, span, "lookup(host): expected string argument")),
+            };
+            let ip = match std::net::ToSocketAddrs::to_socket_addrs(&host.as_str()) {
+                Ok(mut addrs) => addrs.find_map(|a| Some(a.ip().to_string())).unwrap_or_default(),
+                Err(e) => return Err(error::err(ErrorKind::Runtime, span, format!("DNS lookup failed: {}", e))),
+            };
+            Ok(Value::Str(ip))
+        }
+        "HTTP" => {
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            http_instances().lock().unwrap().insert(id, HttpInstance::new(id));
+            Ok(Value::Instance("HTTP".into(), vec![Value::Int(id as i64)]))
+        }
+        "TcpListener" => {
+            let addr = match args.first() {
+                Some(Value::Str(a)) => a.clone(),
+                _ => return Err(error::err(ErrorKind::Runtime, span, "TcpListener(addr): expected string argument")),
+            };
+            let listener = std::net::TcpListener::bind(&addr)
+                .map_err(|e| error::err(ErrorKind::Runtime, span, format!("TcpListener bind failed: {}", e)))?;
+            listener.set_nonblocking(true).ok();
+            let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            tcp_listeners().lock().unwrap().insert(id, listener);
+            Ok(Value::Instance("TcpListener".into(), vec![Value::Int(id as i64)]))
+        }
         _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown netlib function '{}'", func))),
     }
 }
 
 pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], receiver: Value, interp: &mut Interpreter, span: Span) -> Result<Value> {
-    let id = match &receiver {
-        Value::Instance(_, fields) => match fields.first() {
-            Some(Value::Int(id)) => *id as u64,
-            _ => return Err(error::err(ErrorKind::Runtime, span, "Invalid server instance")),
+    let (type_name, id) = match &receiver {
+        Value::Instance(tn, fields) => match fields.first() {
+            Some(Value::Int(id)) => (tn.clone(), *id as u64),
+            _ => return Err(error::err(ErrorKind::Runtime, span, "Invalid instance")),
         },
-        _ => return Err(error::err(ErrorKind::Runtime, span, "Expected server instance")),
+        _ => return Err(error::err(ErrorKind::Runtime, span, "Expected instance")),
     };
-    match method {
-        "get" | "post" => {
-            let path = get_str(&args, 0, span)?;
-            if args.len() < 2 {
-                return Err(error::err(ErrorKind::Runtime, span, "get/post requires a handler argument"));
-            }
-            let handler = match (args.get(1), raw_args.get(1)) {
-                (Some(Value::Str(text)), Some(raw)) => {
-                    match &raw.value {
-                        Expr::LitStr(_) => Handler::Literal(text.clone()),
-                        _ => {
-                            if let Some(fndef) = interp.functions.get(text) {
-                                Handler::Fn(text.clone(), fndef.clone())
-                            } else {
-                                return Err(error::err(ErrorKind::Runtime, span, format!("Function '{}' not found", text)));
+    match type_name.as_str() {
+        "Server" => match method {
+            "get" | "post" | "put" | "delete" | "patch" | "ws" => {
+                let path = get_str(&args, 0, span)?;
+                if args.len() < 2 {
+                    return Err(error::err(ErrorKind::Runtime, span, "route requires a handler argument"));
+                }
+                let handler = match (args.get(1), raw_args.get(1)) {
+                    (Some(Value::Str(text)), Some(raw)) => {
+                        match &raw.value {
+                            Expr::LitStr(_) => Handler::Literal(text.clone()),
+                            _ => {
+                                if let Some(fndef) = interp.functions.get(text) {
+                                    Handler::Fn(text.clone(), fndef.clone())
+                                } else {
+                                    return Err(error::err(ErrorKind::Runtime, span, format!("Function '{}' not found", text)));
+                                }
                             }
                         }
                     }
-                }
-                _ => return Err(error::err(ErrorKind::Runtime, span, "Handler must be a string or function name")),
-            };
-            let m = if method == "get" { "GET" } else { "POST" };
-            if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
-                srv.routes.add_route(&path, m, handler);
-            }
-            Ok(Value::None_)
-        }
-        "serve" => {
-            #[cfg(windows)]
-            {
-                extern "system" {
-                    fn timeBeginPeriod(uPeriod: u32) -> u32;
-                }
-                unsafe { timeBeginPeriod(1); }
-            }
-
-            let _addr = if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
-                let addr = match args.first() {
-                    Some(Value::Int(port)) => format!("0.0.0.0:{}", port),
-                    Some(Value::Str(a)) => a.clone(),
-                    _ => "0.0.0.0:8080".into(),
+                    (Some(Value::Fn(fndef)), _) => {
+                        Handler::Fn(format!("__handler_fn_{}", fndef.body.len()), fndef.clone())
+                    }
+                    _ => return Err(error::err(ErrorKind::Runtime, span, "Handler must be a string, function name, fn(){} or ()=>{")),
                 };
-                srv.addr = addr.clone();
-                addr
-            } else {
-                return Err(error::err(ErrorKind::Runtime, span, "Server not found"));
-            };
+                let m = match method {
+                    "get" => "GET",
+                    "post" => "POST",
+                    "put" => "PUT",
+                    "delete" => "DELETE",
+                    "patch" => "PATCH",
+                    "ws" => "WS",
+                    _ => "GET",
+                };
+                if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    srv.routes.add_route(&path, m, handler);
+                }
+                Ok(Value::None_)
+            }
+            "serve" => {
+                #[cfg(windows)]
+                {
+                    extern "system" {
+                        fn timeBeginPeriod(uPeriod: u32) -> u32;
+                    }
+                    unsafe { timeBeginPeriod(1); }
+                }
 
-            let server = servers().lock().unwrap().get(&id).cloned()
-                .ok_or_else(|| error::err(ErrorKind::Runtime, span, "Server not found"))?;
-
-            // Pre-compile all route handlers via JIT before accepting connections
-            // This moves LLVM-C DLL loading and MCJIT initialization overhead
-            // from first-request time to server startup time.
-            server.routes.precompile_all();
-
-            let pool = sub_interpreter_pool();
-
-            let conn_count = Arc::new(AtomicU64::new(0));
-
-            let evt_server = server.clone();
-            let evt_pool = pool;
-            let evt_conn_count = conn_count.clone();
-
-            let evt_handle = std::thread::spawn(move || {
-                let listener = match std::net::TcpListener::bind(&evt_server.addr) {
-                    Ok(l) => l,
-                    Err(e) => { eprintln!("std::TcpListener::bind({}) failed: {}", evt_server.addr, e); return; }
+                let _addr = if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    let addr = match args.first() {
+                        Some(Value::Int(port)) => format!("0.0.0.0:{}", port),
+                        Some(Value::Str(a)) => a.clone(),
+                        _ => "0.0.0.0:8080".into(),
+                    };
+                    srv.addr = addr.clone();
+                    addr
+                } else {
+                    return Err(error::err(ErrorKind::Runtime, span, "Server not found"));
                 };
 
-                // Standard accept loop used on all platforms.
-                // On Windows, a warm-up accept at startup reduces first-connect latency
-                // from ~3s to ~60ms by triggering Windows Defender/WFP socket classification
-                // before the first real request.
-                standard_accept_loop(&listener, &evt_server, evt_pool, &*evt_conn_count);
-            });
+                let server = servers().lock().unwrap().get(&id).cloned()
+                    .ok_or_else(|| error::err(ErrorKind::Runtime, span, "Server not found"))?;
 
-            let _ = evt_handle.join();
+                // Pre-compile all route handlers via JIT before accepting connections
+                // This moves LLVM-C DLL loading and MCJIT initialization overhead
+                // from first-request time to server startup time.
+                server.routes.precompile_all();
 
-            Ok(Value::None_)
+                let pool = sub_interpreter_pool();
+
+                let conn_count = Arc::new(AtomicU64::new(0));
+
+                let evt_server = server.clone();
+                let evt_pool = pool;
+                let evt_conn_count = conn_count.clone();
+
+                let evt_handle = std::thread::spawn(move || {
+                    let listener = match std::net::TcpListener::bind(&evt_server.addr) {
+                        Ok(l) => l,
+                        Err(e) => { eprintln!("std::TcpListener::bind({}) failed: {}", evt_server.addr, e); return; }
+                    };
+
+                    // Standard accept loop used on all platforms.
+                    // On Windows, a warm-up accept at startup reduces first-connect latency
+                    // from ~3s to ~60ms by triggering Windows Defender/WFP socket classification
+                    // before the first real request.
+                    standard_accept_loop(&listener, &evt_server, evt_pool, &*evt_conn_count);
+                });
+
+                let _ = evt_handle.join();
+
+                Ok(Value::None_)
+            }
+            _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown Server method '{}'", method))),
+        },
+        "TcpStream" => {
+            let mut streams = tcp_streams().lock().unwrap();
+            let stream = streams.get_mut(&id)
+                .ok_or_else(|| error::err(ErrorKind::Runtime, span, "TcpStream not found (already closed?)"))?;
+            match method {
+                "send" => {
+                    let data = get_str(args, 0, span)?;
+                    let written = stream.write(data.as_bytes())
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("TcpStream.send: {}", e)))?;
+                    Ok(Value::Int(written as i64))
+                }
+                "recv" => {
+                    let n = match args.first() {
+                        Some(Value::Int(n)) => *n as usize,
+                        _ => 4096,
+                    };
+                    let mut buf = vec![0u8; n];
+                    match stream.read(&mut buf) {
+                        Ok(0) => Ok(Value::Str(String::new())),
+                        Ok(read) => {
+                            buf.truncate(read);
+                            Ok(Value::Str(String::from_utf8_lossy(&buf).to_string()))
+                        }
+                        Err(e) => Err(error::err(ErrorKind::Runtime, span, format!("TcpStream.recv: {}", e))),
+                    }
+                }
+                "close" => {
+                    let _ = stream.shutdown(std::net::Shutdown::Both);
+                    drop(streams.remove(&id));
+                    Ok(Value::None_)
+                }
+                _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown TcpStream method '{}'", method))),
+            }
         }
-        _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown Server method '{}'", method))),
+        "TcpListener" => {
+            let mut listeners = tcp_listeners().lock().unwrap();
+            let listener = listeners.get_mut(&id)
+                .ok_or_else(|| error::err(ErrorKind::Runtime, span, "TcpListener not found"))?;
+            match method {
+                "accept" => {
+                    listener.set_nonblocking(false).ok();
+                    let (stream, _) = listener.accept()
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("TcpListener.accept: {}", e)))?;
+                    let _ = stream.set_nodelay(true);
+                    let stream_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+                    tcp_streams().lock().unwrap().insert(stream_id, stream);
+                    Ok(Value::Instance("TcpStream".into(), vec![Value::Int(stream_id as i64)]))
+                }
+                "close" => {
+                    drop(listeners.remove(&id));
+                    Ok(Value::None_)
+                }
+                _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown TcpListener method '{}'", method))),
+            }
+        }
+        "UdpSocket" => {
+            let mut sockets = udp_sockets().lock().unwrap();
+            let socket = sockets.get_mut(&id)
+                .ok_or_else(|| error::err(ErrorKind::Runtime, span, "UdpSocket not found"))?;
+            match method {
+                "send_to" => {
+                    let data = get_str(args, 0, span)?;
+                    let addr = get_str(args, 1, span)?;
+                    let sent = socket.send_to(data.as_bytes(), &addr)
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("UdpSocket.send_to: {}", e)))?;
+                    Ok(Value::Int(sent as i64))
+                }
+                "recv_from" => {
+                    let n = match args.first() {
+                        Some(Value::Int(n)) => *n as usize,
+                        _ => 4096,
+                    };
+                    let mut buf = vec![0u8; n];
+                    match socket.recv_from(&mut buf) {
+                        Ok((read, src)) => {
+                            buf.truncate(read);
+                            let data = String::from_utf8_lossy(&buf).to_string();
+                            let addr = src.to_string();
+                            let mut fields = HashMap::new();
+                            fields.insert("data".into(), Value::Str(data));
+                            fields.insert("addr".into(), Value::Str(addr));
+                            Ok(Value::Struct("recv_result".into(), fields))
+                        }
+                        Err(e) => Err(error::err(ErrorKind::Runtime, span, format!("UdpSocket.recv_from: {}", e))),
+                    }
+                }
+                "close" => {
+                    drop(sockets.remove(&id));
+                    Ok(Value::None_)
+                }
+                _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown UdpSocket method '{}'", method))),
+            }
+        }
+        "HTTP" => {
+            let mut instances = http_instances().lock().unwrap();
+            let http = instances.get_mut(&id)
+                .ok_or_else(|| error::err(ErrorKind::Runtime, span, "HTTP instance not found"))?;
+            match method {
+                "get" => {
+                    let url = get_str(args, 0, span)?;
+                    let req = ureq::http::Request::builder()
+                        .method("GET")
+                        .uri(&url)
+                        .body(String::new())
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP build: {}", e)))?;
+                    let mut response = ureq::run(req)
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP GET: {}", e)))?;
+                    http.last_status = response.status().as_u16() as i64;
+                    http.last_body = response.body_mut().read_to_string()
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP read: {}", e)))?;
+                    Ok(Value::Int(http.last_status))
+                }
+                "post" | "put" | "delete" | "head" | "options" | "patch" => {
+                    let url = get_str(args, 0, span)?;
+                    let body = if method == "post" || method == "put" || method == "patch" {
+                        args.get(1).map(|v| v.to_string()).unwrap_or_default()
+                    } else {
+                        String::new()
+                    };
+                    let http_method: ureq::http::Method = method.to_uppercase().parse()
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("bad HTTP method: {}", e)))?;
+                    let req = ureq::http::Request::builder()
+                        .method(http_method)
+                        .uri(&url)
+                        .body(body)
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP build: {}", e)))?;
+                    let mut response = ureq::run(req)
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP {}: {}", &method, e)))?;
+                    http.last_status = response.status().as_u16() as i64;
+                    http.last_body = response.body_mut().read_to_string()
+                        .map_err(|e| error::err(ErrorKind::Runtime, span, format!("HTTP read: {}", e)))?;
+                    Ok(Value::Int(http.last_status))
+                }
+                "status" => Ok(Value::Int(http.last_status)),
+                "body" => Ok(Value::Str(http.last_body.clone())),
+                "method" => Ok(Value::Str(http.default_method.clone())),
+                _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown HTTP method '{}'", method))),
+            }
+        }
+        _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown instance type '{}'", type_name))),
     }
 }
 
@@ -595,6 +827,21 @@ mod tests {
     use super::*;
     use crate::syntax::ast::*;
     use crate::diagnostics::span::Span;
+    use std::net::TcpListener;
+
+    fn start_echo_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                if let Ok(n) = stream.read(&mut buf) {
+                    let _ = stream.write_all(&buf[..n]);
+                }
+            }
+        });
+        port
+    }
 
     fn require_llvm() -> bool {
         match crate::codegen::llvm_api::find_llvm_lib() {
@@ -836,6 +1083,29 @@ mod tests {
         let req = make_req("/test", "");
         let body_str = call_fn_handler(jit_fn, &req);
         assert_eq!(body_str, "Hello JIT TCP!");
+    }
+
+    #[test]
+    fn test_tcp_stream_echo_interp() {
+        let port = start_echo_server();
+        let mut interp = Interpreter::new();
+        interp.tui_mode = false;
+
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let stream = TcpStream::connect(format!("127.0.0.1:{}", port)).unwrap();
+        tcp_streams().lock().unwrap().insert(id, stream);
+
+        let sock_val = Value::Instance("TcpStream".into(), vec![Value::Int(id as i64)]);
+
+        // send "hello"
+        let _ = call_net_method("send", &[], &[Value::Str("hello".into())], sock_val.clone(), &mut interp, Span::new(0, 0)).unwrap();
+
+        // recv 1024 bytes
+        let result = call_net_method("recv", &[], &[Value::Int(1024)], sock_val.clone(), &mut interp, Span::new(0, 0)).unwrap();
+        assert_eq!(result, Value::Str("hello".into()), "echo should match");
+
+        // close
+        let _ = call_net_method("close", &[], &[], sock_val, &mut interp, Span::new(0, 0)).unwrap();
     }
 }
 

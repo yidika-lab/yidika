@@ -1,0 +1,11 @@
+use { Server } from "net"
+
+fn hello(req: auto) -> str {
+    return "Hello, benchmark!";
+}
+
+fn main() {
+    app: Server = Server();
+    app.get("/", hello);
+    app.serve("0.0.0.0:8080");
+}

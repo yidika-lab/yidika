@@ -68,6 +68,22 @@ impl Parser {
         else { Err(error::err(ErrorKind::Syntax, s, format!("Expected {:?}, found {:?}", expected, t))) }
     }
 
+    fn eat_gt(&mut self) -> Result<Span> {
+        let (ref t, s) = self.peek().clone();
+        match t {
+            Token::Gt => { self.pos += 1; Ok(s) }
+            // Split >> (Shr) into two > tokens: consume now, insert remaining Gt
+            Token::Shr => {
+                self.pos += 1;
+                let remaining = Token::Gt;
+                let span = Span::new(s.end, s.end);
+                self.tokens.insert(self.pos, (remaining, span));
+                Ok(s)
+            }
+            _ => Err(error::err(ErrorKind::Syntax, s, format!("Expected >, found {:?}", t)))
+        }
+    }
+
     fn opt_semicolon(&mut self) {
         if self.tok() == &Token::Semicolon {
             self.advance();
@@ -485,7 +501,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             self.advance();
             let mut v = Vec::new();
             loop { v.push(self.ident()?); if self.tok() == &Token::Comma { self.advance(); } else { break; } }
-            self.eat(Token::Gt)?;
+            self.eat_gt()?;
             Ok(v)
         } else { Ok(Vec::new()) }
     }
@@ -595,17 +611,38 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::Ident(s) => {
                 if s == "auto" {
                     TypeNode::new(fresh_id(),span,TypeExpr::Infer)
+                } else if s == "set" && self.tok() == &Token::LBracket {
+                    self.advance();
+                    let inner = self.type_()?;
+                    self.eat(Token::RBracket)?;
+                    TypeNode::new(fresh_id(), span, TypeExpr::Set(Box::new(inner.value)))
+                } else if s == "list" && self.tok() == &Token::LBracket {
+                    self.advance();
+                    let inner = self.type_()?;
+                    self.eat(Token::RBracket)?;
+                    TypeNode::new(fresh_id(), span, TypeExpr::List(Box::new(inner.value)))
                 } else {
                     TypeNode::new(fresh_id(),span,TypeExpr::Named(s))
                 }
             }
+            Token::Const => {
+                if self.tok() == &Token::Lt {
+                    self.advance();
+                    let inner = self.type_()?;
+                    self.eat_gt()?;
+                    TypeNode::new(fresh_id(), span, TypeExpr::Const(Box::new(inner.value)))
+                } else {
+                    TypeNode::new(fresh_id(), span, TypeExpr::Const(Box::new(TypeExpr::Infer)))
+                }
+            }
             _ => return Err(error::err(ErrorKind::Syntax, span, format!("Expected type, found {:?}", tok))),
         };
-        // Suffix '[]' for list type: str[] = [str]
-        let first = if self.tok() == &Token::LBracket && self.tokens.get(self.pos + 1).map(|(t, _)| *t == Token::RBracket).unwrap_or(false) {
+        // Suffix '[]' for list type: str[] = [str], int[][] = [[int]]
+        let mut first = first;
+        while self.tok() == &Token::LBracket && self.tokens.get(self.pos + 1).map(|(t, _)| *t == Token::RBracket).unwrap_or(false) {
             self.advance(); self.advance();
-            TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(first.value)))
-        } else { first };
+            first = TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(first.value)));
+        }
         // Generic args: Foo<T, U> or built-in List<T>, Set<T>, Map<K,V>
         let first = if self.tok() == &Token::Lt {
             self.advance();
@@ -615,12 +652,18 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 args.push(a.value);
                 if self.tok() == &Token::Comma { self.advance(); } else { break; }
             }
-            self.eat(Token::Gt)?;
+            self.eat_gt()?;
             match &first.value {
                 TypeExpr::Named(n) if n == "List" && args.len() == 1 => {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(args.into_iter().next().unwrap())))
                 }
+                TypeExpr::Named(n) if n == "list" && args.len() == 1 => {
+                    TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(args.into_iter().next().unwrap())))
+                }
                 TypeExpr::Named(n) if n == "Set" && args.len() == 1 => {
+                    TypeNode::new(fresh_id(), first.span, TypeExpr::Set(Box::new(args.into_iter().next().unwrap())))
+                }
+                TypeExpr::Named(n) if n == "set" && args.len() == 1 => {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::Set(Box::new(args.into_iter().next().unwrap())))
                 }
                 TypeExpr::Named(n) if n == "Vector" && args.len() == 1 => {
@@ -630,6 +673,12 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::Matrix(Box::new(args.into_iter().next().unwrap())))
                 }
                 TypeExpr::Named(n) if n == "Map" && args.len() == 2 => {
+                    let mut a = args.into_iter();
+                    let k = a.next().unwrap();
+                    let v = a.next().unwrap();
+                    TypeNode::new(fresh_id(), first.span, TypeExpr::Map(Box::new(k), Box::new(v)))
+                }
+                TypeExpr::Named(n) if n == "map" && args.len() == 2 => {
                     let mut a = args.into_iter();
                     let k = a.next().unwrap();
                     let v = a.next().unwrap();
@@ -680,7 +729,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         match self.tok() {
             Token::If => self.if_stmt(),
             Token::For => self.for_stmt(),
-            Token::While => { self.advance(); let c=self.expr(0)?; let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(c,b))) }
+            Token::While => { self.advance(); self.eat(Token::LParen)?; let c=self.expr(0)?; self.eat(Token::RParen)?; let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(c,b))) }
             Token::Loop => { self.advance(); let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Loop(b))) }
             Token::Infiny => { self.advance(); let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Loop(b))) }
             Token::Return => {
@@ -753,9 +802,16 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         let type_expr: Option<TypeNode>;
 
         if self.tok() == &Token::Const {
-            is_const = true;
-            type_expr = None;
             self.advance();
+            is_const = true;
+            if self.tok() == &Token::Lt {
+                self.advance();
+                let inner = self.type_()?;
+                self.eat_gt()?;
+                type_expr = Some(inner);
+            } else {
+                type_expr = None;
+            }
         } else {
             is_const = false;
             type_expr = Some(self.type_()?);
@@ -805,7 +861,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
 
     fn if_stmt(&mut self) -> Result<StmtNode> {
         self.advance();
+        self.eat(Token::LParen)?;
         let cond = self.expr(0)?;
+        self.eat(Token::RParen)?;
         let then = self.block_stmts()?;
         let else_ = if self.tok() == &Token::Else {
             self.advance();
@@ -818,16 +876,37 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn for_stmt(&mut self) -> Result<StmtNode> {
         self.advance();
         self.eat(Token::LParen)?;
-        // Peek: if ident is followed by 'in' → for-in, ':' → for-of, else → C-style for
         let saved = self.pos;
-        let first = self.ident()?;
-        if self.tok() == &Token::In || self.tok() == &Token::Colon {
-            let is_for_of = self.tok() == &Token::Colon;
+        if self.tok() == &Token::Semicolon {
             self.advance();
-            let iterable = self.expr(0)?;
+            let cond = self.expr(0)?;
+            self.eat(Token::Semicolon)?;
+            let inc = self.expr(0)?;
             self.eat(Token::RParen)?;
-            let body = self.block_stmts()?;
-            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(first,iterable,body,is_for_of)))
+            let mut body = self.block_stmts()?;
+            body.push(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(inc)));
+            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(cond, body)))
+        } else if matches!(self.tok(), Token::Ident(_)) {
+            let first = self.ident()?;
+            if self.tok() == &Token::In || self.tok() == &Token::Colon {
+                let is_for_of = self.tok() == &Token::Colon;
+                self.advance();
+                let iterable = self.expr(0)?;
+                self.eat(Token::RParen)?;
+                let body = self.block_stmts()?;
+                Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(first,iterable,body,is_for_of)))
+            } else {
+                self.pos = saved;
+                let _init = self.expr(0)?;
+                self.eat(Token::Semicolon)?;
+                let cond = self.expr(0)?;
+                self.eat(Token::Semicolon)?;
+                let inc = self.expr(0)?;
+                self.eat(Token::RParen)?;
+                let mut body = self.block_stmts()?;
+                body.push(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(inc)));
+                Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(cond, body)))
+            }
         } else {
             self.pos = saved;
             let _init = self.expr(0)?;
@@ -845,7 +924,14 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     // ─── Expressions (Pratt) ──────────────────────────
 
     fn expr(&mut self, min_prec: u8) -> Result<ExprNode> {
-        self.expr_inner(min_prec, true)
+        let mut lhs = self.expr_inner(min_prec, true)?;
+        // Postfix range '..' (at top level so unary ops don't consume it)
+        if self.tok() == &Token::DotDot {
+            self.advance();
+            let rhs = self.expr(min_prec)?;
+            lhs = ExprNode::new(fresh_id(), lhs.span, Expr::Range(Box::new(lhs), Box::new(rhs)));
+        }
+        Ok(lhs)
     }
 
     fn expr_inner(&mut self, min_prec: u8, allow_as: bool) -> Result<ExprNode> {
@@ -915,17 +1001,47 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             let op = match self.tok() {
                 Token::Plus => BinOp::Add, Token::Minus => BinOp::Sub,
                 Token::Star => BinOp::Mul, Token::Slash => BinOp::Div,
+                Token::Percent => BinOp::Mod, Token::StarStar => BinOp::Pow,
+                Token::Ref => BinOp::BitAnd, Token::Pipe => BinOp::BitOr,
+                Token::Caret => BinOp::BitXor, Token::Shl => BinOp::Shl,
+                Token::Shr => BinOp::Shr,
                 Token::EqEq => BinOp::Eq, Token::NotEq => BinOp::Ne,
                 Token::Lt => BinOp::Lt, Token::Gt => BinOp::Gt,
                 Token::LtEq => BinOp::Le, Token::GtEq => BinOp::Ge,
                 Token::And => BinOp::And, Token::Or => BinOp::Or,
                 Token::Eq => BinOp::Assign,
+                // Compound assignments: desugar a += b into a = a + b
+                Token::PlusEq | Token::MinusEq | Token::StarEq | Token::SlashEq
+                | Token::PercentEq | Token::StarStarEq | Token::PipeEq
+                | Token::RefEq | Token::CaretEq | Token::ShlEq | Token::ShrEq => {
+                    let compound_op = match self.tok() {
+                        Token::PlusEq => BinOp::Add, Token::MinusEq => BinOp::Sub,
+                        Token::StarEq => BinOp::Mul, Token::SlashEq => BinOp::Div,
+                        Token::PercentEq => BinOp::Mod, Token::StarStarEq => BinOp::Pow,
+                        Token::PipeEq => BinOp::BitOr, Token::RefEq => BinOp::BitAnd,
+                        Token::CaretEq => BinOp::BitXor, Token::ShlEq => BinOp::Shl,
+                        Token::ShrEq => BinOp::Shr,
+                        _ => unreachable!(),
+                    };
+                    self.advance();
+                    let rhs = self.expr(1)?; // prec 1 = lowest, same as Assign
+                    let inner = ExprNode::new(
+                        fresh_id(), lhs.span,
+                        Expr::BinOp(Box::new(lhs.clone()), compound_op, Box::new(rhs)),
+                    );
+                    lhs = ExprNode::new(
+                        fresh_id(), lhs.span,
+                        Expr::BinOp(Box::new(lhs), BinOp::Assign, Box::new(inner)),
+                    );
+                    continue;
+                }
                 _ => break,
             };
             let prec = op_prec(op);
             if prec < min_prec { break; }
             self.advance();
-            let rhs = self.expr(prec + 1)?;
+            let rhs_prec = if matches!(op, BinOp::Pow) { prec } else { prec + 1 };
+            let rhs = self.expr(rhs_prec)?;
             lhs = ExprNode::new(fresh_id(), lhs.span, Expr::BinOp(Box::new(lhs), op, Box::new(rhs)));
     }
 
@@ -943,24 +1059,11 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             let rhs = self.expr(min_prec)?;
             lhs = ExprNode::new(fresh_id(), lhs.span, Expr::Elvis(Box::new(lhs), Box::new(rhs)));
         }
-        // Postfix range '...' (same as '..')
-        if self.tok() == &Token::DotDotDot {
-            self.advance();
-            let rhs = self.expr(min_prec)?;
-            lhs = ExprNode::new(fresh_id(), lhs.span, Expr::Range(Box::new(lhs), Box::new(rhs)));
-        }
-        // Postfix range '..'
-        if self.tok() == &Token::DotDot {
-            self.advance();
-            let rhs = self.expr(min_prec)?;
-            lhs = ExprNode::new(fresh_id(), lhs.span, Expr::Range(Box::new(lhs), Box::new(rhs)));
-        }
         // Trailing closure: call():(params) { body }
         if self.tok() == &Token::Colon {
             if let Expr::Call(_, ref mut args) = &mut lhs.value {
                 self.advance();
                 self.eat(Token::LParen)?;
-                // Parse params without type annotations (all auto)
                 let mut closure_params = Vec::new();
                 loop {
                     match self.tok() {
@@ -983,6 +1086,18 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 self.eat(Token::RBrace)?;
                 let lambda = ExprNode::new(fresh_id(), Span::new(0,0), Expr::Closure(closure_params, Box::new(body_expr)));
                 args.push(lambda);
+            }
+        }
+        // Trailing block: app.get("/") { body } — sugar for app.get("/", fn() { body })
+        if self.tok() == &Token::LBrace {
+            if let Expr::Call(func_expr, ref mut args) = &mut lhs.value {
+                if is_method_call(&func_expr.value, &["get", "post", "put", "delete", "patch", "ws", "serve"]) {
+                    self.advance();
+                    let body_expr = self.expr(0)?;
+                    self.eat(Token::RBrace)?;
+                    let lambda = ExprNode::new(fresh_id(), Span::new(0,0), Expr::Closure(vec![], Box::new(body_expr)));
+                    args.push(lambda);
+                }
             }
         }
         Ok(lhs)
@@ -1015,7 +1130,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::None => Ok(ExprNode::new(fresh_id(),span,Expr::LitNone)),
             Token::SymbolLit(s) => Ok(ExprNode::new(fresh_id(),span,Expr::LitSymbol(s[1..].to_string()))),
             Token::CharLit(c) => Ok(ExprNode::new(fresh_id(),span,Expr::LitChar(c))),
-            Token::TMap if self.tok() == &Token::LBrace => self.map_lit(span),
             Token::Ident(name) => {
                 if self.tok() == &Token::DoubleColon {
                     self.advance();
@@ -1033,8 +1147,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                         args
                     } else { Vec::new() };
                     Ok(ExprNode::new(fresh_id(), span, Expr::Variant(name, vname, args)))
-                } else if name == "map" && self.tok() == &Token::LBrace { self.map_lit(span) }
-                else if name == "set" && self.tok() == &Token::LBrace { self.set_lit(span) }
+                } else if name == "set" && self.tok() == &Token::LBrace { self.set_lit(span) }
+                else if name == "tuple" && self.tok() == &Token::LBrace { self.tuple_lit(span) }
+                else if (name == "map" || name == "Map") && self.tok() == &Token::LBrace { self.map_lit(span) }
                 else if self.tok() == &Token::LParen { self.call(name, span) }
                 else if !self.no_struct && self.tok() == &Token::LBrace { self.struct_lit(name, span) }
                 else { Ok(ExprNode::new(fresh_id(),span,Expr::Ident(name))) }
@@ -1045,10 +1160,13 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             | Token::Infiny | Token::Open | Token::Abstract | Token::Data | Token::Init | Token::Super | Token::Override | Token::Final => {
                 let name = keyword_to_ident(&tok);
                 if self.tok() == &Token::LParen { self.call(name, span) }
+                else if (name == "map" || name == "Map") && self.tok() == &Token::LBrace { self.map_lit(span) }
+                else if !self.no_struct && self.tok() == &Token::LBrace { self.struct_lit(name, span) }
                 else { Ok(ExprNode::new(fresh_id(),span,Expr::Ident(name))) }
             }
-            Token::Minus => { let e=self.expr_inner(7, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Neg,Box::new(e)))) }
-            Token::Bang => { let e=self.expr_inner(7, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Not,Box::new(e)))) }
+            Token::Minus => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Neg,Box::new(e)))) }
+            Token::Bang => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Not,Box::new(e)))) }
+            Token::Tilde => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::BitNot,Box::new(e)))) }
             Token::LParen => {
                 let e = self.expr(0)?;
                 if self.tok() == &Token::Colon {
@@ -1106,24 +1224,72 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             }
             Token::LBrace => {
                 let saved = self.pos;
-                self.advance(); // skip {
                 let tok = self.tok();
-                // If next is ident/str followed by ':', parse as map literal
-                let is_map = matches!(tok, Token::Ident(_) | Token::StrLit(_) | Token::IntLit(_) | Token::RealLit(_))
-                    && self.tokens.get(self.pos + 1).map(|(t, _)| t == &Token::Colon).unwrap_or(false)
-                    || matches!(tok, Token::RBrace);
+                // Determine if this is a map or block
+                let is_map = match tok {
+                    Token::RBrace => true,  // empty {}
+                    Token::Ident(_) => {
+                        // ident followed by ':', ',' or '}' → map
+                        self.tokens.get(self.pos + 1)
+                            .map(|(t, _)| matches!(t, Token::Colon | Token::Comma | Token::RBrace))
+                            .unwrap_or(false)
+                    }
+                    Token::StrLit(_) | Token::IntLit(_) | Token::RealLit(_) => {
+                        // str/int/real followed by ':' → map
+                        self.tokens.get(self.pos + 1)
+                            .map(|(t, _)| t == &Token::Colon)
+                            .unwrap_or(false)
+                    }
+                    Token::LBracket => {
+                        // [expr]: → computed property
+                        let mut found = false;
+                        for i in (self.pos + 1)..(self.pos + 20).min(self.tokens.len()) {
+                            if matches!(&self.tokens[i].0, Token::RBracket) {
+                                found = self.tokens.get(i + 1).map(|(t, _)| t == &Token::Colon).unwrap_or(false);
+                                break;
+                            }
+                        }
+                        found
+                    }
+                    _ => false,
+                };
                 self.pos = saved;
                 if is_map {
-                    self.advance(); // skip {
                     let mut pairs = Vec::new();
                     loop {
                         match self.tok() {
                             Token::RBrace => { self.advance(); break; }
-                            _ => {
+                            Token::LBracket => {
+                                self.advance(); // skip [
                                 let key = self.expr(0)?;
+                                self.eat(Token::RBracket)?;
                                 self.eat(Token::Colon)?;
                                 let val = self.expr(0)?;
                                 pairs.push((key, val));
+                                if self.tok() == &Token::Comma { self.advance(); }
+                                else if self.tok() != &Token::RBrace {
+                                    return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
+                                }
+                            }
+                            _ => {
+                                let ahead = self.tokens.get(self.pos + 1).map(|(t, _)| t);
+                                let is_shorthand = matches!(self.tok(), Token::Ident(_))
+                                    && matches!(ahead, Some(Token::Comma | Token::RBrace));
+                                if is_shorthand {
+                                    let name = self.ident()?;
+                                    pairs.push((
+                                        ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(name.clone())),
+                                        ExprNode::new(fresh_id(), Span::new(0,0), Expr::Ident(name)),
+                                    ));
+                                } else {
+                                    let key = self.expr(0)?;
+                                    self.eat(Token::Colon)?;
+                                    let key = if let Expr::Ident(s) = &key.value {
+                                        ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(s.clone()))
+                                    } else { key };
+                                    let val = self.expr(0)?;
+                                    pairs.push((key, val));
+                                }
                                 if self.tok() == &Token::Comma { self.advance(); }
                                 else if self.tok() != &Token::RBrace {
                                     return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
@@ -1133,9 +1299,39 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     }
                     Ok(ExprNode::new(fresh_id(), span, Expr::MapLit(pairs)))
                 } else {
-                    self.pos -= 1;
-                    let b = self.block_stmts()?;
-                    Ok(ExprNode::new(fresh_id(),span,Expr::Block(b)))
+                    // Check if comma-separated values → set literal: { 1, 2, 3 }
+                    let mut depth = 0i32;
+                    let mut is_set = false;
+                    for (tok, _) in self.tokens.iter().skip(self.pos + 1).take(100) {
+                        match tok {
+                            Token::RBrace if depth == 0 => break,
+                            Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+                            Token::RParen | Token::RBracket => depth -= 1,
+                            Token::RBrace => depth -= 1,
+                            Token::Comma if depth == 0 => { is_set = true; break; }
+                            _ => {}
+                        }
+                    }
+                    if is_set {
+                        let mut items = Vec::new();
+                        loop {
+                            match self.tok() {
+                                Token::RBrace => { self.advance(); break; }
+                                _ => {
+                                    items.push(self.expr(0)?);
+                                    if self.tok() == &Token::Comma { self.advance(); }
+                                    else if self.tok() != &Token::RBrace {
+                                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in set literal"));
+                                    }
+                                }
+                            }
+                        }
+                        Ok(ExprNode::new(fresh_id(), span, Expr::SetLit(items)))
+                    } else {
+                        self.pos -= 1;
+                        let b = self.block_stmts()?;
+                        Ok(ExprNode::new(fresh_id(),span,Expr::Block(b)))
+                    }
                 }
             }
             Token::Fn => {
@@ -1178,7 +1374,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::Spawn => { let e=self.expr(0)?; Ok(ExprNode::new(fresh_id(),span,Expr::Spawn(Box::new(e)))) }
             Token::Await => { let e=self.expr(0)?; Ok(ExprNode::new(fresh_id(),span,Expr::Await(Box::new(e)))) }
             Token::If => {
+                self.eat(Token::LParen)?;
                 let cond = self.expr(0)?;
+                self.eat(Token::RParen)?;
                 let then = self.expr(0)?;
                 let else_ = if self.tok() == &Token::Else {
                     self.advance();
@@ -1216,31 +1414,28 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         Ok(ExprNode::new(fresh_id(), span, Expr::Call(Box::new(callee), args)))
     }
 
-    fn map_lit(&mut self, span: Span) -> Result<ExprNode> {
+    fn set_lit(&mut self, span: Span) -> Result<ExprNode> {
+        let use_paren = self.tok() == &Token::LParen;
         self.advance();
-        let mut pairs = Vec::new();
+        let mut items = Vec::new();
         loop {
+            let close = if use_paren { Token::RParen } else { Token::RBrace };
             match self.tok() {
-                Token::RBrace => { self.advance(); break; }
+                t if *t == close => { self.advance(); break; }
                 _ => {
-                    let key = self.expr(0)?;
-                    let key = if let Expr::Ident(s) = &key.value {
-                        ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(s.clone()))
-                    } else { key };
-                    self.eat(Token::Colon)?;
-                    let val = self.expr(0)?;
-                    pairs.push((key, val));
+                    items.push(self.expr(0)?);
                     if self.tok() == &Token::Comma { self.advance(); }
-                    else if self.tok() != &Token::RBrace {
-                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
+                    else if self.tok() != &close {
+                        let expected = if use_paren { ")" } else { "}" };
+                        return Err(error::err(ErrorKind::Syntax, self.span(), format!("Expected , or {} in set literal", expected)));
                     }
                 }
             }
         }
-        Ok(ExprNode::new(fresh_id(), span, Expr::MapLit(pairs)))
+        Ok(ExprNode::new(fresh_id(), span, Expr::SetLit(items)))
     }
 
-    fn set_lit(&mut self, span: Span) -> Result<ExprNode> {
+    fn tuple_lit(&mut self, span: Span) -> Result<ExprNode> {
         self.advance();
         let mut items = Vec::new();
         loop {
@@ -1250,12 +1445,59 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     items.push(self.expr(0)?);
                     if self.tok() == &Token::Comma { self.advance(); }
                     else if self.tok() != &Token::RBrace {
-                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in set literal"));
+                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in tuple literal"));
                     }
                 }
             }
         }
-        Ok(ExprNode::new(fresh_id(), span, Expr::SetLit(items)))
+        Ok(ExprNode::new(fresh_id(), span, Expr::TupleLit(items)))
+    }
+
+    fn map_lit(&mut self, span: Span) -> Result<ExprNode> {
+        self.advance();
+        let mut pairs = Vec::new();
+        loop {
+            match self.tok() {
+                Token::RBrace => { self.advance(); break; }
+                Token::LBracket => {
+                    self.advance();
+                    let key = self.expr(0)?;
+                    self.eat(Token::RBracket)?;
+                    self.eat(Token::Colon)?;
+                    let val = self.expr(0)?;
+                    pairs.push((key, val));
+                    if self.tok() == &Token::Comma { self.advance(); }
+                    else if self.tok() != &Token::RBrace {
+                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
+                    }
+                }
+                _ => {
+                    let ahead = self.tokens.get(self.pos + 1).map(|(t, _)| t);
+                    let is_shorthand = matches!(self.tok(), Token::Ident(_))
+                        && matches!(ahead, Some(Token::Comma | Token::RBrace));
+                    if is_shorthand {
+                        let name = self.ident()?;
+                        pairs.push((
+                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(name.clone())),
+                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::Ident(name)),
+                        ));
+                    } else {
+                        let key = self.expr(0)?;
+                        self.eat(Token::Colon)?;
+                        let key = if let Expr::Ident(s) = &key.value {
+                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(s.clone()))
+                        } else { key };
+                        let val = self.expr(0)?;
+                        pairs.push((key, val));
+                    }
+                    if self.tok() == &Token::Comma { self.advance(); }
+                    else if self.tok() != &Token::RBrace {
+                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
+                    }
+                }
+            }
+        }
+        Ok(ExprNode::new(fresh_id(), span, Expr::MapLit(pairs)))
     }
 
     fn parse_fstring(&mut self, raw: String, span: Span) -> Result<ExprNode> {
@@ -1478,7 +1720,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
 
 fn op_prec(op: BinOp) -> u8 {
     use BinOp::*;
-    match op { Assign => 1, Or => 2, And => 3, Eq|Ne => 4, Lt|Gt|Le|Ge => 5, Add|Sub => 6, Mul|Div => 7 }
+    match op { Assign => 1, Or => 2, And => 3, BitOr => 4, BitXor => 5, BitAnd => 6, Eq|Ne => 7, Lt|Gt|Le|Ge => 8, Shl|Shr => 9, Add|Sub => 10, Mul|Div|Mod => 11, Pow => 12 }
 }
 
 fn unescape_str(s: &str) -> String {
@@ -1503,6 +1745,16 @@ fn unescape_str(s: &str) -> String {
     out
 }
 
+/// Check if an expression is a call to a server method like app.get, app.post, etc.
+fn is_method_call(expr: &Expr, methods: &[&str]) -> bool {
+    match expr {
+        Expr::Field(obj, field) => {
+            matches!(obj.value, Expr::Ident(_)) && methods.contains(&field.as_str())
+        }
+        _ => false,
+    }
+}
+
 fn tokens_match(a: &Token, b: &Token) -> bool {
     use Token::*;
     matches!((a,b),
@@ -1511,8 +1763,13 @@ fn tokens_match(a: &Token, b: &Token) -> bool {
         |(Async,Async)|(Await,Await)|(Spawn,Spawn)|(Try,Try)|(Catch,Catch)|(Init,Init)|(Open,Open)|(Abstract,Abstract)|(Data,Data)|(Override,Override)|(Final,Final)|(True,True)|(False,False)|(Null,Null)|(None,None)
         |(OkKw,OkKw)|(ErrorKw,ErrorKw)|(Mut,Mut)|(Ref,Ref)|(Match,Match)|(Super,Super)
         |(TInt(_),TInt(_))|(TRint(_),TRint(_))|(TReal(_),TReal(_))|(TComplex,TComplex)|(TBool,TBool)|(TStr,TStr)|(TSymbol,TSymbol)|(TVector,TVector)|(TMatrix,TMatrix)|(TMap,TMap)
-        |(Plus,Plus)|(Minus,Minus)|(Star,Star)|(Slash,Slash)|(Eq,Eq)|(EqEq,EqEq)|(NotEq,NotEq)
-        |(Lt,Lt)|(Gt,Gt)|(LtEq,LtEq)|(GtEq,GtEq)|(Bang,Bang)|(And,And)|(Or,Or)|(Pipe,Pipe)|(Inc,Inc)|(Dec,Dec)|(Question,Question)|(QuestionDot,QuestionDot)|(Elvis,Elvis)|(Arrow,Arrow)|(FatArrow,FatArrow)
+        |(Plus,Plus)|(Minus,Minus)|(Star,Star)|(Slash,Slash)|(Percent,Percent)|(StarStar,StarStar)|(Caret,Caret)|(Tilde,Tilde)
+        |(Eq,Eq)|(EqEq,EqEq)|(NotEq,NotEq)
+        |(Lt,Lt)|(Gt,Gt)|(LtEq,LtEq)|(GtEq,GtEq)|(Shl,Shl)|(Shr,Shr)
+        |(Bang,Bang)|(And,And)|(Or,Or)|(Pipe,Pipe)|(Inc,Inc)|(Dec,Dec)
+        |(PlusEq,PlusEq)|(MinusEq,MinusEq)|(StarEq,StarEq)|(SlashEq,SlashEq)
+        |(PercentEq,PercentEq)|(StarStarEq,StarStarEq)|(PipeEq,PipeEq)|(RefEq,RefEq)|(CaretEq,CaretEq)|(ShlEq,ShlEq)|(ShrEq,ShrEq)
+        |(Question,Question)|(QuestionDot,QuestionDot)|(Elvis,Elvis)|(Arrow,Arrow)|(FatArrow,FatArrow)
         |(LParen,LParen)|(RParen,RParen)|(LBrace,LBrace)|(RBrace,RBrace)|(LBracket,LBracket)|(RBracket,RBracket)
         |(Colon,Colon)|(DoubleColon,DoubleColon)|(Semicolon,Semicolon)|(Comma,Comma)|(Dot,Dot)|(DotDot,DotDot)|(DotDotDot,DotDotDot)|(At,At)|(Hash,Hash)|(Eof,Eof)
         |(Ident(_),Ident(_))|(IntLit(_),IntLit(_))|(StrLit(_),StrLit(_))|(BacktickStr(_),BacktickStr(_))|(FStrLit(_),FStrLit(_))|(RealLit(_),RealLit(_))|(HexLit(_),HexLit(_))|(SymbolLit(_),SymbolLit(_))|(CharLit(_),CharLit(_))

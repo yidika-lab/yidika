@@ -55,24 +55,48 @@ impl Interpreter {
                     EvalResult::Return(v) => return Ok(Some(v)),
                 };
                 match iter_val {
-                    Value::Range(s, e) => {
-                        if s <= e {
-                            for i in s..e {
-                                self.push_frame();
-                                self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
-                                for s in body {
-                                    if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                    Value::Range(s, e, is_char) => {
+                        if is_char {
+                            let start_cp = s;
+                            let end_cp = e;
+                            if s <= e {
+                                for i in start_cp..end_cp {
+                                    self.push_frame();
+                                    self.frames.last_mut().unwrap().insert(var.clone(), Value::Char(char::from_u32(i as u32).unwrap_or(char::REPLACEMENT_CHARACTER)));
+                                    for s in body {
+                                        if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                    }
+                                    self.pop_frame();
                                 }
-                                self.pop_frame();
+                            } else {
+                                for i in ((end_cp + 1)..=start_cp).rev() {
+                                    self.push_frame();
+                                    self.frames.last_mut().unwrap().insert(var.clone(), Value::Char(char::from_u32(i as u32).unwrap_or(char::REPLACEMENT_CHARACTER)));
+                                    for s in body {
+                                        if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                    }
+                                    self.pop_frame();
+                                }
                             }
                         } else {
-                            for i in ((e + 1)..=s).rev() {
-                                self.push_frame();
-                                self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
-                                for s in body {
-                                    if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                            if s <= e {
+                                for i in s..e {
+                                    self.push_frame();
+                                    self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
+                                    for s in body {
+                                        if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                    }
+                                    self.pop_frame();
                                 }
-                                self.pop_frame();
+                            } else {
+                                for i in ((e + 1)..=s).rev() {
+                                    self.push_frame();
+                                    self.frames.last_mut().unwrap().insert(var.clone(), Value::Int(i));
+                                    for s in body {
+                                        if let Some(r) = self.exec_stmt(s)? { self.pop_frame(); return Ok(Some(r)); }
+                                    }
+                                    self.pop_frame();
+                                }
                             }
                         }
                     }
@@ -193,6 +217,7 @@ impl Interpreter {
     }
 
     pub fn match_pattern(&self, pattern: &Pattern, value: &Value, bindings: &mut HashMap<String, Value>) -> bool {
+        eprintln!("DEBUG match_pattern: value={:?}, bindings_before={:?}", value, bindings.keys());
         match pattern {
             Pattern::Ignore => true,
             Pattern::Ident(name) => { bindings.insert(name.clone(), value.clone()); true }

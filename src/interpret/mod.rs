@@ -65,7 +65,7 @@ mod tests {
     #[test]
     fn for_loop() {
         let out = run("fn main() { sum: int = 0; for (i in 0..5) { sum = sum + i; } print(sum); }");
-        assert_eq!(out, "10\n");
+        assert_eq!(out, "15\n");
     }
 
     #[test]
@@ -117,9 +117,27 @@ mod tests {
     }
 
     #[test]
+    fn const_syntax() {
+        let out = run("fn main() { x: const<int> = 42; print(x); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
+    fn const_as_const() {
+        let out = run("fn main() { x: int = 42 as const; print(x); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
+    fn reassign_local_const() {
+        let err = run_invalid("fn main() { x: const = 5; x = 10; }");
+        assert!(err.contains("Cannot assign to const"), "should error: {}", err);
+    }
+
+    #[test]
     fn for_with_range() {
         let out = run("fn main() { sum: int = 0; for (i in 1..4) { sum = sum + i; } print(sum); }");
-        assert_eq!(out, "6\n");
+        assert_eq!(out, "10\n");
     }
 
     #[test]
@@ -178,7 +196,7 @@ mod tests {
 
     #[test]
     fn map_literal() {
-        let out = run(r#"fn main() { print(map { 1: "one", 2: "two" }); }"#);
+        let out = run(r#"fn main() { print({ 1: "one", 2: "two" }); }"#);
         assert_eq!(out, "{1: one, 2: two}\n");
     }
 
@@ -466,5 +484,51 @@ mod tests {
             }
         ");
         assert_eq!(out, "answer\ngreeting\n");
+    }
+
+    #[test]
+    fn to_string_builtins() {
+        let out = run("
+            fn main() {
+                print(42.toString());
+                print((3.14).toString());
+                print(true.toString());
+                print(\"hello\".toString());
+            }
+        ");
+        assert_eq!(out, "42\n3.14\ntrue\nhello\n");
+    }
+
+    #[test]
+    fn class_constructor_call() {
+        let out = run("
+            class Foo(x: int, y: str) {
+                fn get_x(&self) -> int { return self.x; }
+                fn get_y(&self) -> str { return self.y; }
+            }
+            fn main() {
+                f: Foo = Foo(42, \"hi\");
+                print(f.get_x());
+                print(f.get_y());
+            }
+        ");
+        assert_eq!(out, "42\nhi\n");
+    }
+
+    #[test]
+    fn class_constructor_with_init() {
+        let out = run("
+            class Counter(start: int) {
+                fn get(&self) -> int { return self.start; }
+                init {
+                    print(\"init called\");
+                }
+            }
+            fn main() {
+                c: Counter = Counter(99);
+                print(c.get());
+            }
+        ");
+        assert_eq!(out, "init called\n99\n");
     }
 }

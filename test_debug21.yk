@@ -1,4 +1,0 @@
-use {re} from "re";
-fn main() {
-    print(str(re.match("\\d+", "abc123")));
-}

@@ -87,3 +87,12 @@ yk_string* yk_string_from_complex(yk_complex* c) {
     s->len = n;
     return s;
 }
+
+yk_string* yk_string_from_char(int32_t c) {
+    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    s->data = (char*)malloc(2);
+    s->data[0] = (char)c;
+    s->data[1] = '\0';
+    s->len = 1;
+    return s;
+}

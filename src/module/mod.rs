@@ -97,7 +97,7 @@ impl ModuleLoader {
         }
 
         // Builtin standard library modules (no file to load)
-        if matches!(import.source.as_str(), "std" | "io" | "math" | "time" | "json" | "datetime" | "path" | "base64" | "re" | "net") {
+        if matches!(import.source.as_str(), "std" | "io" | "math" | "time" | "json" | "datetime" | "path" | "base64" | "regex" | "net") {
             return Ok(());
         }
 

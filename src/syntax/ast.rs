@@ -53,6 +53,7 @@ pub enum TypeExpr {
     Fn(Vec<TypeExpr>, Box<TypeExpr>),
     Generic(String, Vec<TypeExpr>),
     Nullable(Box<TypeExpr>),
+    Const(Box<TypeExpr>),
     Null, None_, Infer,
 }
 
@@ -92,6 +93,7 @@ impl fmt::Display for TypeExpr {
             TypeExpr::None_ => write!(f, "null"),
             TypeExpr::Infer => write!(f, "auto"),
             TypeExpr::Nullable(inner) => write!(f, "{}?", inner),
+            TypeExpr::Const(inner) => write!(f, "const<{}>", inner),
         }
     }
 }
@@ -142,7 +144,7 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BinOp { Add, Sub, Mul, Div, Eq, Ne, Lt, Gt, Le, Ge, And, Or, Assign }
+pub enum BinOp { Add, Sub, Mul, Div, Mod, Pow, BitAnd, BitOr, BitXor, Shl, Shr, Eq, Ne, Lt, Gt, Le, Ge, And, Or, Assign }
 
 impl fmt::Display for BinOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -151,6 +153,13 @@ impl fmt::Display for BinOp {
             BinOp::Sub => write!(f, "-"),
             BinOp::Mul => write!(f, "*"),
             BinOp::Div => write!(f, "/"),
+            BinOp::Mod => write!(f, "%"),
+            BinOp::Pow => write!(f, "**"),
+            BinOp::BitAnd => write!(f, "&"),
+            BinOp::BitOr => write!(f, "|"),
+            BinOp::BitXor => write!(f, "^"),
+            BinOp::Shl => write!(f, "<<"),
+            BinOp::Shr => write!(f, ">>"),
             BinOp::Eq => write!(f, "=="),
             BinOp::Ne => write!(f, "!="),
             BinOp::Lt => write!(f, "<"),
@@ -165,7 +174,7 @@ impl fmt::Display for BinOp {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum UnOp { Neg, Not }
+pub enum UnOp { Neg, Not, BitNot }
 
 #[derive(Debug, Clone)]
 pub struct MatchArm {

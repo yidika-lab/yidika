@@ -5,7 +5,7 @@ pub const SUBMODULES: &[(&str, &[&str])] = &[
     ("datetime", &["now","utc","timestamp","format","parse","year","month","day","hour","minute","second"]),
     ("path",     &["join","dirname","basename","extension","is_absolute"]),
     ("base64",   &["encode","decode"]),
-    ("re",       &["match","find","replace","split"]),
+    ("regex",       &["match","find","replace","split"]),
     ("math",     &["cos","sin","sqrt","abs","floor","ceil","round","max","min","pow","rand"]),
     ("time",     &["now","utc","timestamp","format","parse","sleep","year","month","day","hour","minute","second"]),
 ];

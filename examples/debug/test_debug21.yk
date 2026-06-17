@@ -1,0 +1,4 @@
+use {regex} from "regex";
+fn main() {
+    print(str(regex.match("\\d+", "abc123")));
+}

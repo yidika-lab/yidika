@@ -112,8 +112,6 @@ fn typecheck_all(files: &[LoadedFile]) -> Result<(), String> {
 }
 
 fn run_program(path: &PathBuf, watch: bool) -> Result<String, String> {
-    let hw = crate::hardware::detect();
-    eprintln!("{}", hw);
     let files = load(path)?;
     typecheck_all(&files)?;
 

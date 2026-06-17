@@ -1,0 +1,28 @@
+use {Server} from "net";
+
+fn main() {
+    app: Server = Server();
+
+    // GET with named function
+    app.get("/hello", fn(req) { "<h1>Hello</h1>" });
+
+    // GET with trailing block (new syntax)
+    app.get("/block") { "trailing block!" };
+
+    // POST with closure
+    app.post("/data", (req) => "received");
+
+    // WebSocket
+    app.ws("/chat", fn(req) { "ws connected" });
+
+    // PUT
+    app.put("/update", fn(req) { "updated" });
+
+    // DELETE
+    app.delete("/remove", fn(req) { "deleted" });
+
+    // PATCH
+    app.patch("/modify", fn(req) { "patched" });
+
+    app.serve(3000);
+}

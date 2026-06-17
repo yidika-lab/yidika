@@ -8,7 +8,7 @@ pub enum Value {
     Bool(bool),
     Str(String),
     Char(char),
-    Range(i64, i64),
+    Range(i64, i64, bool), // start, end, is_char
     List(Vec<Value>),
     Struct(String, HashMap<String, Value>),
     Tuple(Vec<Value>),
@@ -32,7 +32,7 @@ impl PartialEq for Value {
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Str(a), Value::Str(b)) => a == b,
             (Value::Char(a), Value::Char(b)) => a == b,
-            (Value::Range(a1, a2), Value::Range(b1, b2)) => a1 == b1 && a2 == b2,
+            (Value::Range(a1, a2, _), Value::Range(b1, b2, _)) => a1 == b1 && a2 == b2,
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Struct(a, b), Value::Struct(c, d)) => a == c && b == d,
             (Value::Tuple(a), Value::Tuple(b)) => a == b,
@@ -61,7 +61,7 @@ impl std::fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", b),
             Value::Str(s) => write!(f, "{}", s),
             Value::Char(c) => write!(f, "{}", c),
-            Value::Range(a, b) => write!(f, "{}..{}", a, b),
+            Value::Range(a, b, _) => write!(f, "{}..{}", a, b),
             Value::List(items) => {
                 write!(f, "[")?;
                 for (i, item) in items.iter().enumerate() {

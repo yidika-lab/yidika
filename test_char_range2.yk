@@ -1,7 +1,0 @@
-fn main() {
-    s: str = "";
-    for (c: 'a'...'e') {
-        s = s + str(c);
-    }
-    print(s);
-}

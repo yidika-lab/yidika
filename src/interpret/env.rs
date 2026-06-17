@@ -164,7 +164,7 @@ impl Interpreter {
                             }
                         }
                     }
-                    "io" | "json" | "datetime" | "path" | "base64" | "re" => {
+                    "io" | "json" | "datetime" | "path" | "base64" | "regex" => {
                         for (name, _) in &import.names {
                             builtin_modules.insert(name.clone(), source.to_string());
                         }
@@ -308,6 +308,7 @@ impl Interpreter {
         let struct_defs = self.struct_defs.clone();
         let classes = self.classes.clone();
         let const_vars = self.const_vars.clone();
+        let objects = self.objects.clone();
         let builtin_modules = self.builtin_modules.clone();
         let builtin_funcs = self.builtin_funcs.clone();
         let tui_mode = self.tui_mode;
@@ -325,7 +326,7 @@ impl Interpreter {
                 struct_defs,
                 classes,
                 functions,
-                objects: Arc::new(HashMap::new()),
+                objects,
                 builtin_modules,
                 builtin_funcs,
                 output: String::new(),
@@ -379,9 +380,10 @@ impl Interpreter {
     }
 
     pub fn run_init_blocks(&mut self, cls: &ClassDef, instance: Value, span: Span) -> Result<Value> {
+        let mut instance = instance;
         if let Some(parent_name) = &cls.extends {
             if let Some(parent_cls) = self.classes.get(parent_name).cloned() {
-                let instance = self.run_init_blocks(&parent_cls, instance, span)?;
+                instance = self.run_init_blocks(&parent_cls, instance.clone(), span)?;
                 self.push_frame();
                 self.frames.last_mut().unwrap().insert("self".into(), instance.clone());
                 for s in parent_cls.init_body.iter() {
@@ -393,12 +395,27 @@ impl Interpreter {
                         };
                     }
                 }
-                let instance = self.frames.last().and_then(|f| f.get("self")).cloned()
+                instance = self.frames.last().and_then(|f| f.get("self")).cloned()
                     .unwrap_or(instance);
                 self.pop_frame();
-                return Ok(instance);
+                // Fall through to run own init_body
             }
         }
+        // Run the current class's own init blocks
+        self.push_frame();
+        self.frames.last_mut().unwrap().insert("self".into(), instance.clone());
+        for s in cls.init_body.iter() {
+            if let Some(r) = self.exec_stmt(s)? {
+                self.pop_frame();
+                return match r {
+                    Value::Result(false, _) => Ok(r),
+                    _ => Err(self.err(span, "Init block should not return a value")),
+                };
+            }
+        }
+        instance = self.frames.last().and_then(|f| f.get("self")).cloned()
+            .unwrap_or(instance);
+        self.pop_frame();
         Ok(instance)
     }
 
@@ -430,6 +447,12 @@ impl Interpreter {
     }
 
     pub fn get_var(&self, name: &str) -> Result<Value> {
+        if name == "v" {
+            eprintln!("DEBUG get_var: name={}, frames={}", name, self.frames.len());
+            for (i, f) in self.frames.iter().enumerate() {
+                eprintln!("DEBUG get_var: frame[{}] keys: {:?}", i, f.vars.keys().collect::<Vec<_>>());
+            }
+        }
         for frame in self.frames.iter().rev() {
             if let Some(val) = frame.get(name) {
                 return Ok(val.clone());
@@ -444,6 +467,9 @@ impl Interpreter {
     }
 
     pub fn set_var(&mut self, name: &str, val: Value) -> Result<()> {
+        if name == "v" {
+            eprintln!("DEBUG set_var: name={}, val={:?}, frames={}, top_frame_keys={:?}", name, val, self.frames.len(), self.frames.last().map(|f| f.vars.keys().collect::<Vec<_>>()));
+        }
         if self.const_vars.contains(name) || self.global_moved.contains(name) {
             return Err(self.err(Span::new(0, 0), format!("Cannot assign to const or moved variable '{}'", name)));
         }

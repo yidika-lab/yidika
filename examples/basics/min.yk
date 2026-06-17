@@ -1,0 +1,9 @@
+fn main() {
+    print("hello");
+    items: auto = [1, 2, 3]; 
+    items.reverse(); 
+    items[1]=4;
+    print(items)
+    print(items.pop());
+}
+    

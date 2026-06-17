@@ -1,0 +1,18 @@
+use {Server} from "net";
+
+fn hello(req: auto) -> str {
+    print("espoir")
+    return "<h1>Hello!</h1> You \n:" + req.path;
+}
+fn used(req: auto)->auto {
+        return {12:12} ;
+    } 
+
+fn main() {
+    app: Server = Server();
+    app.get("/", "Static text \— literal string");
+    app.get("/hello", hello);
+    app.get("/he", used);
+    app.serve(3000);
+}
+

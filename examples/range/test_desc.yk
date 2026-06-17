@@ -1,0 +1,7 @@
+fn main() {
+    s: str = "";
+    for (i in 5..1) {
+        s = s + str(i);
+    }
+    print(s);
+}

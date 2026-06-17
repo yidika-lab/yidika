@@ -10,5 +10,9 @@
 __pycache__/
 *.exe
 *.yk.bc
+*.o
+*.obj
+*.ll
+*.log
 .yk_cache/
 **/test_*.exe

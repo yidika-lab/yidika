@@ -16,7 +16,7 @@ fn get_or_compile_regex(pattern: &str) -> Result<Regex> {
         return Ok(re.clone());
     }
     let re = Regex::new(pattern)
-        .map_err(|e| error::err(ErrorKind::Runtime, Span::new(0, 0), format!("re.match: {}", e)))?;
+        .map_err(|e| error::err(ErrorKind::Runtime, Span::new(0, 0), format!("regex.match: {}", e)))?;
     cache.insert(pattern.to_string(), re.clone());
     Ok(re)
 }
@@ -230,46 +230,46 @@ pub fn call_base64(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
     }
 }
 
-pub fn call_re(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
+pub fn call_regex(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
     let mut it = args.into_iter();
     match field {
         "match" => {
-            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.match() requires 2 arguments"))?;
-            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.match() requires 2 arguments"))?;
-            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.match() pattern must be a string")) };
-            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.match() text must be a string")) };
+            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.match() requires 2 arguments"))?;
+            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.match() requires 2 arguments"))?;
+            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.match() pattern must be a string")) };
+            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.match() text must be a string")) };
             let re = get_or_compile_regex(&pattern)?;
             Ok(Value::Bool(re.is_match(&text)))
         }
         "find" => {
-            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.find() requires 2 arguments"))?;
-            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.find() requires 2 arguments"))?;
-            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.find() pattern must be a string")) };
-            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.find() text must be a string")) };
+            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.find() requires 2 arguments"))?;
+            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.find() requires 2 arguments"))?;
+            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.find() pattern must be a string")) };
+            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.find() text must be a string")) };
             let re = get_or_compile_regex(&pattern)?;
             let matches: Vec<Value> = re.find_iter(&text).map(|m| Value::Str(m.as_str().to_string())).collect();
             Ok(Value::List(matches))
         }
         "replace" => {
-            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.replace() requires 3 arguments"))?;
-            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.replace() requires 3 arguments"))?;
-            let replacement = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.replace() requires 3 arguments"))?;
-            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.replace() pattern must be a string")) };
-            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.replace() text must be a string")) };
-            let replacement = match replacement { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.replace() replacement must be a string")) };
+            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.replace() requires 3 arguments"))?;
+            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.replace() requires 3 arguments"))?;
+            let replacement = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.replace() requires 3 arguments"))?;
+            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() pattern must be a string")) };
+            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() text must be a string")) };
+            let replacement = match replacement { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() replacement must be a string")) };
             let re = get_or_compile_regex(&pattern)?;
             Ok(Value::Str(re.replace_all(&text, replacement).to_string()))
         }
         "split" => {
-            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.split() requires 2 arguments"))?;
-            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "re.split() requires 2 arguments"))?;
-            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.split() pattern must be a string")) };
-            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "re.split() text must be a string")) };
+            let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.split() requires 2 arguments"))?;
+            let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.split() requires 2 arguments"))?;
+            let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.split() pattern must be a string")) };
+            let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.split() text must be a string")) };
             let re = get_or_compile_regex(&pattern)?;
             let parts: Vec<Value> = re.split(&text).map(|p| Value::Str(p.to_string())).collect();
             Ok(Value::List(parts))
         }
-        _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown re function '{}'", field))),
+        _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown regex function '{}'", field))),
     }
 }
 
@@ -550,7 +550,7 @@ pub fn value_to_json(v: &Value) -> serde_json::Value {
         Value::None_ => serde_json::Value::Null,
         Value::Null => serde_json::Value::Null,
         Value::Char(c) => serde_json::Value::String(c.to_string()),
-        Value::Range(_, _) => serde_json::Value::Null,
+        Value::Range(_, _, _) => serde_json::Value::Null,
         Value::Complex(r, i) => serde_json::Value::Array(vec![
             serde_json::Value::Number(serde_json::Number::from_f64(*r).unwrap_or(serde_json::Number::from(0))),
             serde_json::Value::Number(serde_json::Number::from_f64(*i).unwrap_or(serde_json::Number::from(0))),
@@ -644,32 +644,32 @@ mod tests {
     }
 
     #[test]
-    fn call_re_match() {
-        let r = call_re("match", vec![Value::Str(r"\d+".into()), Value::Str("abc123".into())], Span::new(0, 0)).unwrap();
+    fn call_regex_match() {
+        let r = call_regex("match", vec![Value::Str(r"\d+".into()), Value::Str("abc123".into())], Span::new(0, 0)).unwrap();
         assert_eq!(r, Value::Bool(true));
     }
 
     #[test]
-    fn call_re_no_match() {
-        let r = call_re("match", vec![Value::Str(r"\d+".into()), Value::Str("abc".into())], Span::new(0, 0)).unwrap();
+    fn call_regex_no_match() {
+        let r = call_regex("match", vec![Value::Str(r"\d+".into()), Value::Str("abc".into())], Span::new(0, 0)).unwrap();
         assert_eq!(r, Value::Bool(false));
     }
 
     #[test]
-    fn call_re_find() {
-        let r = call_re("find", vec![Value::Str(r"\d+".into()), Value::Str("a1b2c3".into())], Span::new(0, 0)).unwrap();
+    fn call_regex_find() {
+        let r = call_regex("find", vec![Value::Str(r"\d+".into()), Value::Str("a1b2c3".into())], Span::new(0, 0)).unwrap();
         assert!(matches!(r, Value::List(_)));
     }
 
     #[test]
-    fn call_re_replace() {
-        let r = call_re("replace", vec![Value::Str(r"\d+".into()), Value::Str("a1b2".into()), Value::Str("X".into())], Span::new(0, 0)).unwrap();
+    fn call_regex_replace() {
+        let r = call_regex("replace", vec![Value::Str(r"\d+".into()), Value::Str("a1b2".into()), Value::Str("X".into())], Span::new(0, 0)).unwrap();
         assert_eq!(r, Value::Str("aXbX".into()));
     }
 
     #[test]
-    fn call_re_split() {
-        let r = call_re("split", vec![Value::Str(r",".into()), Value::Str("a,b,c".into())], Span::new(0, 0)).unwrap();
+    fn call_regex_split() {
+        let r = call_regex("split", vec![Value::Str(r",".into()), Value::Str("a,b,c".into())], Span::new(0, 0)).unwrap();
         assert_eq!(r, Value::List(vec![Value::Str("a".into()), Value::Str("b".into()), Value::Str("c".into())]));
     }
 

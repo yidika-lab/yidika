@@ -171,18 +171,45 @@ impl Iterator for Lexer {
                     else { Token::RealLit(raw) }
                 } else { Token::Dot }
             }
-            Some('+') => if self.peek() == Some('+') { self.advance(); Token::Inc } else { Token::Plus },
-            Some('-') => if self.peek() == Some('>') { self.advance(); Token::Arrow } else { Token::Minus },
-            Some('*') => Token::Star,
-            Some('/') => Token::Slash,
+            Some('+') => if self.peek() == Some('+') { self.advance(); Token::Inc }
+                          else if self.peek() == Some('=') { self.advance(); Token::PlusEq }
+                          else { Token::Plus },
+            Some('-') => if self.peek() == Some('>') { self.advance(); Token::Arrow }
+                          else if self.peek() == Some('-') { self.advance(); Token::Dec }
+                          else if self.peek() == Some('=') { self.advance(); Token::MinusEq }
+                          else { Token::Minus },
+            Some('*') => if self.peek() == Some('*') { self.advance();
+                              if self.peek() == Some('=') { self.advance(); Token::StarStarEq }
+                              else { Token::StarStar }
+                          } else if self.peek() == Some('=') { self.advance(); Token::StarEq }
+                          else { Token::Star },
+            Some('/') => if self.peek() == Some('=') { self.advance(); Token::SlashEq }
+                          else { Token::Slash },
+            Some('%') => if self.peek() == Some('=') { self.advance(); Token::PercentEq }
+                          else { Token::Percent },
+            Some('^') => if self.peek() == Some('=') { self.advance(); Token::CaretEq }
+                          else { Token::Caret },
+            Some('~') => Token::Tilde,
             Some('!') => if self.peek() == Some('=') { self.advance(); Token::NotEq } else { Token::Bang },
             Some('=') => if self.peek() == Some('=') { self.advance(); Token::EqEq }
                           else if self.peek() == Some('>') { self.advance(); Token::FatArrow }
                           else { Token::Eq },
-            Some('<') => if self.peek() == Some('=') { self.advance(); Token::LtEq } else { Token::Lt },
-            Some('>') => if self.peek() == Some('=') { self.advance(); Token::GtEq } else { Token::Gt },
-            Some('&') => if self.peek() == Some('&') { self.advance(); Token::And } else { Token::Ref },
-            Some('|') => if self.peek() == Some('|') { self.advance(); Token::Or } else { Token::Pipe },
+            Some('<') => if self.peek() == Some('<') { self.advance();
+                              if self.peek() == Some('=') { self.advance(); Token::ShlEq }
+                              else { Token::Shl }
+                          } else if self.peek() == Some('=') { self.advance(); Token::LtEq }
+                          else { Token::Lt },
+            Some('>') => if self.peek() == Some('>') { self.advance();
+                              if self.peek() == Some('=') { self.advance(); Token::ShrEq }
+                              else { Token::Shr }
+                          } else if self.peek() == Some('=') { self.advance(); Token::GtEq }
+                          else { Token::Gt },
+            Some('&') => if self.peek() == Some('&') { self.advance(); Token::And }
+                          else if self.peek() == Some('=') { self.advance(); Token::RefEq }
+                          else { Token::Ref },
+            Some('|') => if self.peek() == Some('|') { self.advance(); Token::Or }
+                          else if self.peek() == Some('=') { self.advance(); Token::PipeEq }
+                          else { Token::Pipe },
             Some('?') => {
                 if self.peek() == Some('.') { self.advance(); Token::QuestionDot }
                 else if self.peek() == Some(':') { self.advance(); Token::Elvis }

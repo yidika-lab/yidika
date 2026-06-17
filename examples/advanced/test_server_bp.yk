@@ -1,0 +1,12 @@
+use {Server} from "net";
+
+fn hello(req: auto) -> str {
+    return "Hello! You requested :" + req.path;
+}
+
+fn main() {
+    app: Server = Server();
+    app.get("/", "<h1>Static text - literal string</h1>");
+    app.get("/hello", hello);
+    app.serve(8081);
+}

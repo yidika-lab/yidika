@@ -186,7 +186,7 @@ MIT — see [LICENSE](LICENSE).
 Copyright (c) 2022 Espoir LOEMBA
 
 
-yidika dans a été designer en 2022
+yidika dans a été designer et crée dans ses première version en 2022 par Espoir LOEMBA
 
 dont la première version était écrit en Clang comme MVP
 et écrit totalement en Rust en 2026
