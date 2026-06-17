@@ -13,6 +13,10 @@ fn main() {
     app.get("/", "Static text \— literal string");
     app.get("/hello", hello);
     app.get("/he", used);
+    app.get("/test", () => {
+        print("test endpoint called");
+        return {"Z":"23"};
+    });
     app.serve(3000);
 }
 

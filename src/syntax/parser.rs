@@ -1168,57 +1168,86 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::Bang => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Not,Box::new(e)))) }
             Token::Tilde => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::BitNot,Box::new(e)))) }
             Token::LParen => {
-                let e = self.expr(0)?;
-                if self.tok() == &Token::Colon {
-                    let mut items = vec![e];
-                    loop {
-                        self.advance();
-                        if self.tok() == &Token::RParen { break; }
-                        items.push(self.expr(0)?);
-                        if self.tok() != &Token::Colon { break; }
-                    }
-                    self.eat(Token::RParen)?;
-                    Ok(ExprNode::new(fresh_id(),span,Expr::VectorLit(items)))
-                } else if self.tok() == &Token::Comma {
-                    let mut items = vec![e];
-                    loop {
-                        self.advance();
-                        if self.tok() == &Token::RParen { break; }
-                        items.push(self.expr(0)?);
-                        if self.tok() != &Token::Comma { break; }
-                    }
-                    self.eat(Token::RParen)?;
+                let start_span = span;
+                // Check if we have empty parentheses first
+                if self.tok() == &Token::RParen {
+                    self.advance();
                     if self.tok() == &Token::FatArrow {
                         self.advance();
-                        let body = self.expr(0)?;
-                        let params = items.into_iter().map(|item| {
-                            let name = match &item.value { Expr::Ident(n) => n.clone(), _ => String::new() };
-                            Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }
-                        }).collect();
-                        Ok(ExprNode::new(fresh_id(), span, Expr::FnLit(params, None, Box::new(body))))
-                    } else {
-                        // Check if all items are list literals → matrix
-                        let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
-                        if all_list && items.len() >= 1 {
-                            let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
-                                Expr::ListLit(v) => v,
-                                _ => unreachable!(),
-                            }).collect();
-                            Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
+                        let body = if self.tok() == &Token::LBrace {
+                            let stmts = self.block_stmts()?;
+                            ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
                         } else {
-                            Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
-                        }
+                            self.expr(0)?
+                        };
+                        Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(vec![], Box::new(body))))
+                    } else {
+                        // Empty parentheses expression
+                        Ok(ExprNode::new(fresh_id(), start_span, Expr::TupleLit(vec![])))
                     }
                 } else {
-                    self.eat(Token::RParen)?;
-                    if self.tok() == &Token::FatArrow {
-                        self.advance();
-                        let body = self.expr(0)?;
-                        let name = match &e.value { Expr::Ident(n) => n.clone(), _ => String::new() };
-                        let params = vec![Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }];
-                        Ok(ExprNode::new(fresh_id(), span, Expr::FnLit(params, None, Box::new(body))))
+                    let e = self.expr(0)?;
+                    if self.tok() == &Token::Colon {
+                        let mut items = vec![e];
+                        loop {
+                            self.advance();
+                            if self.tok() == &Token::RParen { break; }
+                            items.push(self.expr(0)?);
+                            if self.tok() != &Token::Colon { break; }
+                        }
+                        self.eat(Token::RParen)?;
+                        Ok(ExprNode::new(fresh_id(),span,Expr::VectorLit(items)))
+                    } else if self.tok() == &Token::Comma {
+                        let mut items = vec![e];
+                        loop {
+                            self.advance();
+                            if self.tok() == &Token::RParen { break; }
+                            items.push(self.expr(0)?);
+                            if self.tok() != &Token::Comma { break; }
+                        }
+                        self.eat(Token::RParen)?;
+                        if self.tok() == &Token::FatArrow {
+                            self.advance();
+                            let body = if self.tok() == &Token::LBrace {
+                                let stmts = self.block_stmts()?;
+                                ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
+                            } else {
+                                self.expr(0)?
+                            };
+                            let params = items.into_iter().map(|item| {
+                                let name = match &item.value { Expr::Ident(n) => n.clone(), _ => String::new() };
+                                Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }
+                            }).collect();
+                            Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(params, Box::new(body))))
+                        } else {
+                            // Check if all items are list literals → matrix
+                            let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
+                            if all_list && items.len() >= 1 {
+                                let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
+                                    Expr::ListLit(v) => v,
+                                    _ => unreachable!(),
+                                }).collect();
+                                Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
+                            } else {
+                                Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
+                            }
+                        }
                     } else {
-                        Ok(e)
+                        self.eat(Token::RParen)?;
+                        if self.tok() == &Token::FatArrow {
+                            self.advance();
+                            let body = if self.tok() == &Token::LBrace {
+                                let stmts = self.block_stmts()?;
+                                ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
+                            } else {
+                                self.expr(0)?
+                            };
+                            let name = match &e.value { Expr::Ident(n) => n.clone(), _ => String::new() };
+                            let params = vec![Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }];
+                            Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(params, Box::new(body))))
+                        } else {
+                            Ok(e)
+                        }
                     }
                 }
             }
