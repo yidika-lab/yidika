@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 mod hyper_server;
-pub use hyper_server::start_hyper_server;
+use hyper_server::start_hyper_server;
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -26,22 +26,22 @@ type JitFnHandlerFn = unsafe extern "C" fn(*mut YkResponse, *const YkRequest, *m
 
 /// Response struct layout matching the LLVM IR `%YkResponse` type.
 #[repr(C)]
-struct YkResponse {
-    body: *const u8,
-    body_len: i64,
-    status_code: i32,
+pub(crate) struct YkResponse {
+    pub(crate) body: *const u8,
+    pub(crate) body_len: i64,
+    pub(crate) status_code: i32,
 }
 
 /// Request struct layout matching the LLVM IR `%YkRequest` type.
 /// Fields ordered: method(ptr, len), path(ptr, len), body(ptr, len).
 #[repr(C)]
-struct YkRequest {
-    method: *const u8,
-    method_len: i64,
-    path: *const u8,
-    path_len: i64,
-    body: *const u8,
-    body_len: i64,
+pub(crate) struct YkRequest {
+    pub(crate) method: *const u8,
+    pub(crate) method_len: i64,
+    pub(crate) path: *const u8,
+    pub(crate) path_len: i64,
+    pub(crate) body: *const u8,
+    pub(crate) body_len: i64,
 }
 
 type JitState = Option<(McJit, HashMap<String, usize>)>;
@@ -63,7 +63,7 @@ fn ensure_mcjit(guard: &mut JitState) -> Option<&McJit> {
 
 /// Compile a static handler returning a fixed string, returning its function pointer.
 /// The function is cached after first compilation.
-fn compile_literal_handler(name: &str, body: &str, status: i32) -> Option<JitHandlerFn> {
+pub(crate) fn compile_literal_handler(name: &str, body: &str, status: i32) -> Option<JitHandlerFn> {
     let state = jit_state();
     let mut guard = state.lock().unwrap();
 
@@ -84,7 +84,7 @@ fn compile_literal_handler(name: &str, body: &str, status: i32) -> Option<JitHan
 
 /// Compile a FnDef handler to native code, returning its function pointer.
 /// The function is cached after first compilation.
-fn compile_fn_handler(name: &str, fndef: &FnDef) -> Option<JitFnHandlerFn> {
+pub(crate) fn compile_fn_handler(name: &str, fndef: &FnDef) -> Option<JitFnHandlerFn> {
     let state = jit_state();
     let mut guard = state.lock().unwrap();
 
@@ -107,7 +107,7 @@ fn compile_fn_handler(name: &str, fndef: &FnDef) -> Option<JitFnHandlerFn> {
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-fn base_interp() -> &'static Interpreter {
+pub(crate) fn base_interp() -> &'static Interpreter {
     static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     let p = PTR.get_or_init(|| {
         Box::into_raw(Box::new(Interpreter::new())) as usize
@@ -116,7 +116,7 @@ fn base_interp() -> &'static Interpreter {
 }
 
 #[derive(Clone)]
-enum Handler {
+pub(crate) enum Handler {
     Literal(String),
     Fn(String, FnDef),
 }
@@ -204,52 +204,52 @@ impl RouteNode {
 }
 
 #[derive(Clone)]
-struct RouteTrie {
+pub(crate) struct RouteTrie {
     root: Arc<RouteNode>,
 }
 
 impl RouteTrie {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         RouteTrie { root: Arc::new(RouteNode::new()) }
     }
 
-    fn add_route(&mut self, path: &str, method: &str, handler: Handler) {
+    pub(crate) fn add_route(&mut self, path: &str, method: &str, handler: Handler) {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         Arc::make_mut(&mut self.root).insert(&segments, method, handler);
     }
 
-    fn match_route(&self, path: &str, method: &str) -> Option<(&Handler, Vec<String>)> {
+    pub(crate) fn match_route(&self, path: &str, method: &str) -> Option<(&Handler, Vec<String>)> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         let mut params = Vec::new();
         self.root.find(&segments, method, &mut params).map(|h| (h, params))
     }
 
-    fn precompile_all(&self) {
+    pub(crate) fn precompile_all(&self) {
         self.root.precompile_handlers();
     }
 }
 
 #[derive(Clone)]
-struct ServerInstance {
-    id: u64,
-    addr: String,
-    routes: RouteTrie,
+pub(crate) struct ServerInstance {
+    pub(crate) id: u64,
+    pub(crate) addr: String,
+    pub(crate) routes: RouteTrie,
 }
 
 impl ServerInstance {
-    fn new(id: u64) -> Self {
+    pub(crate) fn new(id: u64) -> Self {
         Self { id, addr: String::new(), routes: RouteTrie::new() }
     }
+}
+
+pub(crate) fn sub_interpreter_pool() -> &'static SubInterpreterPool {
+    static POOL: std::sync::OnceLock<SubInterpreterPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| SubInterpreterPool::new(64))
 }
 
 fn servers() -> &'static std::sync::Mutex<HashMap<u64, ServerInstance>> {
     static REGISTRY: std::sync::OnceLock<std::sync::Mutex<HashMap<u64, ServerInstance>>> = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
-}
-
-fn sub_interpreter_pool() -> &'static SubInterpreterPool {
-    static POOL: std::sync::OnceLock<SubInterpreterPool> = std::sync::OnceLock::new();
-    POOL.get_or_init(|| SubInterpreterPool::new(64))
 }
 
 fn udp_sockets() -> &'static std::sync::Mutex<HashMap<u64, std::net::UdpSocket>> {
@@ -300,7 +300,7 @@ fn ensure_server_class(interp: &mut Interpreter) {
     }
 }
 
-fn parse_request_line(raw: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_request_line(raw: &str) -> Option<(&str, &str)> {
     let first_line = raw.lines().next()?;
     let mut parts = first_line.splitn(3, ' ');
     let method = parts.next()?;
@@ -308,7 +308,7 @@ fn parse_request_line(raw: &str) -> Option<(&str, &str)> {
     Some((method, path))
 }
 
-fn extract_header_value(raw: &str, name: &str) -> Option<String> {
+pub(crate) fn extract_header_value(raw: &str, name: &str) -> Option<String> {
     let lower = name.to_lowercase();
     let search = &lower;
     for line in raw.lines() {
@@ -322,9 +322,38 @@ fn extract_header_value(raw: &str, name: &str) -> Option<String> {
     None
 }
 
-fn write_status_line(stream: &mut TcpStream, status: &str, content_type: &str, body_len: usize, keep_alive: bool) -> std::io::Result<()> {
+pub(crate) async fn write_status_line_async(
+    stream: &mut tokio::net::TcpStream,
+    status: &str,
+    content_type: &str,
+    body_len: usize,
+    keep_alive: bool,
+) -> std::io::Result<()> {
     let conn = if keep_alive { "keep-alive" } else { "close" };
-    write!(stream, "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n", status, content_type, body_len, conn)
+    use tokio::io::AsyncWriteExt;
+    stream.write_all(
+        format!(
+            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
+            status, content_type, body_len, conn
+        )
+        .as_bytes(),
+    )
+    .await
+}
+
+fn write_status_line(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body_len: usize,
+    keep_alive: bool,
+) -> std::io::Result<()> {
+    let conn = if keep_alive { "keep-alive" } else { "close" };
+    write!(
+        stream,
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
+        status, content_type, body_len, conn
+    )
 }
 
 fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubInterpreterPool) {
@@ -622,28 +651,8 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
                 // from first-request time to server startup time.
                 server.routes.precompile_all();
 
-                let pool = sub_interpreter_pool();
-
-                let conn_count = Arc::new(AtomicU64::new(0));
-
-                let evt_server = server.clone();
-                let evt_pool = pool;
-                let evt_conn_count = conn_count.clone();
-
-                let evt_handle = std::thread::spawn(move || {
-                    let listener = match std::net::TcpListener::bind(&evt_server.addr) {
-                        Ok(l) => l,
-                        Err(e) => { eprintln!("std::TcpListener::bind({}) failed: {}", evt_server.addr, e); return; }
-                    };
-
-                    // Standard accept loop used on all platforms.
-                    // On Windows, a warm-up accept at startup reduces first-connect latency
-                    // from ~3s to ~60ms by triggering Windows Defender/WFP socket classification
-                    // before the first real request.
-                    standard_accept_loop(&listener, &evt_server, evt_pool, evt_conn_count);
-                });
-
-                let _ = evt_handle.join();
+                // Use Hyper Server (Tokio) for maximum performance
+                start_hyper_server(server, _addr);
 
                 Ok(Value::None_)
             }

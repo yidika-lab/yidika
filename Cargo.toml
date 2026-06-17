@@ -21,6 +21,7 @@ ureq = "3"
 tokio = { version = "1", features = ["full"] }
 httparse = "1"
 bytes = "1"
+num_cpus = "1"
 
 [dev-dependencies]
 criterion = "0.5"
