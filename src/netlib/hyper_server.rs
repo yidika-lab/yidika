@@ -1,17 +1,14 @@
 use tokio::net::{TcpListener, TcpStream};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use std::sync::Arc;
 use crate::hardware::HardwareInfo;
-use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 
 use crate::netlib::{
-    ServerInstance, Handler, sub_interpreter_pool, base_interp,
-    compile_literal_handler, compile_fn_handler,
-    YkResponse, YkRequest,
-    parse_request_line, extract_header_value, write_status_line_async
+    ServerInstance, sub_interpreter_pool,
+    parse_request_line, extract_header_value, write_response_async,
+    extract_all_headers, parse_query_params, parse_cookies,
+    cors_headers, ProcessedResponse, try_serve_static, execute_handler, run_logger
 };
-use crate::interpret::Value;
 
 pub async fn run_server(server: ServerInstance, addr: String) {
     let server = Arc::new(server);
@@ -28,7 +25,6 @@ pub async fn run_server(server: ServerInstance, addr: String) {
         match listener.accept().await {
             Ok((stream, _addr)) => {
                 let server = server.clone();
-                // Spawn a lightweight task (not an OS thread!)
                 tokio::spawn(async move {
                     handle_connection_fast(stream, &server).await;
                 });
@@ -65,18 +61,19 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
 
         let raw = unsafe { std::str::from_utf8_unchecked(&read_buf) };
 
-        let (method_raw, path_raw) = match parse_request_line(raw) {
-            Some(r) => (r.0.to_uppercase(), r.1.to_string()),
-            None => {
-                let _ = write_status_line_async(&mut stream, "400 Bad Request", "text/plain", 9, false).await;
-                let _ = stream.write_all(b"Bad Request").await;
-                return;
-            }
-        };
-
         let keep_alive = extract_header_value(raw, "Connection")
             .map(|v| v.eq_ignore_ascii_case("keep-alive"))
             .unwrap_or(false);
+
+        let cors = cors_headers(server);
+
+        let (method_raw, path_raw) = match parse_request_line(raw) {
+            Some(r) => (r.0.to_uppercase(), r.1.to_string()),
+            None => {
+                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "400 Bad Request".to_string(), body: "Bad Request".to_string(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+                return;
+            }
+        };
 
         let body = if let Some(cl) = extract_header_value(raw, "Content-Length")
             .and_then(|v| v.parse::<usize>().ok())
@@ -97,96 +94,103 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
             String::new()
         };
 
-        let (response_body, content_type) = match server.routes.match_route(&path_raw, &method_raw) {
+        // Handle OPTIONS preflight
+        if method_raw == "OPTIONS" {
+            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "204 No Content".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, keep_alive, &cors).await;
+            if !keep_alive { return; } else { continue; }
+        };
+
+        // Parse all headers, query params, and cookies
+        let headers = extract_all_headers(raw);
+        let query_params = parse_query_params(&path_raw);
+        let cookies = parse_cookies(&headers);
+        // Extract path without query string for route matching
+        let path_for_route = path_raw.split_once('?').map(|(p, _)| p).unwrap_or(&path_raw).to_string();
+
+        let response = match server.routes.match_route(&path_for_route, &method_raw) {
             Some((handler, route_params)) => {
-                match handler {
-                    Handler::Literal(text) => {
-                        let ct = if text.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                        // Try JIT path
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        text.hash(&mut hasher);
-                        let jit_name = format!("__yk_lit_{:x}", hasher.finish());
-                        if let Some(jit_fn) = compile_literal_handler(&jit_name, text, 200) {
-                            let mut resp = YkResponse { body: std::ptr::null(), body_len: 0, status_code: 0 };
-                            unsafe { jit_fn(&mut resp) };
-                            if !resp.body.is_null() && resp.body_len > 0 {
-                                let body_slice = unsafe { std::slice::from_raw_parts(resp.body, resp.body_len as usize) };
-                                (String::from_utf8_lossy(body_slice).to_string(), ct)
-                            } else {
-                                (text.clone(), ct)
-                            }
+                // Run all middleware first
+                let mut final_response = None;
+                for middleware in &server.middleware {
+                    let mw_resp = execute_handler(
+                        middleware,
+                        &method_raw,
+                        &path_raw,
+                        &body,
+                        &headers,
+                        &query_params,
+                        &cookies,
+                        None,
+                        pool
+                    );
+                    // If middleware returns a non-200 status (or we decide to short-circuit), use that response
+                    // For now, just run all middleware and proceed
+                    final_response = Some(mw_resp);
+                }
+                
+                // Then run the main handler
+                final_response.unwrap_or_else(|| {
+                    execute_handler(
+                        handler,
+                        &method_raw,
+                        &path_raw,
+                        &body,
+                        &headers,
+                        &query_params,
+                        &cookies,
+                        Some(&route_params),
+                        pool
+                    )
+                })
+            }
+            None => {
+                // Try serving static file if static_dir is set and method is GET
+                if method_raw == "GET" {
+                    if let Some(ref static_dir) = server.static_dir {
+                        if let Some(static_response) = try_serve_static(static_dir, &path_for_route) {
+                            static_response
                         } else {
-                            (text.clone(), ct)
+                            ProcessedResponse {
+                                status: "404 Not Found".to_string(),
+                                body: "Not Found".to_string(),
+                                content_type: "text/plain".to_string(),
+                                headers: Vec::new(),
+                            }
+                        }
+                    } else {
+                        ProcessedResponse {
+                            status: "404 Not Found".to_string(),
+                            body: "Not Found".to_string(),
+                            content_type: "text/plain".to_string(),
+                            headers: Vec::new(),
                         }
                     }
-                    Handler::Fn(name, fndef) => {
-                        // Try JIT compilation
-                        let jit_try: Option<(String, &str)> = (|| {
-                            if !fndef.params.iter().any(|p| p.name == "req") { return None; }
-                            let jn = format!("__yk_fn_{}", name);
-                            let jit_fn = compile_fn_handler(&jn, fndef)?;
-                            let req = YkRequest {
-                                method: method_raw.as_ptr(), method_len: method_raw.len() as i64,
-                                path: path_raw.as_ptr(), path_len: path_raw.len() as i64,
-                                body: body.as_ptr(), body_len: body.len() as i64,
-                            };
-                            let mut buf = vec![0u8; 65536];
-                            let mut resp = YkResponse { body: std::ptr::null(), body_len: 0, status_code: 0 };
-                            unsafe { jit_fn(&mut resp, &req, buf.as_mut_ptr(), buf.len() as i64) };
-                            if resp.body.is_null() || resp.body_len <= 0 { return None; }
-                            let body_slice = unsafe { std::slice::from_raw_parts(resp.body, resp.body_len as usize) };
-                            let result = String::from_utf8_lossy(body_slice).to_string();
-                            let ct = if result.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                            Some((result, ct))
-                        })();
-
-                        match jit_try {
-                            Some(r) => r,
-                            None => {
-                                let mut interp = pool.take(base_interp());
-                                interp.push_frame();
-
-                                let mut fields = HashMap::with_capacity(4);
-                                fields.insert(String::from("method"), Value::Str(method_raw));
-                                fields.insert(String::from("path"), Value::Str(path_raw));
-                                fields.insert(String::from("body"), Value::Str(body));
-                                if !route_params.is_empty() {
-                                    let mut pmap = HashMap::with_capacity(route_params.len());
-                                    for (i, v) in route_params.iter().enumerate() {
-                                        pmap.insert(i.to_string(), Value::Str(v.clone()));
-                                    }
-                                    fields.insert(String::from("params"), Value::Struct(String::new(), pmap));
-                                }
-                                let req_val = Value::Struct("Request".into(), fields);
-                                // Always inject req
-                                interp.frames.last_mut().unwrap().insert("req".into(), req_val);
-                                for param in fndef.params.iter() {
-                                    if param.name != "req" {
-                                        interp.frames.last_mut().unwrap().insert(param.name.clone(), Value::None_);
-                                    }
-                                }
-
-                                let result = match interp.run_fn_body(fndef) {
-                                    Ok(Some(val)) => val.to_string(),
-                                    _ => "Handler returned no value".into(),
-                                };
-                                pool.return_interp(interp);
-                                let ct = if result.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                                (result, ct)
-                            }
-                        }
+                } else {
+                    ProcessedResponse {
+                        status: "404 Not Found".to_string(),
+                        body: "Not Found".to_string(),
+                        content_type: "text/plain".to_string(),
+                        headers: Vec::new(),
                     }
                 }
             }
-            None => {
-                let _ = write_status_line_async(&mut stream, "404 Not Found", "text/plain", 9, keep_alive).await;
-                let _ = stream.write_all(b"Not Found").await;
-                if !keep_alive { return; } else { continue; }
-            }
         };
-        let _ = write_status_line_async(&mut stream, "200 OK", content_type, response_body.len(), keep_alive).await;
-        let _ = stream.write_all(response_body.as_bytes()).await;
-        let _ = stream.flush().await;
+        // Call logger if set
+        if let Some(ref logger) = server.logger {
+            run_logger(
+                logger,
+                &method_raw,
+                &path_raw,
+                &body,
+                &headers,
+                &query_params,
+                &cookies,
+                &response.status,
+                &response.body,
+                pool
+            );
+        }
+        let _ = write_response_async(&mut stream, &response, keep_alive, &cors).await;
 
         if !keep_alive {
             return;
@@ -195,12 +199,9 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
 }
 
 pub(crate) fn start_hyper_server(server: ServerInstance, addr: String) {
-    // Configuration Tokio ultra-performante !
     let rt = tokio::runtime::Builder::new_multi_thread()
-        // Commence avec 1 thread, auto-scale jusqu'au nombre de cœurs
         .worker_threads(num_cpus::get())
-        // Optimisé pour throughput maximum
-        .thread_stack_size(2 * 1024 * 1024) // 2MB stack par thread
+        .thread_stack_size(2 * 1024 * 1024)
         .enable_all()
         .build()
         .unwrap();

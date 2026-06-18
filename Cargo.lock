@@ -1307,6 +1307,7 @@ dependencies = [
  "httparse",
  "libloading",
  "num_cpus",
+ "percent-encoding",
  "regex",
  "serde_json",
  "sysinfo",

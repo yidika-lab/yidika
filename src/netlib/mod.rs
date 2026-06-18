@@ -14,7 +14,7 @@ use crate::diagnostics::span::Span;
 use crate::hardware::HardwareInfo;
 use crate::interpret::{Value, FnDef, ClassDef, Interpreter, SubInterpreterPool};
 use crate::jit::mcjit::McJit;
-use crate::syntax::ast::{Expr, ExprNode};
+use crate::syntax::ast::{Expr, ExprNode, TypeNode, TypeExpr};
 
 /// JIT-compiled handler function signature (static literal).
 /// Takes a pointer to a YkResponse struct, returns void.
@@ -125,12 +125,13 @@ pub(crate) enum Handler {
 struct RouteNode {
     children: HashMap<String, RouteNode>,
     wildcard: Option<Box<RouteNode>>,
+    param_name: Option<String>, // For tracking :param or {param}
     handler: Option<(String, Handler)>,
 }
 
 impl RouteNode {
     fn new() -> Self {
-        RouteNode { children: HashMap::new(), wildcard: None, handler: None }
+        RouteNode { children: HashMap::new(), wildcard: None, param_name: None, handler: None }
     }
 
     fn insert(&mut self, segments: &[&str], method: &str, handler: Handler) {
@@ -139,9 +140,19 @@ impl RouteNode {
             return;
         }
         let seg = segments[0];
-        if seg.starts_with(':') {
+        let (is_param, param_name) = if seg.starts_with(':') {
+            (true, seg[1..].to_string())
+        } else if seg.starts_with('{') && seg.ends_with('}') {
+            (true, seg[1..seg.len()-1].to_string())
+        } else {
+            (false, String::new())
+        };
+        
+        if is_param {
             if self.wildcard.is_none() {
-                self.wildcard = Some(Box::new(RouteNode::new()));
+                let mut node = RouteNode::new();
+                node.param_name = Some(param_name);
+                self.wildcard = Some(Box::new(node));
             }
             self.wildcard.as_mut().unwrap().insert(&segments[1..], method, handler);
         } else {
@@ -151,7 +162,7 @@ impl RouteNode {
         }
     }
 
-    fn find<'a>(&'a self, segments: &[&str], method: &str, params: &mut Vec<String>) -> Option<&'a Handler> {
+    fn find<'a>(&'a self, segments: &[&str], method: &str, params: &mut HashMap<String, String>) -> Option<&'a Handler> {
         if let Some((ref m, ref h)) = self.handler {
             if m == method && segments.is_empty() {
                 return Some(h);
@@ -169,11 +180,19 @@ impl RouteNode {
             }
         }
         if let Some(ref wildcard) = self.wildcard {
-            params.push(seg.to_string());
+            if let Some(ref name) = wildcard.param_name {
+                params.insert(name.clone(), seg.to_string());
+            } else {
+                params.insert("0".to_string(), seg.to_string()); // Fallback for old :param without name
+            }
             if let found @ Some(_) = wildcard.find(rest, method, params) {
                 return found;
             }
-            params.pop();
+            if let Some(name) = &wildcard.param_name {
+                params.remove(name);
+            } else {
+                params.remove("0");
+            }
         }
         None
     }
@@ -218,9 +237,9 @@ impl RouteTrie {
         Arc::make_mut(&mut self.root).insert(&segments, method, handler);
     }
 
-    pub(crate) fn match_route(&self, path: &str, method: &str) -> Option<(&Handler, Vec<String>)> {
+    pub(crate) fn match_route(&self, path: &str, method: &str) -> Option<(&Handler, HashMap<String, String>)> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        let mut params = Vec::new();
+        let mut params = HashMap::new();
         self.root.find(&segments, method, &mut params).map(|h| (h, params))
     }
 
@@ -234,13 +253,33 @@ pub(crate) struct ServerInstance {
     pub(crate) id: u64,
     pub(crate) addr: String,
     pub(crate) routes: RouteTrie,
+    pub(crate) cors_enabled: bool,
+    pub(crate) cors_origins: Option<Vec<String>>,
+    pub(crate) cors_headers: Option<Vec<String>>,
+    pub(crate) cors_methods: Option<Vec<String>>,
+    pub(crate) static_dir: Option<String>,
+    pub(crate) middleware: Vec<Handler>,
+    pub(crate) logger: Option<Handler>,
 }
 
 impl ServerInstance {
     pub(crate) fn new(id: u64) -> Self {
-        Self { id, addr: String::new(), routes: RouteTrie::new() }
+        Self { 
+            id, 
+            addr: String::new(), 
+            routes: RouteTrie::new(),
+            cors_enabled: false,
+            cors_origins: None,
+            cors_headers: None,
+            cors_methods: None,
+            static_dir: None,
+            middleware: Vec::new(),
+            logger: None,
+        }
     }
 }
+
+
 
 pub(crate) fn sub_interpreter_pool() -> &'static SubInterpreterPool {
     static POOL: std::sync::OnceLock<SubInterpreterPool> = std::sync::OnceLock::new();
@@ -285,6 +324,81 @@ pub fn http_instances() -> &'static std::sync::Mutex<HashMap<u64, HttpInstance>>
     REGISTRY.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
+fn ensure_request_class(interp: &mut Interpreter) {
+    if !interp.classes.contains_key("Request") {
+        Arc::make_mut(&mut interp.classes).insert("Request".into(), ClassDef {
+            fields: vec!["method".into(), "path".into(), "body".into(), "headers".into(), "query".into(), "params".into(), "cookies".into()],
+            methods: HashMap::new(),
+            extends: None,
+            constructor: Arc::new(Vec::new()),
+            init_body: Arc::new(Vec::new()),
+            is_data: true,
+            method_cache: std::sync::Mutex::new(HashMap::new()),
+            inline_cache: std::sync::Mutex::new(Default::default()),
+        });
+    }
+}
+
+fn ensure_response_class(interp: &mut Interpreter) {
+    if !interp.classes.contains_key("Response") {
+        Arc::make_mut(&mut interp.classes).insert("Response".into(), ClassDef {
+            fields: vec!["status".into(), "body".into(), "headers".into(), "cookies".into()],
+            methods: HashMap::new(),
+            extends: None,
+            constructor: Arc::new(Vec::new()),
+            init_body: Arc::new(Vec::new()),
+            is_data: true,
+            method_cache: std::sync::Mutex::new(HashMap::new()),
+            inline_cache: std::sync::Mutex::new(Default::default()),
+        });
+    }
+}
+
+fn ensure_form_class(interp: &mut Interpreter) {
+    if !interp.classes.contains_key("Form") {
+        Arc::make_mut(&mut interp.classes).insert("Form".into(), ClassDef {
+            fields: vec!["fields".into(), "files".into()],
+            methods: HashMap::new(),
+            extends: None,
+            constructor: Arc::new(Vec::new()),
+            init_body: Arc::new(Vec::new()),
+            is_data: true,
+            method_cache: std::sync::Mutex::new(HashMap::new()),
+            inline_cache: std::sync::Mutex::new(Default::default()),
+        });
+    }
+}
+
+fn ensure_log_entry_class(interp: &mut Interpreter) {
+    if !interp.classes.contains_key("LogEntry") {
+        Arc::make_mut(&mut interp.classes).insert("LogEntry".into(), ClassDef {
+            fields: vec!["method".into(), "path".into(), "body".into(), "headers".into(), "query".into(), "cookies".into(), "response".into()],
+            methods: HashMap::new(),
+            extends: None,
+            constructor: Arc::new(Vec::new()),
+            init_body: Arc::new(Vec::new()),
+            is_data: true,
+            method_cache: std::sync::Mutex::new(HashMap::new()),
+            inline_cache: std::sync::Mutex::new(Default::default()),
+        });
+    }
+}
+
+fn ensure_body_class(interp: &mut Interpreter) {
+    if !interp.classes.contains_key("Body") {
+        Arc::make_mut(&mut interp.classes).insert("Body".into(), ClassDef {
+            fields: vec!["text".into(), "json".into(), "bytes".into()],
+            methods: HashMap::new(),
+            extends: None,
+            constructor: Arc::new(Vec::new()),
+            init_body: Arc::new(Vec::new()),
+            is_data: true,
+            method_cache: std::sync::Mutex::new(HashMap::new()),
+            inline_cache: std::sync::Mutex::new(Default::default()),
+        });
+    }
+}
+
 fn ensure_server_class(interp: &mut Interpreter) {
     if !interp.classes.contains_key("Server") {
         Arc::make_mut(&mut interp.classes).insert("Server".into(), ClassDef {
@@ -298,6 +412,10 @@ fn ensure_server_class(interp: &mut Interpreter) {
             inline_cache: std::sync::Mutex::new(Default::default()),
         });
     }
+    ensure_request_class(interp);
+    ensure_response_class(interp);
+    ensure_form_class(interp);
+    ensure_body_class(interp);
 }
 
 pub(crate) fn parse_request_line(raw: &str) -> Option<(&str, &str)> {
@@ -322,23 +440,445 @@ pub(crate) fn extract_header_value(raw: &str, name: &str) -> Option<String> {
     None
 }
 
+pub(crate) fn extract_all_headers(raw: &str) -> HashMap<String, String> {
+    let mut headers = HashMap::new();
+    for line in raw.lines() {
+        if line.is_empty() { break; } // stop at the empty line before body
+        if let Some(idx) = line.find(':') {
+            let key = line[..idx].trim().to_lowercase();
+            let value = line[idx + 1..].trim().to_string();
+            headers.insert(key, value);
+        }
+    }
+    headers
+}
+
+pub(crate) fn parse_query_params(path: &str) -> HashMap<String, String> {
+    let mut params = HashMap::new();
+    if let Some(query_part) = path.split_once('?').map(|(_, q)| q) {
+        for pair in query_part.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                let key = percent_encoding::percent_decode_str(k).decode_utf8_lossy().to_string();
+                let value = percent_encoding::percent_decode_str(v).decode_utf8_lossy().to_string();
+                params.insert(key, value);
+            }
+        }
+    }
+    params
+}
+
+pub(crate) fn parse_cookies(headers: &HashMap<String, String>) -> HashMap<String, String> {
+    let mut cookies = HashMap::new();
+    if let Some(cookie_header) = headers.get("cookie") {
+        for pair in cookie_header.split(';') {
+            if let Some((k, v)) = pair.split_once('=') {
+                let key = k.trim().to_string();
+                let value = v.trim().to_string();
+                cookies.insert(key, value);
+            }
+        }
+    }
+    cookies
+}
+
+pub(crate) struct ProcessedResponse {
+    pub status: String,
+    pub body: String,
+    pub content_type: String,
+    pub headers: Vec<String>,
+}
+
+fn guess_content_type(path: &str) -> &'static str {
+    let ext = std::path::Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    
+    match ext.as_str() {
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" | "mjs" => "application/javascript",
+        "json" => "application/json",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "txt" => "text/plain",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "ogg" => "audio/ogg",
+        "wav" => "audio/wav",
+        "xml" => "application/xml",
+        _ => "application/octet-stream",
+    }
+}
+
+pub(crate) fn try_serve_static(static_dir: &str, path: &str) -> Option<ProcessedResponse> {
+    let path = path.trim_start_matches('/');
+    let file_path = std::path::Path::new(static_dir).join(path);
+    
+    if !file_path.exists() {
+        return None;
+    }
+    
+    match std::fs::read(&file_path) {
+        Ok(content) => {
+            let content_type = guess_content_type(file_path.to_str().unwrap_or(""));
+            let body = String::from_utf8_lossy(&content).to_string();
+            Some(ProcessedResponse {
+                status: "200 OK".to_string(),
+                body,
+                content_type: content_type.to_string(),
+                headers: vec![],
+            })
+        }
+        Err(_) => None
+    }
+}
+
+fn run_logger(
+    logger: &Handler,
+    method: &str,
+    path: &str,
+    body: &str,
+    headers: &HashMap<String, String>,
+    query: &HashMap<String, String>,
+    cookies: &HashMap<String, String>,
+    response_status: &str,
+    response_body: &str,
+    pool: &SubInterpreterPool
+) {
+    // Create a log entry struct
+    let mut log_fields = HashMap::with_capacity(8);
+    log_fields.insert("method".into(), Value::Str(method.into()));
+    log_fields.insert("path".into(), Value::Str(path.into()));
+    log_fields.insert("body".into(), Value::Str(body.into()));
+    
+    let headers_val = Value::Struct("".into(), headers.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect());
+    log_fields.insert("headers".into(), headers_val);
+    
+    let query_val = Value::Struct("".into(), query.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect());
+    log_fields.insert("query".into(), query_val);
+    
+    let cookies_val = Value::Struct("".into(), cookies.iter().map(|(k, v)| (k.clone(), Value::Str(v.clone()))).collect());
+    log_fields.insert("cookies".into(), cookies_val);
+    
+    // Create proper Response struct
+    let mut response_fields = HashMap::with_capacity(3);
+    response_fields.insert("status".into(), Value::Str(response_status.into()));
+    response_fields.insert("body".into(), Value::Str(response_body.into()));
+    let response_val = Value::Struct("Response".into(), response_fields);
+    log_fields.insert("response".into(), response_val);
+    
+    let log_entry = Value::Struct("LogEntry".into(), log_fields);
+    
+    // Now execute logger handler
+    match logger {
+        Handler::Literal(_text) => {},
+        Handler::Fn(_name, fndef) => {
+            let mut interp = pool.take(base_interp());
+            ensure_log_entry_class(&mut interp);
+            ensure_response_class(&mut interp);
+            interp.push_frame();
+            
+            // Add log_entry as argument
+            if let Some(param) = fndef.params.first() {
+                interp.frames.last_mut().unwrap().insert(param.name.clone(), log_entry);
+            }
+            
+            let _ = interp.run_fn_body(fndef);
+            
+            if !interp.output.is_empty() {
+                print!("{}", interp.output);
+            }
+            pool.return_interp(interp);
+        }
+    }
+}
+
+fn execute_handler(
+    handler: &Handler,
+    method_raw: &str,
+    path_raw: &str,
+    body: &str,
+    headers: &HashMap<String, String>,
+    query_params: &HashMap<String, String>,
+    cookies: &HashMap<String, String>,
+    route_params: Option<&HashMap<String, String>>,
+    pool: &SubInterpreterPool
+) -> ProcessedResponse {
+    match handler {
+        Handler::Literal(text) => ProcessedResponse::from_string(text.clone()),
+        Handler::Fn(_name, fndef) => {
+            let mut interp = pool.take(base_interp());
+            interp.push_frame();
+
+            let mut fields = HashMap::with_capacity(8);
+            fields.insert(String::from("method"), Value::Str(method_raw.to_string()));
+            fields.insert(String::from("path"), Value::Str(path_raw.to_string()));
+            fields.insert(String::from("body"), Value::Str(body.to_string()));
+
+            // Add headers
+            let headers_map = headers.iter()
+                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                .collect();
+            fields.insert(String::from("headers"), Value::Struct(String::new(), headers_map));
+
+            // Add query params
+            let qp_map = query_params.iter()
+                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                .collect();
+            fields.insert(String::from("query"), Value::Struct(String::new(), qp_map));
+
+            // Add cookies
+            let cookies_map = cookies.iter()
+                .map(|(k, v)| (k.clone(), Value::Str(v.clone())))
+                .collect();
+            fields.insert(String::from("cookies"), Value::Struct(String::new(), cookies_map));
+
+            // Add route params if present
+            if let Some(rp) = route_params {
+                let mut pmap = HashMap::with_capacity(rp.len());
+                for (k, v) in rp.iter() {
+                    pmap.insert(k.clone(), Value::Str(v.clone()));
+                }
+                fields.insert(String::from("params"), Value::Struct(String::new(), pmap));
+            }
+
+            let req_val = Value::Struct("Request".into(), fields);
+            interp.frames.last_mut().unwrap().insert("req".into(), req_val);
+            for param in fndef.params.iter() {
+                if param.name != "req" {
+                    let maybe_value = route_params.and_then(|rp| rp.get(&param.name))
+                        .or_else(|| query_params.get(&param.name))
+                        .map(|s| Value::Str(s.clone()));
+                    
+                    if let Some(v) = maybe_value {
+                        let converted = match &param.type_expr {
+                            TypeNode { value: TypeExpr::Named(ref n, ..), .. } if n == "int" => {
+                                v.to_string().parse::<i64>().ok().map(Value::Int)
+                            }
+                            TypeNode { value: TypeExpr::Named(ref n, ..), .. } if n == "real" => {
+                                v.to_string().parse::<f64>().ok().map(Value::Real)
+                            }
+                            TypeNode { value: TypeExpr::Named(ref n, ..), .. } if n == "bool" => {
+                                match v.to_string().to_lowercase().as_str() {
+                                    "true" | "1" => Some(Value::Bool(true)),
+                                    "false" | "0" => Some(Value::Bool(false)),
+                                    _ => None
+                                }
+                            }
+                            _ => Some(v.clone())
+                        };
+                        if let Some(cv) = converted {
+                            interp.frames.last_mut().unwrap().insert(param.name.clone(), cv);
+                        } else {
+                            interp.frames.last_mut().unwrap().insert(param.name.clone(), v);
+                        }
+                    } else {
+                        interp.frames.last_mut().unwrap().insert(param.name.clone(), Value::None_);
+                    }
+                }
+            }
+
+            let result = match interp.run_fn_body(fndef) {
+                Ok(Some(val)) => ProcessedResponse::from_value(&val),
+                _ => ProcessedResponse::from_string("Handler returned no value".into()),
+            };
+            // Print everything that was printed in the handler!
+            if !interp.output.is_empty() {
+                print!("{}", interp.output);
+            }
+            pool.return_interp(interp);
+            result
+        }
+    }
+}
+
+impl ProcessedResponse {
+    pub fn new() -> Self {
+        ProcessedResponse {
+            status: "200 OK".to_string(),
+            body: String::new(),
+            content_type: "text/plain".to_string(),
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn from_string(body: String) -> Self {
+        let content_type = if body.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') {
+            "application/json".to_string()
+        } else {
+            "text/plain".to_string()
+        };
+        ProcessedResponse {
+            status: "200 OK".to_string(),
+            body,
+            content_type,
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn from_value(value: &crate::interpret::Value) -> Self {
+        match value {
+            crate::interpret::Value::Struct(class_name, fields) if class_name == "Response" => {
+                let status = fields.get("status")
+                    .and_then(|v| match v {
+                        crate::interpret::Value::Int(i) => Some(match i {
+                            200 => "200 OK".to_string(),
+                            201 => "201 Created".to_string(),
+                            204 => "204 No Content".to_string(),
+                            301 => "301 Moved Permanently".to_string(),
+                            302 => "302 Found".to_string(),
+                            400 => "400 Bad Request".to_string(),
+                            401 => "401 Unauthorized".to_string(),
+                            403 => "403 Forbidden".to_string(),
+                            404 => "404 Not Found".to_string(),
+                            500 => "500 Internal Server Error".to_string(),
+                            _ => format!("{} OK", i)
+                        }),
+                        crate::interpret::Value::Str(s) => Some(s.clone()),
+                        _ => None
+                    })
+                    .unwrap_or("200 OK".to_string());
+                
+                let body = fields.get("body")
+                    .map(|v| v.to_string())
+                    .unwrap_or(String::new());
+                
+                let content_type = fields.get("content_type")
+                    .and_then(|v| match v {
+                        crate::interpret::Value::Str(s) => Some(s.clone()),
+                        _ => None
+                    })
+                    .unwrap_or(if body.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') {
+                        "application/json".to_string()
+                    } else {
+                        "text/plain".to_string()
+                    });
+                
+                let mut headers = Vec::new();
+                if let Some(crate::interpret::Value::Struct(_, header_fields)) = fields.get("headers") {
+                    for (k, v) in header_fields {
+                        headers.push(format!("{}: {}", k, v.to_string()));
+                    }
+                }
+                
+                ProcessedResponse {
+                    status,
+                    body,
+                    content_type,
+                    headers,
+                }
+            }
+            _ => ProcessedResponse::from_string(value.to_string())
+        }
+    }
+}
+
+pub(crate) fn cors_headers(server: &ServerInstance) -> String {
+    if !server.cors_enabled {
+        return String::new();
+    }
+    let mut headers = String::new();
+    
+    // Access-Control-Allow-Origin
+    if let Some(ref origins) = server.cors_origins {
+        if origins.len() == 1 {
+            headers.push_str(&format!("Access-Control-Allow-Origin: {}\r\n", origins[0]));
+        } else {
+            headers.push_str("Access-Control-Allow-Origin: *\r\n");
+        }
+    } else {
+        headers.push_str("Access-Control-Allow-Origin: *\r\n");
+    }
+
+    // Access-Control-Allow-Headers
+    if let Some(ref hds) = server.cors_headers {
+        headers.push_str(&format!("Access-Control-Allow-Headers: {}\r\n", hds.join(", ")));
+    } else {
+        headers.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n");
+    }
+
+    // Access-Control-Allow-Methods
+    if let Some(ref meths) = server.cors_methods {
+        headers.push_str(&format!("Access-Control-Allow-Methods: {}\r\n", meths.join(", ")));
+    } else {
+        headers.push_str("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS\r\n");
+    }
+
+    // Allow credentials (optional, default to false)
+    headers.push_str("Access-Control-Allow-Credentials: true\r\n");
+
+    headers
+}
+
+pub(crate) async fn write_response_async(
+    stream: &mut tokio::net::TcpStream,
+    response: &ProcessedResponse,
+    keep_alive: bool,
+    cors_headers: &str,
+) -> std::io::Result<()> {
+    let conn = if keep_alive { "keep-alive" } else { "close" };
+    use tokio::io::AsyncWriteExt;
+    let mut http_response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}",
+        response.status, response.content_type, response.body.len(), conn, cors_headers
+    );
+    for header in &response.headers {
+        http_response.push_str(header);
+        http_response.push_str("\r\n");
+    }
+    http_response.push_str("\r\n");
+    stream.write_all(http_response.as_bytes()).await?;
+    stream.write_all(response.body.as_bytes()).await?;
+    stream.flush().await
+}
+
 pub(crate) async fn write_status_line_async(
     stream: &mut tokio::net::TcpStream,
     status: &str,
     content_type: &str,
     body_len: usize,
     keep_alive: bool,
+    cors_headers: &str,
 ) -> std::io::Result<()> {
     let conn = if keep_alive { "keep-alive" } else { "close" };
     use tokio::io::AsyncWriteExt;
     stream.write_all(
         format!(
-            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
-            status, content_type, body_len, conn
+            "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}\r\n",
+            status, content_type, body_len, conn, cors_headers
         )
         .as_bytes(),
     )
     .await
+}
+
+fn write_response(
+    stream: &mut TcpStream,
+    response: &ProcessedResponse,
+    keep_alive: bool,
+    cors_headers: &str,
+) -> std::io::Result<()> {
+    let conn = if keep_alive { "keep-alive" } else { "close" };
+    let mut http_response = format!(
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}",
+        response.status, response.content_type, response.body.len(), conn, cors_headers
+    );
+    for header in &response.headers {
+        http_response.push_str(header);
+        http_response.push_str("\r\n");
+    }
+    http_response.push_str("\r\n");
+    write!(stream, "{}", http_response)?;
+    stream.write_all(response.body.as_bytes())?;
+    stream.flush()
 }
 
 fn write_status_line(
@@ -347,12 +887,13 @@ fn write_status_line(
     content_type: &str,
     body_len: usize,
     keep_alive: bool,
+    cors_headers: &str,
 ) -> std::io::Result<()> {
     let conn = if keep_alive { "keep-alive" } else { "close" };
     write!(
         stream,
-        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n\r\n",
-        status, content_type, body_len, conn
+        "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}\r\n",
+        status, content_type, body_len, conn, cors_headers
     )
 }
 
@@ -381,18 +922,27 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
 
         let raw = unsafe { std::str::from_utf8_unchecked(&read_buf) };
 
+        let keep_alive = extract_header_value(raw, "Connection")
+            .map(|v| v.eq_ignore_ascii_case("keep-alive"))
+            .unwrap_or(false);
+
+        let cors = cors_headers(server);
+
         let (method_raw, path_raw) = match parse_request_line(raw) {
             Some(r) => (r.0.to_uppercase(), r.1.to_string()),
             None => {
-                let _ = write_status_line(&mut stream, "400 Bad Request", "text/plain", 9, false);
+                let _ = write_status_line(&mut stream, "400 Bad Request", "text/plain", 9, false, &cors);
                 let _ = stream.write_all(b"Bad Request");
                 return;
             }
         };
 
-        let keep_alive = extract_header_value(raw, "Connection")
-            .map(|v| v.eq_ignore_ascii_case("keep-alive"))
-            .unwrap_or(false);
+        // Handle OPTIONS preflight
+        if method_raw == "OPTIONS" {
+            let _ = write_status_line(&mut stream, "204 No Content", "text/plain", 0, keep_alive, &cors);
+            let _ = stream.flush();
+            if !keep_alive { return; } else { continue; }
+        }
 
         let body = if let Some(cl) = extract_header_value(raw, "Content-Length")
             .and_then(|v| v.parse::<usize>().ok())
@@ -413,97 +963,97 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
             String::new()
         };
 
-        let (response_body, content_type) = match server.routes.match_route(&path_raw, &method_raw) {
+        // Parse all headers, query params, and cookies for the legacy sync server too
+        let headers = extract_all_headers(raw);
+        let query_params = parse_query_params(&path_raw);
+        let cookies = parse_cookies(&headers);
+        // Extract path without query string for route matching
+        let path_for_route = path_raw.split_once('?').map(|(p, _)| p).unwrap_or(&path_raw).to_string();
+
+        let response = match server.routes.match_route(&path_for_route, &method_raw) {
             Some((handler, route_params)) => {
-                match handler {
-                    Handler::Literal(text) => {
-                        let ct = if text.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                        // Try JIT path: compile once, call native
-                        use std::hash::{Hash, Hasher};
-                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                        text.hash(&mut hasher);
-                        let jit_name = format!("__yk_lit_{:x}", hasher.finish());
-                        if let Some(jit_fn) = compile_literal_handler(&jit_name, text, 200) {
-                            let mut resp = YkResponse { body: std::ptr::null(), body_len: 0, status_code: 0 };
-                            unsafe { jit_fn(&mut resp) };
-                            if !resp.body.is_null() && resp.body_len > 0 {
-                                let body_slice = unsafe { std::slice::from_raw_parts(resp.body, resp.body_len as usize) };
-                                (String::from_utf8_lossy(body_slice).to_string(), ct)
-                            } else {
-                                (text.clone(), ct)
-                            }
+                // Run all middleware first
+                let mut final_response = None;
+                for middleware in &server.middleware {
+                    let mw_resp = execute_handler(
+                        middleware,
+                        &method_raw,
+                        &path_raw,
+                        &body,
+                        &headers,
+                        &query_params,
+                        &cookies,
+                        None,
+                        pool
+                    );
+                    // If middleware returns a non-200 status (or we decide to short-circuit), use that response
+                    // For now, just run all middleware and proceed
+                    final_response = Some(mw_resp);
+                }
+                
+                // Then run the main handler
+                final_response.unwrap_or_else(|| {
+                    execute_handler(
+                        handler,
+                        &method_raw,
+                        &path_raw,
+                        &body,
+                        &headers,
+                        &query_params,
+                        &cookies,
+                        Some(&route_params),
+                        pool
+                    )
+                })
+            }
+            None => {
+                // Try serving static file if static_dir is set and method is GET
+                if method_raw == "GET" {
+                    if let Some(ref static_dir) = server.static_dir {
+                        if let Some(static_response) = try_serve_static(static_dir, &path_for_route) {
+                            static_response
                         } else {
-                            (text.clone(), ct)
+                            ProcessedResponse {
+                                status: "404 Not Found".to_string(),
+                                body: "Not Found".to_string(),
+                                content_type: "text/plain".to_string(),
+                                headers: Vec::new(),
+                            }
+                        }
+                    } else {
+                        ProcessedResponse {
+                            status: "404 Not Found".to_string(),
+                            body: "Not Found".to_string(),
+                            content_type: "text/plain".to_string(),
+                            headers: Vec::new(),
                         }
                     }
-                    Handler::Fn(name, fndef) => {
-                        // Try JIT compilation; fall back to interpreter on failure.
-                        let jit_try: Option<(String, &str)> = (|| {
-                            if !fndef.params.iter().any(|p| p.name == "req") { return None; }
-                            let jn = format!("__yk_fn_{}", name);
-                            let jit_fn = compile_fn_handler(&jn, fndef)?;
-                            let req = YkRequest {
-                                method: method_raw.as_ptr(), method_len: method_raw.len() as i64,
-                                path: path_raw.as_ptr(), path_len: path_raw.len() as i64,
-                                body: body.as_ptr(), body_len: body.len() as i64,
-                            };
-                            let mut buf = vec![0u8; 65536];
-                            let mut resp = YkResponse { body: std::ptr::null(), body_len: 0, status_code: 0 };
-                            unsafe { jit_fn(&mut resp, &req, buf.as_mut_ptr(), buf.len() as i64) };
-                            if resp.body.is_null() || resp.body_len <= 0 { return None; }
-                            let body_slice = unsafe { std::slice::from_raw_parts(resp.body, resp.body_len as usize) };
-                            let result = String::from_utf8_lossy(body_slice).to_string();
-                            let ct = if result.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                            Some((result, ct))
-                        })();
-
-                        match jit_try {
-                            Some(r) => r,
-                            None => {
-                                let mut interp = pool.take(base_interp());
-                                interp.push_frame();
-
-                                let mut fields = HashMap::with_capacity(4);
-                                fields.insert(String::from("method"), Value::Str(method_raw));
-                                fields.insert(String::from("path"), Value::Str(path_raw));
-                                fields.insert(String::from("body"), Value::Str(body));
-                                if !route_params.is_empty() {
-                                    let mut pmap = HashMap::with_capacity(route_params.len());
-                                    for (i, v) in route_params.iter().enumerate() {
-                                        pmap.insert(i.to_string(), Value::Str(v.clone()));
-                                    }
-                                    fields.insert(String::from("params"), Value::Struct(String::new(), pmap));
-                                }
-                                let req_val = Value::Struct("Request".into(), fields);
-                                // Always inject req (matches AOT: handler always receives req)
-                                interp.frames.last_mut().unwrap().insert("req".into(), req_val);
-                                for param in fndef.params.iter() {
-                                    if param.name != "req" {
-                                        interp.frames.last_mut().unwrap().insert(param.name.clone(), Value::None_);
-                                    }
-                                }
-
-                                let result = match interp.run_fn_body(fndef) {
-                                    Ok(Some(val)) => val.to_string(),
-                                    _ => "Handler returned no value".into(),
-                                };
-                                pool.return_interp(interp);
-                                let ct = if result.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') { "application/json" } else { "text/plain" };
-                                (result, ct)
-                            }
-                        }
+                } else {
+                    ProcessedResponse {
+                        status: "404 Not Found".to_string(),
+                        body: "Not Found".to_string(),
+                        content_type: "text/plain".to_string(),
+                        headers: Vec::new(),
                     }
                 }
             }
-            None => {
-                let _ = write_status_line(&mut stream, "404 Not Found", "text/plain", 9, keep_alive);
-                let _ = stream.write_all(b"Not Found");
-                if !keep_alive { return; } else { continue; }
-            }
         };
-        let _ = write_status_line(&mut stream, "200 OK", content_type, response_body.len(), keep_alive);
-        let _ = stream.write_all(response_body.as_bytes());
-        let _ = stream.flush();
+        // Call logger if set
+        if let Some(ref logger) = server.logger {
+            run_logger(
+                logger,
+                &method_raw,
+                &path_raw,
+                &body,
+                &headers,
+                &query_params,
+                &cookies,
+                &response.status,
+                &response.body,
+                pool
+            );
+        }
+        let _ = write_response(&mut stream, &response, keep_alive, &cors);
 
         if !keep_alive {
             return;
@@ -585,6 +1135,104 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
     };
     match type_name.as_str() {
         "Server" => match method {
+            "cors" => {
+                if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    srv.cors_enabled = true;
+                    // Parse optional arguments: origins, headers, methods
+                    if args.len() >= 1 {
+                        if let Value::List(ref orgs) = &args[0] {
+                            let origins: Vec<String> = orgs.iter()
+                                .filter_map(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                                .collect();
+                            if !origins.is_empty() {
+                                srv.cors_origins = Some(origins);
+                            }
+                        }
+                    }
+                    if args.len() >= 2 {
+                        if let Value::List(ref hdrs) = &args[1] {
+                            let headers: Vec<String> = hdrs.iter()
+                                .filter_map(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                                .collect();
+                            if !headers.is_empty() {
+                                srv.cors_headers = Some(headers);
+                            }
+                        }
+                    }
+                    if args.len() >= 3 {
+                        if let Value::List(ref meths) = &args[2] {
+                            let methods: Vec<String> = meths.iter()
+                                .filter_map(|v| if let Value::Str(s) = v { Some(s.clone()) } else { None })
+                                .collect();
+                            if !methods.is_empty() {
+                                srv.cors_methods = Some(methods);
+                            }
+                        }
+                    }
+                }
+                Ok(Value::None_)
+            }
+            "static" => {
+                let dir = get_str(&args, 0, span)?;
+                if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    srv.static_dir = Some(dir.clone());
+                }
+                Ok(Value::None_)
+            }
+            "logger" => {
+                if args.len() < 1 {
+                    return Err(error::err(ErrorKind::Runtime, span, "logger requires a handler argument"));
+                }
+                let handler = match (args.get(0), raw_args.get(0)) {
+                    (Some(Value::Str(text)), Some(raw)) => {
+                        match &raw.value {
+                            Expr::LitStr(_) => Handler::Literal(text.clone()),
+                            _ => {
+                                if let Some(fndef) = interp.functions.get(text) {
+                                    Handler::Fn(text.clone(), fndef.clone())
+                                } else {
+                                    return Err(error::err(ErrorKind::Runtime, span, format!("Function '{}' not found", text)));
+                                }
+                            }
+                        }
+                    }
+                    (Some(Value::Fn(fndef)), _) => {
+                        Handler::Fn(format!("__logger_fn_{}", fndef.body.len()), fndef.clone())
+                    }
+                    _ => return Err(error::err(ErrorKind::Runtime, span, "Handler must be a string, function name, fn(){} or ()=>{")),
+                };
+                if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    srv.logger = Some(handler);
+                }
+                Ok(Value::None_)
+            }
+            "use" => {
+                if args.len() < 1 {
+                    return Err(error::err(ErrorKind::Runtime, span, "use requires a handler argument"));
+                }
+                let handler = match (args.get(0), raw_args.get(0)) {
+                    (Some(Value::Str(text)), Some(raw)) => {
+                        match &raw.value {
+                            Expr::LitStr(_) => Handler::Literal(text.clone()),
+                            _ => {
+                                if let Some(fndef) = interp.functions.get(text) {
+                                    Handler::Fn(text.clone(), fndef.clone())
+                                } else {
+                                    return Err(error::err(ErrorKind::Runtime, span, format!("Function '{}' not found", text)));
+                                }
+                            }
+                        }
+                    }
+                    (Some(Value::Fn(fndef)), _) => {
+                        Handler::Fn(format!("__handler_fn_{}", fndef.body.len()), fndef.clone())
+                    }
+                    _ => return Err(error::err(ErrorKind::Runtime, span, "Handler must be a string, function name, fn(){} or ()=>{}")),
+                };
+                if let Some(srv) = servers().lock().unwrap().get_mut(&id) {
+                    srv.middleware.push(handler);
+                }
+                Ok(Value::None_)
+            }
             "get" | "post" | "put" | "delete" | "patch" | "ws" => {
                 let path = get_str(&args, 0, span)?;
                 if args.len() < 2 {

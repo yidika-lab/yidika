@@ -1,0 +1,8 @@
+
+use {Server} from "net";
+
+fn main() {
+    app: Server = Server();
+    app.get("/", "Hello World!");
+    app.serve(3000);
+}

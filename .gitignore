@@ -16,3 +16,4 @@ __pycache__/
 *.log
 .yk_cache/
 **/test_*.exe
+Cargo.lock

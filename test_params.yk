@@ -1,0 +1,25 @@
+use { Server } from "net";
+
+// Hello with name from route
+fn hello(name: str) -> str {
+    return "Hello " + name + "!";
+}
+
+// Square a number from route param
+fn square(num: int) -> str {
+    return "Square: " + (num * num);
+}
+
+// Add two numbers from query params
+fn add(a: int, b: int) -> str {
+    return "Sum: " + (a + b);
+}
+
+fn main() {
+    let app = Server();
+    app.get("/hello/{name}", hello);
+    app.get("/square/{num}", square);
+    app.get("/add", add); // takes a and b from query params
+    app.get("/", (req) => "Try /hello/John, /square/5, or /add?a=2&b=3");
+    app.serve(3000);
+}

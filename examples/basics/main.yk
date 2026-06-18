@@ -1,22 +1,31 @@
+
 use {Server} from "net";
 
 fn hello(req: auto) -> str {
-    print("espoir")
+    print("espoir");
     return "<h1>Hello!</h1> You \n:" + req.path;
 }
 fn used(req: auto)->auto {
-        return {12:12} ;
+        return {12:12};
     } 
+fn user(req: auto){
+        return [1,3,4];
+    }
+fn log_handler(log: LogEntry) {
+    print(log.method + " " + log.path + " -> " + log.response.status);
+}
 
 fn main() {
     app: Server = Server();
-    app.get("/", "Static text \— literal string");
+    app.logger(log_handler);
+    app.get("/", "Static text - literal string");
     app.get("/hello", hello);
     app.get("/he", used);
     app.get("/test", () => {
         print("test endpoint called");
-        return {"Z":"23"};
+        return {Z:"23"};
     });
+    
+    app.post("/",user)
     app.serve(3000);
 }
-
