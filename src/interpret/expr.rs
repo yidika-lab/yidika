@@ -249,7 +249,13 @@ impl Interpreter {
             }
             Expr::LitSymbol(s) => Ok(EvalResult::Value(Value::Str(format!(":{}", s)))),
             Expr::Ident(name) => {
-                Ok(EvalResult::Value(self.get_var(name)?))
+                match self.get_var(name) {
+                    Ok(v) => Ok(EvalResult::Value(v)),
+                    Err(e) => match self.functions.get(name.as_str()) {
+                        Some(f) => Ok(EvalResult::Value(Value::Fn(f.clone()))),
+                        None => Err(e),
+                    },
+                }
             }
             Expr::BinOp(l, op, r) => {
                 let rv = eval!(r);
@@ -498,6 +504,7 @@ impl Interpreter {
                                     "base64" => Ok(EvalResult::Value(builtins::call_base64(&func, arg_vals, expr.span)?)),
                                     "regex" => Ok(EvalResult::Value(builtins::call_regex(&func, arg_vals, expr.span)?)),
                                     "net" => Ok(EvalResult::Value(crate::netlib::call_net(&func, arg_vals, self, expr.span)?)),
+                                    "gui" => Ok(EvalResult::Value(crate::guilib::call_gui(&func, arg_vals, args, self, expr.span)?)),
                                     "math" => Ok(EvalResult::Value(builtins::call_math(&func, arg_vals, expr.span)?)),
                                     "time" => Ok(EvalResult::Value(builtins::call_time(&func, arg_vals, expr.span)?)),
                                     ffi if ffi.starts_with("rust:") || ffi.starts_with("c++:") => {
