@@ -1,0 +1,11 @@
+use { gui } from "std";
+
+fn main() {
+    w = gui.window("T", 200, 100);
+    root = gui.div(w);
+    gui.style(root, "padding:8px;background:#00ff66;flex-direction:column;gap:4px");
+    lbl = gui.text(root, "hello");
+    gui.style(lbl, "font-size:12px;color:#ffffff");
+    btn = gui.button(root, "ok");
+    gui.dump(w);
+}
