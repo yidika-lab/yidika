@@ -8,6 +8,7 @@ pub const SUBMODULES: &[(&str, &[&str])] = &[
     ("regex",       &["match","find","replace","split"]),
     ("math",     &["cos","sin","sqrt","abs","floor","ceil","round","max","min","pow","rand"]),
     ("time",     &["now","utc","timestamp","format","parse","sleep","year","month","day","hour","minute","second"]),
+    ("gui",      &["window","div","text","button","style","set_text","append","remove","on","run","refresh","quit","auto_exit","dump","synthetic_click","synthetic_hover","node_x","node_y","node_w","node_h"]),
 ];
 
 pub fn list_submodules() -> impl Iterator<Item = &'static str> {
