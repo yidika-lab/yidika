@@ -1,1 +1,7 @@
-fn main() { print("hello"); }
+fn main() { 
+    L = 10;
+    l = 5;
+    P = (l+L)*2;
+    print(P);
+    print("je suis Dorvain"); 
+}
