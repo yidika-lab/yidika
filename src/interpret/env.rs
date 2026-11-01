@@ -164,7 +164,7 @@ impl Interpreter {
                             }
                         }
                     }
-                    "io" | "json" | "datetime" | "path" | "base64" | "regex" => {
+                    "io" | "json" | "datetime" | "path" | "base64" | "regex" | "gui" => {
                         for (name, _) in &import.names {
                             builtin_modules.insert(name.clone(), source.to_string());
                         }
