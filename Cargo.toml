@@ -3,6 +3,9 @@ name = "yidi"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["gui"]
+
 [[bin]]
 name = "yidi"
 path = "src/main.rs"
@@ -23,6 +26,7 @@ httparse = "1"
 bytes = "1"
 num_cpus = "1"
 percent-encoding = "2"
+yk_ffi_gui = { path = "gui" }
 
 [dev-dependencies]
 criterion = "0.5"
