@@ -2,6 +2,7 @@ pub mod cli;
 pub mod codegen;
 pub mod compat;
 pub mod diagnostics;
+pub mod guilib;
 pub mod hardware;
 pub mod interpret;
 pub mod jit;
