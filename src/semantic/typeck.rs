@@ -133,7 +133,7 @@ impl<'a> TypeChecker<'a> {
                         }
                     }
                 }
-                "io" | "json" | "datetime" | "path" | "base64" | "regex" | "math" | "time" | "net" => {
+                "io" | "json" | "datetime" | "path" | "base64" | "regex" | "math" | "time" | "net" | "gui" => {
                     for (name, _) in &import.names { self.builtin_modules.insert(name.clone()); }
                 }
                 _ => {
