@@ -1,0 +1,23 @@
+use { gui } from "std";
+
+fn bump(ev: int) {
+    gui.set_text(ev, "clicked");
+}
+
+fn ping(ev: int) {
+    print("ping");
+}
+
+fn main() {
+    w = gui.window("T", 240, 120);
+    root = gui.div(w);
+    gui.style(root, "padding:10px;flex-direction:column;gap:6px");
+    lbl = gui.text(root, "n=0");
+    btn = gui.button(root, "click");
+    gui.on(btn, "click", bump);
+    gui.on(lbl, "click", ping);
+    gui.synthetic_click(btn);
+    gui.synthetic_click(btn);
+    gui.synthetic_click(lbl);
+    gui.dump(w);
+}
