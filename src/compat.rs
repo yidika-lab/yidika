@@ -1312,4 +1312,60 @@ fn main() {{
         }
         assert!(found_headers, "No HEADERS frame found in response");
     }
+
+    static GUI_LOCK: Mutex<()> = Mutex::new(());
+
+    fn run_gui_compat(source: &str, test_name: &str) {
+        let interp_out = {
+            let guard = GUI_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            yk_ffi_gui::tree::reset_state();
+            let out = run_interp(source);
+            drop(guard);
+            out
+        }
+        .expect("gui interpreter failed");
+        let aot_out = run_aot(source, test_name).expect("gui AOT build/run failed");
+        assert_eq!(
+            normalize(&interp_out),
+            normalize(&aot_out),
+            "compat_{}: interpreter vs AOT output mismatch", test_name
+        );
+    }
+
+    #[test]
+    fn compat_gui_dump_static() {
+        run_gui_compat(r#"use { gui } from "std";
+
+fn main() {
+    w = gui.window("T", 200, 100);
+    root = gui.div(w);
+    gui.style(root, "padding:8px;background:#00ff66;flex-direction:column;gap:4px");
+    lbl = gui.text(root, "hello");
+    gui.style(lbl, "font-size:12px;color:#ffffff");
+    btn = gui.button(root, "ok");
+    gui.dump(w);
+}
+"#, "gui_dump_static");
+    }
+
+    #[test]
+    fn compat_gui_event_state() {
+        run_gui_compat(r#"use { gui } from "std";
+
+fn bump(ev: int) {
+    gui.set_text(ev, "clicked");
+}
+
+fn main() {
+    w = gui.window("T", 240, 120);
+    root = gui.div(w);
+    gui.style(root, "padding:10px;flex-direction:column;gap:6px");
+    btn = gui.button(root, "click");
+    gui.on(btn, "click", bump);
+    gui.synthetic_click(btn);
+    gui.synthetic_click(btn);
+    gui.dump(w);
+}
+"#, "gui_event_state");
+    }
 }
