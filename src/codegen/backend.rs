@@ -19,6 +19,52 @@ pub trait CodegenBackend {
 
 pub struct LlvmBackend;
 
+fn gui_imported(modules: &[&Module]) -> bool {
+    modules.iter().any(|m| {
+        m.imports.iter().any(|import| {
+            import.lang.is_none()
+                && import.source == "std"
+                && import.names.iter().any(|(local, orig)| {
+                    local == "gui" || orig.as_deref() == Some("gui") || local == "std" || orig.as_deref() == Some("std")
+                })
+        })
+    })
+}
+
+fn gui_artifacts(output_dir: Option<&Path>) -> Option<(std::path::PathBuf, std::path::PathBuf)> {
+    let exe = std::env::current_exe().ok();
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    if let Some(dir) = output_dir {
+        roots.push(dir.join("lib").join("ffi"));
+        roots.push(dir.to_path_buf());
+    }
+    if let Some(e) = exe {
+        if let Some(d) = e.parent() {
+            roots.push(d.join("lib").join("ffi"));
+            roots.push(d.to_path_buf());
+            for profile in ["release", "debug"] {
+                if let Some(t) = d.parent() {
+                    roots.push(t.join(profile).to_path_buf());
+                }
+            }
+        }
+    }
+    roots.push(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("release"));
+    roots.push(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target").join("debug"));
+    roots.push(std::path::PathBuf::from("target").join("release"));
+    roots.push(std::path::PathBuf::from("target").join("debug"));
+    for root in roots {
+        let dll = root.join("yk_ffi_gui.dll");
+        for lib_name in ["yk_ffi_gui.dll.lib", "yk_ffi_gui.lib"] {
+            let lib = root.join(lib_name);
+            if dll.exists() && lib.exists() {
+                return Some((dll, lib));
+            }
+        }
+    }
+    None
+}
+
 impl CodegenBackend for LlvmBackend {
     fn compile_with_paths(&self, modules: &[&Module], file_paths: &[String], output_path: &Path, hw: &HardwareInfo) -> Result<()> {
         let errors = super::llvm::validate_modules(modules, file_paths);
@@ -46,7 +92,26 @@ impl CodegenBackend for LlvmBackend {
             }
         }
 
-        super::llvm::compile_to_exe_with_extra_libs(&llvm_ir, output_path, hw, &ffi_libs)
+        let mut gui_dll: Option<std::path::PathBuf> = None;
+        if gui_imported(modules) {
+            match gui_artifacts(output_path.parent()) {
+                Some((dll, lib)) => {
+                    ffi_libs.push(lib.to_string_lossy().to_string());
+                    gui_dll = Some(dll);
+                }
+                None => {
+                    return Err(error::err(ErrorKind::Internal, Span::new(0, 0),
+                        "gui module requires yk_ffi_gui.dll and its import library; build with `cargo build -p yk_ffi_gui --release`".to_string()));
+                }
+            }
+        }
+
+        super::llvm::compile_to_exe_with_extra_libs(&llvm_ir, output_path, hw, &ffi_libs)?;
+        if let Some(dll) = gui_dll {
+            let dest = output_path.with_file_name("yk_ffi_gui.dll");
+            let _ = std::fs::copy(&dll, &dest);
+        }
+        Ok(())
     }
 
     fn compile_with_info(&self, modules: &[&Module], output_path: &Path, hw: &HardwareInfo) -> Result<()> {
