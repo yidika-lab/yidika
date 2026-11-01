@@ -3967,6 +3967,7 @@ pub struct LlvmCodegen {
     current_module: String,
     ffi_modules: HashSet<String>,
     ffi_decls: HashSet<String>,
+    gui_modules: HashSet<String>,
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
     fn_param_types: HashMap<String, Vec<String>>,
@@ -4014,6 +4015,7 @@ impl LlvmCodegen {
             current_module: String::new(),
             ffi_modules: HashSet::new(),
             ffi_decls: HashSet::new(),
+            gui_modules: HashSet::new(),
             current_fn_ret: "void".into(),
             fn_ret_types: HashMap::new(),
             fn_param_types: HashMap::new(),
@@ -4531,6 +4533,17 @@ impl LlvmCodegen {
                             self.ffi_modules.insert(name.clone());
                         }
                     }
+                } else if import.source == "std" {
+                    for (local, orig) in &import.names {
+                        let is_gui = local == "gui" || orig.as_deref() == Some("gui");
+                        let imports_all = local == "std" || orig.as_deref() == Some("std");
+                        if is_gui || imports_all {
+                            self.gui_modules.insert(local.clone());
+                            if imports_all {
+                                self.gui_modules.insert("gui".to_string());
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -4863,6 +4876,32 @@ impl LlvmCodegen {
         self.e_raw("declare i64 @yk_datetime_minute(i64)");
         self.e_raw("declare i64 @yk_datetime_second(i64)");
         self.e_raw("declare ptr @yk_datetime_format(i64, ptr)");
+        if self.gui_modules.contains("gui") {
+            for decl in [
+                "declare i64 @yk_gui_window(ptr, i64, i64, i64)",
+                "declare i64 @yk_gui_div(i64)",
+                "declare i64 @yk_gui_text(i64, ptr, i64)",
+                "declare i64 @yk_gui_button(i64, ptr, i64)",
+                "declare i64 @yk_gui_style(i64, ptr, i64)",
+                "declare i64 @yk_gui_set_text(i64, ptr, i64)",
+                "declare i64 @yk_gui_append(i64, i64)",
+                "declare i64 @yk_gui_remove(i64)",
+                "declare i64 @yk_gui_on(i64, ptr, i64, i64, i64)",
+                "declare i64 @yk_gui_run(i64)",
+                "declare i64 @yk_gui_refresh()",
+                "declare i64 @yk_gui_quit()",
+                "declare i64 @yk_gui_auto_exit(i64)",
+                "declare i64 @yk_gui_dump(i64)",
+                "declare i64 @yk_gui_synthetic_click(i64)",
+                "declare i64 @yk_gui_synthetic_hover(i64)",
+                "declare i64 @yk_gui_node_x(i64)",
+                "declare i64 @yk_gui_node_y(i64)",
+                "declare i64 @yk_gui_node_w(i64)",
+                "declare i64 @yk_gui_node_h(i64)",
+            ] {
+                self.e_raw(decl);
+            }
+        }
         self.e_raw("");
 
         let has_main = modules.iter().any(|m| m.items.iter().any(|item| matches!(&item.value, ItemKind::Fn { name, .. } if name == "main")));
@@ -6641,12 +6680,75 @@ impl LlvmCodegen {
         }
     }
 
+    fn compile_gui_call(&mut self, func: &str, arg_results: &[(String, String)], raw_args: &[ExprNode]) -> (String, String) {
+        let kinds: &[&str] = match func {
+            "window" => &["S", "I", "I"],
+            "div" => &["I"],
+            "text" | "button" => &["I", "S"],
+            "style" | "set_text" => &["I", "S"],
+            "append" => &["I", "I"],
+            "remove" | "dump" | "synthetic_click" | "synthetic_hover" | "auto_exit"
+            | "run" | "node_x" | "node_y" | "node_w" | "node_h" => &["I"],
+            "refresh" | "quit" => &[],
+            "on" => &["I", "S", "CB"],
+            _ => return ("0".into(), "i64".into()),
+        };
+        let mut call_args: Vec<String> = Vec::new();
+        for (i, &kind) in kinds.iter().enumerate() {
+            let (v, t) = arg_results.get(i).cloned().unwrap_or_else(|| ("0".into(), "i64".into()));
+            match kind {
+                "I" => {
+                    let iv = self.to_i64(v, t);
+                    call_args.push(format!("i64 {}", iv));
+                }
+                "S" => {
+                    if t == "%yk_string" {
+                        let p = self.fresh_label();
+                        let l = self.fresh_label();
+                        self.e(&format!("%{} = extractvalue %yk_string {}, 0", p, v));
+                        self.e(&format!("%{} = extractvalue %yk_string {}, 1", l, v));
+                        call_args.push(format!("ptr %{}", p));
+                        call_args.push(format!("i64 %{}", l));
+                    } else {
+                        call_args.push("ptr null".into());
+                        call_args.push("i64 0".into());
+                    }
+                }
+                "CB" => {
+                    let addr = match raw_args.get(i).map(|a| &a.value) {
+                        Some(Expr::Ident(name)) => {
+                            let m = self.mangle_name(name);
+                            if self.fn_ret_types.contains_key(&m) {
+                                let tmp = self.fresh_label();
+                                self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, m));
+                                self.ssa(&tmp)
+                            } else {
+                                "0".into()
+                            }
+                        }
+                        _ => v,
+                    };
+                    call_args.push(format!("i64 {}", addr));
+                    call_args.push("i64 0".into());
+                }
+                _ => {}
+            }
+        }
+        let mangled = format!("yk_gui_{}", func);
+        let tmp = self.fresh_label();
+        self.e(&format!("%{} = call i64 @{}({})", tmp, mangled, call_args.join(", ")));
+        (self.ssa(&tmp), "i64".into())
+    }
+
     fn compile_call(&mut self, callee: &ExprNode, args: &[ExprNode]) -> (String, String) {
         // Don't compile FnLit/Closure args as standalone i64 functions when calling server methods
         let is_srv = matches!(&callee.value, Expr::Field(obj, field) if matches!(obj.value, Expr::Ident(_)) &&
             matches!(field.as_str(), "get" | "post" | "put" | "delete" | "patch" | "ws" | "serve"));
-        let arg_results: Vec<(String, String)> = args.iter().map(|a| {
+        let is_gui_on = matches!(&callee.value, Expr::Field(obj, field) if matches!(&obj.value, Expr::Ident(m) if self.gui_modules.contains(m.as_str())) && field == "on");
+        let arg_results: Vec<(String, String)> = args.iter().enumerate().map(|(idx, a)| {
             if is_srv && matches!(&a.value, Expr::FnLit(..) | Expr::Closure(..)) {
+                ("0".into(), "i64".into())
+            } else if is_gui_on && idx == 2 {
                 ("0".into(), "i64".into())
             } else {
                 self.compile_expr(a)
@@ -7459,6 +7561,9 @@ impl LlvmCodegen {
                             }
                             _ => ("0".into(), "i64".into()),
                         }
+                    }
+                    (Expr::Ident(mod_name), func_name) if self.gui_modules.contains(mod_name.as_str()) => {
+                        self.compile_gui_call(func_name, &arg_results, args)
                     }
                     (Expr::Ident(mod_name), func_name) if self.ffi_modules.contains(mod_name.as_str()) => {
                         let mangled = format!("yk_{}_{}", mod_name, func_name);
