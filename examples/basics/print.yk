@@ -1,7 +1,9 @@
 fn main(){
     //a = {user:"a", age:23}
+
     a = '!'..'a'
-    for(aa in 10){
-        print(f"value : {5%3}");
+
+    for(aa in '!'..'a'){
+        print(f"value : {aa}");
     }
 }
