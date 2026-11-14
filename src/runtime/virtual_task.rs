@@ -45,11 +45,11 @@ extern "system" {
     fn SetThreadAffinityMask(hThread: isize, dwThreadAffinityMask: usize) -> usize;
 }
 
-fn pin_thread_to_core(core_id: usize) {
+fn pin_thread_to_core(_core_id: usize) {
     #[cfg(target_os = "windows")]
     unsafe {
         let handle = GetCurrentThread();
-        SetThreadAffinityMask(handle, 1usize << core_id);
+        SetThreadAffinityMask(handle, 1usize << _core_id);
     }
 }
 
