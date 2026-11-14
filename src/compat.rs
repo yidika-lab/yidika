@@ -11,6 +11,18 @@ mod tests {
         AOT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    fn read_http_response(stream: &mut std::net::TcpStream) -> String {
+        let mut received = Vec::new();
+        let mut chunk = [0u8; 4096];
+        while let Ok(n) = stream.read(&mut chunk) {
+            if n == 0 {
+                break;
+            }
+            received.extend_from_slice(&chunk[..n]);
+        }
+        String::from_utf8_lossy(&received).into_owned()
+    }
+
     fn run_interp(source: &str) -> Result<String, String> {
         crate::syntax::ast::reset_ids();
         let module = crate::syntax::parser::Parser::parse(source)
@@ -506,8 +518,7 @@ fn main() {
         let request = "GET /hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
         stream.write_all(request.as_bytes()).expect("write request");
 
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
+        let response = read_http_response(&mut stream);
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
@@ -567,8 +578,7 @@ fn main() {
         let request = "GET /hello/world HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
         stream.write_all(request.as_bytes()).expect("write request");
 
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
+        let response = read_http_response(&mut stream);
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
@@ -628,8 +638,7 @@ fn main() {
         let request = "GET /user/42 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
         stream.write_all(request.as_bytes()).expect("write request");
 
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
+        let response = read_http_response(&mut stream);
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
@@ -688,8 +697,7 @@ fn main() {
         let request = "GET /user/abc HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
         stream.write_all(request.as_bytes()).expect("write request");
 
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
+        let response = read_http_response(&mut stream);
         let _ = child.kill();
         let _ = child.wait();
         let _ = std::fs::remove_dir_all(&dir);
