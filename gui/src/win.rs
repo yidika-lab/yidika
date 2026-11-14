@@ -277,7 +277,7 @@ unsafe fn run_window_inner(win_id: i64) -> Option<i64> {
         hmod,
         None,
     )
-    ?;
+    .ok()?;
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, win.id as isize);
     let _ = ShowWindow(hwnd, SW_SHOW);
     ACTIVE_HW.store(hwnd.0 as isize, Ordering::SeqCst);
