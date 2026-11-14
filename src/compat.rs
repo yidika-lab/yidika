@@ -7,6 +7,10 @@ mod tests {
 
     static AOT_LOCK: Mutex<()> = Mutex::new(());
 
+    fn aot_lock() -> std::sync::MutexGuard<'static, ()> {
+        AOT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn run_interp(source: &str) -> Result<String, String> {
         crate::syntax::ast::reset_ids();
         let module = crate::syntax::parser::Parser::parse(source)
@@ -22,7 +26,7 @@ mod tests {
     }
 
     fn run_aot(source: &str, test_name: &str) -> Result<String, String> {
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -464,7 +468,7 @@ fn main() {
     app.serve("127.0.0.1:19876");
 }"#;
         let test_name = "net_server_real_request";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -525,7 +529,7 @@ fn main() {
     app.serve("127.0.0.1:19877");
 }"#;
         let test_name = "net_server_wildcard_route";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -587,7 +591,7 @@ fn main() {
     app.serve("127.0.0.1:19878");
 }"#;
         let test_name = "net_server_int_param";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -647,7 +651,7 @@ fn main() {
     app.serve("127.0.0.1:19879");
 }"#;
         let test_name = "net_server_int_param_reject";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -747,7 +751,7 @@ fn main() {{
     print("ok")
 }}"#);
         let test_name = "tcp_stream_echo_aot";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
@@ -1216,7 +1220,7 @@ fn main() {{
     app.serve("127.0.0.1:{port}");
 }}"#);
         let test_name = "h2_basic_get";
-        let _lock = AOT_LOCK.lock().unwrap();
+        let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
         let file_path = dir.join("main.yk");
