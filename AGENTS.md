@@ -11,6 +11,17 @@ Every language and stdlib feature must work in **both** backends. They are separ
 
 `src/compat.rs` (87 `compat_*` tests) is the enforcement: it runs one snippet through both backends and asserts identical stdout via `check_compat`. **Adding a feature without a compat test is the most common way to break this repo.** The harness is `run_interp` / `run_aot` / `check_compat` / `check_compat_approx` (use `_approx` for nondeterministic output like PIDs/timestamps).
 
+## Design rules (mandatory for every change)
+
+- **Cross-platform source, one target per build.** Every language feature, std module, runtime piece and the GUI engine must be designed to work on Windows, Linux and macOS (Android/iOS later). Each build produces a binary for one chosen target, like `cargo build --target`. OS differences live in the runtime/engine behind `#[cfg]` / `#ifdef`, never in user `.yk` code. Do not add single-OS code without the abstraction that lets the other targets plug in. Existing Windows-only parts (AOT toolchain shell-out, `gui/src/win.rs`) are debt to remove, not a pattern to copy.
+- **TDD.** Write the failing test first, then the minimal code that passes it, then refactor. Unit tests sit next to the code (`#[cfg(test)] mod tests`); any language or std feature also gets a `compat_*` test.
+- **SOLID**, applied to Rust: single responsibility per function/type/module; extend through traits and new modules instead of growing `match` blocks in existing ones; depend on traits at module boundaries, not on concrete backends.
+- **KISS.** The simplest design that satisfies the tests. No speculative abstraction or configuration.
+- **One function = one task. One type (struct/class/enum/trait) = one intent. One folder = one group of related intents.** A function that needs "and" to be described must be split.
+- **No duplicated logic.** Anything written twice is extracted into one reusable function, type or table. Lists and tables must have a single source of truth (e.g. the std surface is `src/stdlib.rs::SUBMODULES`; read it, never copy it). The interpreter and AOT backend implementing the same semantics twice is the one accepted exception; share everything they can share (tables, parsing, validation, the `gui/` engine).
+- **Secure by design, no known CVE.** Validate and bound every external input (network, files, FFI, env): size limits, path canonicalisation, header/CRLF sanitisation, no `from_utf8_unchecked` on untrusted bytes. Keep `unsafe` minimal and confined to FFI/ABI edges. New or upgraded dependencies must pass `cargo audit` (RustSec) with no open advisory; the embedded C runtime uses bounded buffers only.
+- **Research before building.** Before designing a feature, check the state of the art: relevant specs (RFCs, CSS, Unicode), how mature projects solve it, and existing maintained crates, so the repo doesn't reinvent them. State what was checked and why the chosen approach wins in the PR description.
+
 ## Prerequisites (Windows only for AOT)
 
 | Need | Used by | Failure mode |
@@ -79,7 +90,7 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 
 ## Conventions
 
-From `CONTRIBUTING.md`: `cargo fmt` style, **no comments in code** (self-documenting names; `.yk` example files *do* use `//`), small focused functions, conventional-commit messages, one feature per PR.
+From `CONTRIBUTING.md`: `cargo fmt` style, **no comments in code** (self-documenting names; `.yk` example files *do* use `//`), small focused functions, conventional-commit messages, one feature per PR. The **Design rules** section above takes precedence.
 
 ## Agent autonomy
 

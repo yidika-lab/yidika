@@ -22,14 +22,36 @@ A **modern systems programming language** designed for **hardware-aware computin
 
 ## Quick Start
 
-### Prerequisites
-
-- [Rust](https://www.rust-lang.org/) 1.70+ (install via `rustup`)
-
 ### Install
 
+Linux and macOS:
+
 ```sh
-git clone https://github.com/espik-dev/yidika.git
+curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex
+```
+
+Both scripts download a prebuilt binary from [GitHub Releases](https://github.com/yidika-lab/yidika/releases), verify its SHA-256 checksum, and install it to `~/.yidi/bin`. Set `YIDI_VERSION=v0.1.0` to pin a version, or `YIDI_HOME` to change the install location. Check the install with `yidi --version`.
+
+Prebuilt targets: Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64. The interpreter (`yidi run`) works on all of them; native compilation (`yidi build`) currently needs Windows with LLVM and the MSVC Build Tools.
+
+### Build from source
+
+Requires [Rust](https://www.rust-lang.org/) stable (via `rustup`) and a C toolchain (`build-essential` on Debian/Ubuntu, Xcode Command Line Tools on macOS, MSVC Build Tools on Windows).
+
+```sh
+cargo install --git https://github.com/yidika-lab/yidika yidi
+```
+
+Or from a clone:
+
+```sh
+git clone https://github.com/yidika-lab/yidika.git
 cd yidika
 cargo build --release
 ```

@@ -1,8 +1,12 @@
 ## Description
 
-Please include a summary of the change and which issue is fixed.
+What this change does, and which issue it closes.
 
 Fixes #(issue)
+
+## Research
+
+What was checked before choosing this approach (specs, existing crates, how other projects solve it) and why this approach wins.
 
 ## Type of change
 
@@ -11,12 +15,13 @@ Fixes #(issue)
 - [ ] Documentation update
 - [ ] Refactor
 - [ ] Test improvement
+- [ ] CI / release
 
 ## Checklist
 
-- [ ] My code follows the project's style
-- [ ] I have added tests for my changes
-- [ ] All existing tests pass (`cargo test`)
-- [ ] Clippy is happy (`cargo clippy`)
-- [ ] I have updated the documentation if needed
-- [ ] I have read the [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] Follows the design rules in [AGENTS.md](../AGENTS.md#design-rules-mandatory-for-every-change) (TDD, SOLID, KISS, no duplication, cross-platform)
+- [ ] Tests were written first and pass (`cargo test --workspace --lib --bins -- --skip compat`)
+- [ ] Language or std change: a `compat_*` test covers interpreter/AOT parity
+- [ ] `cargo clippy --workspace --all-targets -- -D warnings` is clean
+- [ ] New or upgraded dependencies pass `cargo audit`
+- [ ] Docs updated if behaviour changed
