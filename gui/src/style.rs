@@ -67,13 +67,14 @@ impl Default for Style {
 }
 
 pub fn button_defaults() -> Style {
-    let mut s = Style::default();
-    s.bg = Some(0xdddddd);
-    s.border_w = 1;
-    s.border_color = Some(0x999999);
-    s.padding = [6, 14, 6, 14];
-    s.radius = 4;
-    s
+    Style {
+        bg: Some(0xdddddd),
+        border_w: 1,
+        border_color: Some(0x999999),
+        padding: [6, 14, 6, 14],
+        radius: 4,
+        ..Style::default()
+    }
 }
 
 pub fn parse_color(v: &str) -> Option<u32> {

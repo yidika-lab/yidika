@@ -172,6 +172,8 @@ pub fn dump(root_id: i64) -> i64 {
 }
 
 pub fn run(root_id: i64) -> i64 {
+    #[cfg(not(windows))]
+    let _ = root_id;
     #[cfg(windows)]
     {
         if std::env::var_os("YK_GUI_HEADLESS").is_none() {
