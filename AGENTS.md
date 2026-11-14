@@ -54,6 +54,8 @@ Before finishing, search your output: `grep -nP '[\x{2013}\x{2014}\x{2018}\x{201
 - The same large radius, drop shadow and pill badge on every element; Inter everywhere because it is the default.
 - Mobile menus as a generic full-height slide-in drawer with a blurred backdrop by default. Start from the platform convention (bottom tab bar for 3 to 5 top-level screens, native navigation stack otherwise) and justify anything else.
 
+**No AI attribution on GitHub.** Commits, PRs, issues, comments, releases and changelogs never credit an AI: no `Co-Authored-By:` trailer naming an AI or bot, no "Generated with ..." line, no AI or bot account as author or committer. Work is committed under the human maintainer's git identity, and `gh` actions run as that maintainer.
+
 Instead: start from a stated reference (a brand, a platform's guidelines such as Apple HIG or Material, or a product the user names), choose the palette, type scale and spacing scale on purpose, and keep them in one shared token table (see "No duplicated logic").
 
 ## Prerequisites (Windows only for AOT)
