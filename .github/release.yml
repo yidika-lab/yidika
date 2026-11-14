@@ -1,0 +1,18 @@
+changelog:
+  categories:
+    - title: Breaking changes
+      labels: [breaking]
+    - title: Language
+      labels: [area:language]
+    - title: Native build (AOT)
+      labels: [area:aot]
+    - title: Networking
+      labels: [area:net]
+    - title: GUI
+      labels: [area:gui]
+    - title: Bug fixes
+      labels: [bug]
+    - title: Tooling, CI and packaging
+      labels: [area:ci]
+    - title: Other changes
+      labels: ["*"]

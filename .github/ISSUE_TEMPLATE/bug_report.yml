@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in yidi behaves incorrectly or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search [existing issues](https://github.com/yidika-lab/yidika/issues) first. For security problems, use the [private report form](https://github.com/yidika-lab/yidika/security/advisories/new) instead.
+  - type: textarea
+    id: program
+    attributes:
+      label: Minimal program
+      description: The smallest `.yk` file that shows the problem.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output
+      description: Full error message or wrong output.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Where does it happen?
+      options:
+        - Interpreter (yidi run / yidi file.yk)
+        - Native build (yidi build)
+        - Both
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: yidi version
+      description: Output of `yidi --version`, or the commit hash if built from source.
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, Ubuntu 24.04, macOS 15
+    validations:
+      required: true
