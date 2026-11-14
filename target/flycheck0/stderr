@@ -1,4 +1,0 @@
-    Checking yk_ffi_gui v0.1.0 (D:\dev\yidika\gui)
-error: could not compile `yk_ffi_gui` (lib) due to 2 previous errors
-warning: build failed, waiting for other jobs to finish...
-error: could not compile `yk_ffi_gui` (lib test) due to 2 previous errors
