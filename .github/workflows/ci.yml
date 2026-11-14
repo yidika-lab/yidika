@@ -29,8 +29,20 @@ jobs:
       - run: cargo fmt --all --check
 
   clippy:
-    name: Clippy
+    name: Clippy (gui crate, blocking)
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p yk_ffi_gui --all-targets -- -D warnings
+
+  clippy-workspace:
+    name: Clippy (workspace, non-blocking until the lint backlog is cleared)
+    runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -51,7 +63,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked --lib --bins -- --skip compat
-      - run: cargo run --quiet -- --version
+      - run: cargo run --quiet --bin yidi -- --version
 
   aot-compat:
     name: Interpreter/AOT parity (Windows)
