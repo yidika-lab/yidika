@@ -52,6 +52,16 @@ fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
     }
 }
 
+fn callable_field_type(fields: &[Param], name: &str) -> Option<TypeExpr> {
+    let field = fields.iter().find(|f| f.name == name)?;
+    match &field.type_expr.value {
+        TypeExpr::Fn(_, ret) => Some((**ret).clone()),
+        TypeExpr::Infer => Some(TypeExpr::Infer),
+        TypeExpr::Named(n) if n == "auto" => Some(TypeExpr::Infer),
+        _ => None,
+    }
+}
+
 fn types_compatible_params(expected: &[TypeExpr], actual: &[TypeExpr]) -> bool {
     if expected.len() != actual.len() {
         return false;
@@ -790,6 +800,8 @@ impl<'a> TypeChecker<'a> {
                                             }
                                             let ret_ty = substitute_type(&method.ret_type, &type_args);
                                             return Ok(ret_ty);
+                                        } else if let Some(field_ty) = callable_field_type(&cls_def.fields, &func_name) {
+                                            return Ok(field_ty);
                                         } else {
                                             return self.fail(ErrorKind::NameError, expr.span,
                                                 format!("Class '{}' has no method '{}'", cls_name, func_name));
@@ -1097,6 +1109,28 @@ mod tests {
         let expected = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Int(0));
         let actual = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Str);
         assert!(!types_compatible(&expected, &actual));
+    }
+
+    fn field(name: &str, ty: TypeExpr) -> Param {
+        Param { name: name.into(), type_expr: TypeNode::new(0, crate::diagnostics::span::Span::new(0, 0), ty), is_ref: false }
+    }
+
+    #[test]
+    fn calling_a_fn_typed_field_gives_its_return_type() {
+        let fields = vec![field("run", fn_type(vec![TypeExpr::Int(0)], TypeExpr::Str))];
+        assert_eq!(callable_field_type(&fields, "run"), Some(TypeExpr::Str));
+    }
+
+    #[test]
+    fn calling_an_auto_field_is_allowed() {
+        let fields = vec![field("on_click", TypeExpr::Named("auto".into()))];
+        assert_eq!(callable_field_type(&fields, "on_click"), Some(TypeExpr::Infer));
+    }
+
+    #[test]
+    fn calling_a_str_field_is_rejected() {
+        let fields = vec![field("label", TypeExpr::Str)];
+        assert_eq!(callable_field_type(&fields, "label"), None);
     }
 
     #[test]
