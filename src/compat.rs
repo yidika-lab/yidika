@@ -27,14 +27,20 @@ mod tests {
             std::fs::write(&file_path, source).expect("write source");
             crate::cli::build_program(&file_path, false, &crate::codegen::backend::LlvmBackend, false)
                 .expect("AOT build failed");
+            let log = std::fs::File::create(dir.join("server.log")).expect("create server log");
             let child = Command::new(dir.join("main.exe"))
+                .env("YK_DEBUG", "1")
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(log)
                 .spawn()
                 .expect("failed to start server");
             let server = AotServer { child, dir, port, _lock: lock };
             server.wait_until_listening();
             server
+        }
+
+        fn log(&self) -> String {
+            std::fs::read_to_string(self.dir.join("server.log")).unwrap_or_default()
         }
 
         fn address(&self) -> String {
@@ -49,7 +55,7 @@ mod tests {
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
-            panic!("server on {} did not start in time", self.address());
+            panic!("server on {} did not start in time, log:\n{}", self.address(), self.log());
         }
 
         fn connect(&self, read_timeout: Duration) -> std::net::TcpStream {
@@ -551,29 +557,28 @@ mod tests {
     fn compat_net_server_real_request() {
         let server = AotServer::start("net_server_real_request", &route_server("/hello", "\"Hello, world!\"", 19876), 19876);
         let exchange = server.exchange(&get_request("/hello"));
-        assert!(exchange.response.contains("Hello, world!"), "got: {:?}", exchange.response);
+        assert!(exchange.response.contains("Hello, world!"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
     }
 
     #[test]
-    #[ignore = "AOT runtime sends no response for untyped route params, issue #15"]
     fn compat_net_server_wildcard_route() {
         let server = AotServer::start("net_server_wildcard_route", &route_server("/hello/{name}", "\"Hello, \" + req.path", 19877), 19877);
         let exchange = server.exchange(&get_request("/hello/world"));
-        assert!(exchange.response.contains("Hello, /hello/world"), "got: {:?}", exchange.response);
+        assert!(exchange.response.contains("Hello, /hello/world"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
     }
 
     #[test]
     fn compat_net_server_int_param() {
         let server = AotServer::start("net_server_int_param", &route_server("/user/{id:int}", "\"User \" + req.path", 19878), 19878);
         let exchange = server.exchange(&get_request("/user/42"));
-        assert!(exchange.response.contains("User /user/42"), "got: {:?}", exchange.response);
+        assert!(exchange.response.contains("User /user/42"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
     }
 
     #[test]
     fn compat_net_server_int_param_reject() {
         let server = AotServer::start("net_server_int_param_reject", &route_server("/user/{id:int}", "\"User \" + req.path", 19879), 19879);
         let exchange = server.exchange(&get_request("/user/abc"));
-        assert!(exchange.response.contains("404"), "got: {:?}", exchange.response);
+        assert!(exchange.response.contains("404"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
     }
 
     #[test]
@@ -581,16 +586,16 @@ mod tests {
         let server = AotServer::start("net_server_status_reason", &route_server("/hello", "\"hi\"", 19880), 19880);
         let found = server.exchange(&get_request("/hello"));
         let missing = server.exchange(&get_request("/missing"));
-        assert!(found.response.starts_with("HTTP/1.1 200 OK\r\n"), "got: {:?}", found.response);
-        assert!(missing.response.starts_with("HTTP/1.1 404 Not Found\r\n"), "got: {:?}", missing.response);
+        assert!(found.response.starts_with("HTTP/1.1 200 OK\r\n"), "got: {:?}\nserver log:\n{}", found.response, server.log());
+        assert!(missing.response.starts_with("HTTP/1.1 404 Not Found\r\n"), "got: {:?}\nserver log:\n{}", missing.response, server.log());
     }
 
     #[test]
     fn compat_net_server_honours_connection_close() {
         let server = AotServer::start("net_server_connection_close", &route_server("/hello", "\"hi\"", 19881), 19881);
         let exchange = server.exchange(&get_request("/hello"));
-        assert!(exchange.response.contains("Connection: close"), "got: {:?}", exchange.response);
-        assert!(exchange.closed_by_server, "server kept the connection open after Connection: close");
+        assert!(exchange.response.contains("Connection: close"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+        assert!(exchange.closed_by_server, "server kept the connection open after Connection: close\nserver log:\n{}", server.log());
     }
 
     // ── TcpStream ────────────────────────────────────────
