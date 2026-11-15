@@ -73,7 +73,9 @@ Prefer not to pipe a script into your shell? Download the archive for your platf
 
 #### What works on each platform
 
-The interpreter (`yidi file.yk`, `yidi run`) works on every platform above. Native compilation (`yidi build`) currently needs Windows with LLVM and the Visual Studio Build Tools; Linux and macOS support is tracked in [#3](https://github.com/yidika-lab/yidika/issues/3).
+The interpreter (`yidi file.yk`, `yidi run`) works on every platform above. Native compilation (`yidi build`, `yidi run --native`) needs `clang++` on Linux and macOS (`sudo apt install clang`, `xcode-select --install`), and LLVM with the Visual Studio Build Tools on Windows.
+
+`yidi run --native` compiles the program once, caches the binary in `~/.cache/yidi/run`, and runs it at native speed: `fib(35)` takes 0.03 s, the same as `rustc -O`, against about 14 s in the interpreter. A program the compiler cannot build yet (closures, GUI, FFI) runs in the interpreter instead.
 
 ### Build from source
 

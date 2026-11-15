@@ -559,6 +559,31 @@ mod tests {
     }
 
     #[test]
+    fn compat_range_ascending_includes_both_bounds() {
+        check_compat("fn main() { s: str = \"\"; for (i in 1..5) { s = s + str(i) + \",\"; } print(s); }", "range_ascending");
+    }
+
+    #[test]
+    fn compat_range_descending() {
+        check_compat("fn main() { s: str = \"\"; for (i in 5..1) { s = s + str(i); } print(s); }", "range_descending");
+    }
+
+    #[test]
+    fn compat_range_negative_bounds() {
+        check_compat("fn main() { s: str = \"\"; for (i in -10..-2) { s = s + str(i) + \",\"; } print(s); }", "range_negative");
+    }
+
+    #[test]
+    fn compat_for_count_excludes_the_end() {
+        check_compat("fn main() { s: str = \"\"; for (i: 5) { s = s + str(i); } print(s); }", "for_count");
+    }
+
+    #[test]
+    fn compat_range_with_variable_bounds() {
+        check_compat("fn main() { a: int = 3; b: int = 0; s: str = \"\"; for (i in a..b) { s = s + str(i); } for (j in b..a) { s = s + str(j); } print(s); }", "range_variables");
+    }
+
+    #[test]
     fn compat_net_server_real_request() {
         let server = AotServer::start("net_server_real_request", &route_server("/hello", "\"Hello, world!\"", 19876), 19876);
         let exchange = server.exchange(&get_request("/hello"));
