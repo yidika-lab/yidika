@@ -1090,6 +1090,10 @@ impl Interpreter {
                             }
                         }
                     }
+                    Expr::FnLit(..) | Expr::Closure(..) => match self.eval_expr(callee)? {
+                        EvalResult::Value(Value::Fn(fn_def)) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                        _ => Err(self.err(expr.span, "Invalid callee expression")),
+                    },
                     _ => Err(self.err(expr.span, "Invalid callee expression")),
                 }
             }
