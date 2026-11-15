@@ -1,4 +1,7 @@
 /target
+.qoder/
+.opencode/
+.claude/
 **/*.rs.bk
 *.swp
 *.swo
@@ -16,4 +19,3 @@ __pycache__/
 *.log
 .yk_cache/
 **/test_*.exe
-Cargo.lock

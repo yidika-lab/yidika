@@ -173,7 +173,7 @@ fn place(all: &Snapshot, id: i64, x: i64, y: i64, outer_w: i64, outer_h: i64, ou
         let cid = kids[idx];
         let main = mains[idx].1;
         let cross = crosses[idx].1;
-        let cross_fixed = all.get(&cid).map_or(true, |(_, cs)| {
+        let cross_fixed = all.get(&cid).is_none_or(|(_, cs)| {
             let fixed = if st.row { cs.width } else { cs.height };
             matches!(fixed, Some(Len::Px(_)) | Some(Len::Pct(_)))
         });

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea discussion
+    url: https://github.com/yidika-lab/yidika/discussions
+    about: Ask how to do something or discuss a design before opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/yidika-lab/yidika/security/advisories/new
+    about: Report security problems privately.
