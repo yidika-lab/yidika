@@ -8,6 +8,8 @@ use crate::syntax::parser::Parser;
 
 pub type FileId = usize;
 
+pub const BUILTIN_MODULES: [&str; 10] = ["std", "io", "math", "time", "json", "datetime", "path", "base64", "regex", "net"];
+
 #[derive(Clone)]
 pub struct LoadedModule {
     pub id: FileId,
@@ -97,7 +99,7 @@ impl ModuleLoader {
         }
 
         // Builtin standard library modules (no file to load)
-        if matches!(import.source.as_str(), "std" | "io" | "math" | "time" | "json" | "datetime" | "path" | "base64" | "regex" | "net") {
+        if BUILTIN_MODULES.contains(&import.source.as_str()) {
             return Ok(());
         }
 
@@ -110,10 +112,17 @@ impl ModuleLoader {
             return Ok(());
         }
 
-        Err(error::err(
-            ErrorKind::Internal, Span::new(0, 0),
-            format!("Unsupported import path: '{}'", import.source),
-        ))
+        let importer_dir = current.parent().unwrap_or(Path::new("."));
+        match crate::package::store::find_import(importer_dir, &import.source) {
+            Some(entry) => {
+                self.load(&entry)?;
+                Ok(())
+            }
+            None => Err(error::err(
+                ErrorKind::Io, import.span,
+                format!("module '{}' not found: it is not a std module, and no {}/ folder above this file holds it (run `yidi add <package>` or `yidi sync`)", import.source, crate::package::store::PACKAGES_DIR),
+            )),
+        }
     }
 
     fn canonicalize(&self, path: &Path) -> Result<PathBuf> {

@@ -182,6 +182,28 @@ mod tests {
         s.replace("\r\n", "\n").replace("\r", "").trim().to_string()
     }
 
+    fn check_project_compat(files: &[(&str, &str)], test_name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (path, content) in files {
+            let file = dir.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(&file, content).unwrap();
+        }
+        let main = dir.join("main.yk");
+        let interp = crate::cli::interpret_project(&main).expect("interpreter run failed");
+        let exe = {
+            let _lock = aot_lock();
+            crate::cli::build_program(&main, false, &crate::codegen::backend::LlvmBackend, false).expect("AOT build failed");
+            dir.join(format!("main{}", std::env::consts::EXE_SUFFIX))
+        };
+        let output = Command::new(&exe).output().expect("AOT run failed");
+        let aot = normalize(&String::from_utf8_lossy(&output.stdout));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(normalize(&interp), aot, "{}: interpreter vs AOT output mismatch", test_name);
+        aot
+    }
+
     fn check_compat(source: &str, test_name: &str) {
         let interp_out = run_interp(source).expect("interpreter failed");
         let aot_out = run_aot(source, test_name).expect("AOT build/run failed");
@@ -616,6 +638,19 @@ mod tests {
     #[test]
     fn compat_equality_on_ints_and_reals() {
         check_compat("fn main() { a: int = 4; b: real = 0.5; for (i in 1..6) { if (i % 2 == 0) { print(i); } if (i != 3) { print(\"not3\"); } } print(a == 4); print(a != 4); print(b == 0.5); print(b != 0.25); }", "equality");
+    }
+
+    #[test]
+    fn compat_package_imported_by_name() {
+        let out = check_project_compat(&[
+            ("project.toml", "[package]\nname = \"app\"\n"),
+            ("@yidi/greet/greet.yk", "use {shout} from \"greet/text\";\nexport fn hello(n: str) -> str { return shout(\"hello \" + n); }\n"),
+            ("@yidi/greet/text.yk", "export fn shout(s: str) -> str { return s + \"!\"; }\n"),
+            ("@yidi/count/main.yk", "export fn twice(x: int) -> int { return x * 2; }\n"),
+            ("src/util.yk", "use twice from \"count\";\nexport fn four() -> int { return twice(2); }\n"),
+            ("main.yk", "use {hello} from \"greet\";\nuse {four} from \"./src/util.yk\";\nfn main() { print(hello(\"bob\")); print(four()); }\n"),
+        ], "package_by_name");
+        assert_eq!(out, "hello bob!\n4");
     }
 
     #[test]
