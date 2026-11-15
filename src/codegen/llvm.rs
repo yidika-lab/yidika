@@ -305,6 +305,51 @@ impl LlvmCodegen {
         self.e_raw("%struct.Response = type { i64, %yk_string }");
     }
 
+    fn compile_int_for(&mut self, var: &str, start: &str, end: &str, inclusive: bool, body: &[StmtNode]) {
+        let cond_label = self.fresh_label();
+        let body_label = self.fresh_label();
+        let exit_label = self.fresh_label();
+        let ascending = self.fresh_label();
+        let step = self.fresh_label();
+        self.e(&format!("%{} = icmp sle i64 {}, {}", ascending, start, end));
+        self.e(&format!("%{} = select i1 %{}, i64 1, i64 -1", step, ascending));
+        let ptr = self.alloca_name(var);
+        self.var_types.insert(var.to_string(), "i64".into());
+        self.var_alloca.insert(var.to_string(), ptr.clone());
+        self.e(&format!("{} = alloca i64, align 8", ptr));
+        self.e(&format!("store i64 {}, ptr {}", start, ptr));
+        self.e(&format!("br label %{}", cond_label));
+        self.e_raw(&format!("{}:", cond_label));
+        let v = self.value_name(var);
+        self.e(&format!("{} = load i64, ptr {}", v, ptr));
+        let keep_going = self.loop_condition(&v, end, &ascending, inclusive);
+        self.e(&format!("br i1 %{}, label %{}, label %{}", keep_going, body_label, exit_label));
+        self.e_raw(&format!("{}:", body_label));
+        self.indent += 1;
+        for s in body { self.compile_stmt(s); }
+        let next_v = self.fresh_label();
+        self.e(&format!("%{} = add i64 {}, %{}", next_v, v, step));
+        self.e(&format!("store i64 %{}, ptr {}", next_v, ptr));
+        self.e(&format!("br label %{}", cond_label));
+        self.indent -= 1;
+        self.e_raw(&format!("{}:", exit_label));
+    }
+
+    fn loop_condition(&mut self, v: &str, end: &str, ascending: &str, inclusive: bool) -> String {
+        if !inclusive {
+            let below = self.fresh_label();
+            self.e(&format!("%{} = icmp slt i64 {}, {}", below, v, end));
+            return below;
+        }
+        let up = self.fresh_label();
+        let down = self.fresh_label();
+        let pick = self.fresh_label();
+        self.e(&format!("%{} = icmp sle i64 {}, {}", up, v, end));
+        self.e(&format!("%{} = icmp sge i64 {}, {}", down, v, end));
+        self.e(&format!("%{} = select i1 %{}, i1 %{}, i1 %{}", pick, ascending, up, down));
+        pick
+    }
+
     fn get_variant_tag(&mut self, variant_name: &str) -> i64 {
         if let Some(&tag) = self.variant_tags.get(variant_name) {
             tag
@@ -1677,40 +1722,12 @@ impl LlvmCodegen {
                     self.indent -= 1;
                     self.e_raw(&format!("{}:", exit_label));
                 } else {
-                    // Integer range iteration (existing behavior)
-                    let init_label = self.fresh_label();
-                    let cond_label = self.fresh_label();
-                    let body_label = self.fresh_label();
-                    let exit_label = self.fresh_label();
-
-                    let (end_val, _) = self.compile_expr(iter);
-
-                    self.e(&format!("br label %{}", init_label));
-                    self.e_raw(&format!("{}:", init_label));
-
-                    let ptr = self.alloca_name(var);
-                    self.var_types.insert(var.clone(), "i64".into());
-                    self.var_alloca.insert(var.clone(), ptr.clone());
-                    self.e(&format!("{} = alloca i64, align 8", ptr));
-                    self.e(&format!("store i64 0, ptr {}", ptr));
-
-                    self.e(&format!("br label %{}", cond_label));
-                    self.e_raw(&format!("{}:", cond_label));
-                    let v = self.value_name(var);
-                    self.e(&format!("{} = load i64, ptr {}", v, ptr));
-                    self.e(&format!("%cmp_{} = icmp sle i64 {}, {}", var, v, end_val));
-                    self.e(&format!("br i1 %cmp_{}, label %{}, label %{}", var, body_label, exit_label));
-
-                    self.e_raw(&format!("{}:", body_label));
-                    self.indent += 1;
-                    for s in body { self.compile_stmt(s); }
-                    let next_v = self.fresh_label();
-                    self.e(&format!("%{} = add i64 {}, 1", next_v, v));
-                    self.e(&format!("store i64 %{}, ptr {}", next_v, ptr));
-
-                    self.e(&format!("br label %{}", cond_label));
-                    self.indent -= 1;
-                    self.e_raw(&format!("{}:", exit_label));
+                    let (start_val, end_val) = match &iter.value {
+                        Expr::Range(l, r) => (self.compile_expr(l).0, self.compile_expr(r).0),
+                        _ => ("0".to_string(), self.compile_expr(iter).0),
+                    };
+                    let inclusive = matches!(&iter.value, Expr::Range(_, _));
+                    self.compile_int_for(var, &start_val, &end_val, inclusive, body);
                 }
             }
             Stmt::Loop(body) => {

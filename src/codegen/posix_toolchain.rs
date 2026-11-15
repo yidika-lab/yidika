@@ -45,7 +45,7 @@ fn missing_compiler_help() -> String {
 }
 
 fn cached_runtime_object(compiler: &Path, runtime_c: &str) -> Result<PathBuf> {
-    let dir = cache_dir();
+    let dir = crate::cache::cache_dir();
     std::fs::create_dir_all(&dir).map_err(|e| fail(ErrorKind::Io, format!("cannot create {}: {}", dir.display(), e)))?;
     let obj = dir.join(format!("yk_rt-{:016x}.o", runtime_key(compiler, runtime_c)));
     if obj.is_file() {
@@ -70,18 +70,6 @@ fn runtime_key(compiler: &Path, runtime_c: &str) -> u64 {
     RUNTIME_FLAGS.hash(&mut h);
     native_cpu_flag().hash(&mut h);
     h.finish()
-}
-
-fn cache_dir() -> PathBuf {
-    if let Some(dir) = std::env::var_os("XDG_CACHE_HOME").filter(|d| !d.is_empty()) {
-        return PathBuf::from(dir).join("yidi");
-    }
-    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    if cfg!(target_os = "macos") {
-        home.join("Library/Caches/yidi")
-    } else {
-        home.join(".cache/yidi")
-    }
 }
 
 fn write_file(path: &Path, content: &str) -> Result<()> {

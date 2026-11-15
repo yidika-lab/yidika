@@ -19,6 +19,10 @@ pub trait CodegenBackend {
 
 pub struct LlvmBackend;
 
+pub fn needs_side_artifacts(modules: &[&Module]) -> bool {
+    gui_imported(modules) || modules.iter().any(|m| m.imports.iter().any(|import| import.lang.is_some()))
+}
+
 fn gui_imported(modules: &[&Module]) -> bool {
     modules.iter().any(|m| {
         m.imports.iter().any(|import| {

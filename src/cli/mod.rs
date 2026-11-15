@@ -9,8 +9,16 @@ use crate::semantic::env::Env;
 use crate::semantic::typeck::TypeChecker;
 use crate::syntax::ast::Module;
 
+mod native;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Engine {
+    Interp,
+    Native,
+}
+
 pub enum Command {
-    Run(String, bool),
+    Run(String, bool, Engine),
     Build(String, bool),
     BuildWithInfo(String, bool),
     Add(String),
@@ -29,6 +37,7 @@ pub fn parse_from(args: &[String]) -> Command {
         eprintln!("Usage:");
         eprintln!("  yidi <file>              Run a .yk file (interpreter)");
         eprintln!("  yidi run <file>          Run a .yk file (interpreter)");
+        eprintln!("  yidi run <file> --native Compile, cache and run natively; falls back to the interpreter");
         eprintln!("  yidi <file> --watch      Run file and watch for changes");
         eprintln!("  yidi build <file>        Build a .yk file");
         eprintln!("  yidi build <file> --watch Rebuild on file change");
@@ -51,8 +60,7 @@ pub fn parse_from(args: &[String]) -> Command {
         }
         "run" => {
             if args.len() < 3 { eprintln!("Usage: yidi run <file>"); std::process::exit(1); }
-            let watch = args.iter().any(|a| a == "--watch");
-            Command::Run(args[2].clone(), watch)
+            Command::Run(args[2].clone(), has_flag(args, "--watch"), engine_from(args))
         }
         "add" => {
             if args.len() < 3 { eprintln!("Usage: yidi add <package>"); std::process::exit(1); }
@@ -61,15 +69,22 @@ pub fn parse_from(args: &[String]) -> Command {
         "sync" => Command::Sync,
         _ => {
             // backward compatibility: treat bare path as "run"
-            let watch = args.iter().any(|a| a == "--watch");
-            Command::Run(args[1].clone(), watch)
+            Command::Run(args[1].clone(), has_flag(args, "--watch"), engine_from(args))
         }
     }
 }
 
+fn has_flag(args: &[String], flag: &str) -> bool {
+    args.iter().any(|a| a == flag)
+}
+
+fn engine_from(args: &[String]) -> Engine {
+    if has_flag(args, "--native") { Engine::Native } else { Engine::Interp }
+}
+
 pub fn execute(cmd: Command) -> Result<String, String> {
     match cmd {
-        Command::Run(f, watch) => run_program(&PathBuf::from(f), watch),
+        Command::Run(f, watch, engine) => run_program(&PathBuf::from(f), watch, engine),
         Command::Build(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, false),
         Command::BuildWithInfo(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, true),
         Command::Info => show_info(),
@@ -123,9 +138,21 @@ fn typecheck_all(files: &[LoadedFile]) -> Result<(), String> {
     Ok(())
 }
 
-fn run_program(path: &PathBuf, watch: bool) -> Result<String, String> {
+fn run_program(path: &PathBuf, watch: bool, engine: Engine) -> Result<String, String> {
     let files = load(path)?;
     typecheck_all(&files)?;
+
+    if engine == Engine::Native {
+        if let Some(code) = run_native(&files) {
+            if code != 0 {
+                std::process::exit(code);
+            }
+            if watch {
+                watch_and_run(path, engine)?;
+            }
+            return Ok(String::new());
+        }
+    }
 
     let mut interp = Interpreter::new();
     interp.tui_mode = true;
@@ -139,13 +166,21 @@ fn run_program(path: &PathBuf, watch: bool) -> Result<String, String> {
     print!("{}", output);
 
     if watch {
-        watch_and_run(path)?;
+        watch_and_run(path, engine)?;
     }
 
     Ok(String::new())
 }
 
-fn watch_and_run(path: &PathBuf) -> Result<(), String> {
+fn run_native(files: &[LoadedFile]) -> Option<i32> {
+    let sources: Vec<native::Source> = files
+        .iter()
+        .map(|f| native::Source { path: &f.path, text: &f.source, module: &f.module })
+        .collect();
+    native::run(&sources, &crate::codegen::backend::LlvmBackend)
+}
+
+fn watch_and_run(path: &PathBuf, engine: Engine) -> Result<(), String> {
     let mut last = fs::metadata(path)
         .and_then(|m| m.modified())
         .ok();
@@ -155,7 +190,7 @@ fn watch_and_run(path: &PathBuf) -> Result<(), String> {
             if let Ok(modified) = meta.modified() {
                 if last.map_or(true, |l| modified > l) {
                     last = Some(modified);
-                    let _ = run_program(path, true);
+                    let _ = run_program(path, false, engine);
                 }
             }
         }
@@ -241,7 +276,14 @@ mod tests {
 
     #[test]
     fn bare_path_still_runs_file() {
-        assert!(matches!(parse_from(&args(&["yidi", "hello.yk"])), Command::Run(ref f, false) if f == "hello.yk"));
+        assert!(matches!(parse_from(&args(&["yidi", "hello.yk"])), Command::Run(ref f, false, Engine::Interp) if f == "hello.yk"));
+    }
+
+    #[test]
+    fn native_flag_selects_the_native_engine() {
+        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk", "--native"])), Command::Run(_, false, Engine::Native)));
+        assert!(matches!(parse_from(&args(&["yidi", "a.yk", "--native", "--watch"])), Command::Run(_, true, Engine::Native)));
+        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk"])), Command::Run(_, false, Engine::Interp)));
     }
 
     #[test]
