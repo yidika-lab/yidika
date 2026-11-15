@@ -16,10 +16,15 @@ pub enum Command {
     Add(String),
     Sync,
     Info,
+    Version,
 }
 
 pub fn parse_args() -> Command {
     let args: Vec<String> = std::env::args().collect();
+    parse_from(&args)
+}
+
+pub fn parse_from(args: &[String]) -> Command {
     if args.len() < 2 {
         eprintln!("Usage:");
         eprintln!("  yidi <file>              Run a .yk file (interpreter)");
@@ -30,10 +35,12 @@ pub fn parse_args() -> Command {
         eprintln!("  yidi info                Show hardware info");
         eprintln!("  yidi add <package>        Add a dependency");
         eprintln!("  yidi sync               Sync dependencies");
+        eprintln!("  yidi --version           Show version");
         std::process::exit(1);
     }
 
     match args[1].as_str() {
+        "--version" | "-V" | "version" => Command::Version,
         "info" => Command::Info,
         "build" => {
             if args.len() < 3 { eprintln!("Usage: yidi build <file>"); std::process::exit(1); }
@@ -68,7 +75,12 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Info => show_info(),
         Command::Add(pkg) => add_package(&pkg),
         Command::Sync => sync_packages(),
+        Command::Version => Ok(version_string()),
     }
+}
+
+fn version_string() -> String {
+    format!("yidi {}", env!("CARGO_PKG_VERSION"))
 }
 
 fn show_info() -> Result<String, String> {
@@ -209,6 +221,28 @@ fn load_module(source: &str) -> Module {
 mod tests {
     use super::*;
     use crate::codegen::backend::MockBackend;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn version_flags_select_version_command() {
+        for flag in ["--version", "-V", "version"] {
+            assert!(matches!(parse_from(&args(&["yidi", flag])), Command::Version));
+        }
+    }
+
+    #[test]
+    fn version_output_names_binary_and_crate_version() {
+        let out = execute(Command::Version).unwrap();
+        assert_eq!(out, format!("yidi {}", env!("CARGO_PKG_VERSION")));
+    }
+
+    #[test]
+    fn bare_path_still_runs_file() {
+        assert!(matches!(parse_from(&args(&["yidi", "hello.yk"])), Command::Run(ref f, false) if f == "hello.yk"));
+    }
 
     #[test]
     fn build_program_with_mock_backend() {

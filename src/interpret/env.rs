@@ -78,7 +78,7 @@ impl Interpreter {
             moved_frames: vec![HashSet::new()],
             global_moved: HashSet::new(),
             output: String::new(),
-            tui_mode: true,
+            tui_mode: false,
             ffi_libs: HashMap::new(),
             next_task_id: 0,
             task_rxs: HashMap::new(),
