@@ -75,6 +75,7 @@ impl Default for InterpBase {
 }
 
 pub struct Interpreter {
+    pub fn_bases: Vec<usize>,
     pub globals: NameMap<Value>,
     pub const_vars: NameSet,
     pub json_files: HashMap<String, std::path::PathBuf>,
@@ -121,6 +122,7 @@ impl Interpreter {
             next_task_id: 0,
             task_rxs: HashMap::new(),
             value_pool: crate::memory::arena::ValuePool::new(),
+            fn_bases: Vec::new(),
             source_dir: std::path::PathBuf::from("."),
         }
     }
@@ -147,6 +149,7 @@ impl Interpreter {
             next_task_id: 0,
             task_rxs: HashMap::new(),
             value_pool: crate::memory::arena::ValuePool::new(),
+            fn_bases: Vec::new(),
             source_dir: other.source_dir.clone(),
         }
     }
@@ -376,6 +379,7 @@ impl Interpreter {
                 next_task_id: 0,
                 task_rxs: HashMap::new(),
                 value_pool: crate::memory::arena::ValuePool::new(),
+            fn_bases: Vec::new(),
                 source_dir,
             };
             let fndef = interp.functions.get("main").cloned();
@@ -485,9 +489,13 @@ impl Interpreter {
     }
 
     pub fn get_var(&self, name: &str) -> Result<Value> {
-        for frame in self.frames.iter().rev() {
+        let base = self.frame_base();
+        for frame in self.frames[base..].iter().rev() {
             if let Some(val) = frame.get(name) {
-                return Ok(val.clone());
+                return Ok(match val {
+                    Value::Cell(cell) => crate::interpret::value::read_shared(cell),
+                    other => other.clone(),
+                });
             }
         }
         self.globals.get(name).cloned()
@@ -502,9 +510,13 @@ impl Interpreter {
         if self.const_vars.contains(name) || self.global_moved.contains(name) {
             return Err(self.err(Span::new(0, 0), format!("Cannot assign to const or moved variable '{}'", name)));
         }
-        for frame in self.frames.iter_mut().rev() {
+        let base = self.frame_base();
+        for frame in self.frames[base..].iter_mut().rev() {
             if let Some(slot) = frame.get_mut(name) {
-                *slot = val;
+                match slot {
+                    Value::Cell(cell) => crate::interpret::value::write_shared(cell, val),
+                    _ => *slot = val,
+                }
                 return Ok(());
             }
         }
@@ -518,6 +530,35 @@ impl Interpreter {
         }
         self.globals.insert(name.to_string(), val);
         Ok(())
+    }
+
+    fn frame_base(&self) -> usize {
+        self.fn_bases.last().copied().unwrap_or(0)
+    }
+
+    pub(crate) fn enter_call(&mut self, captures: &[(String, crate::interpret::value::Shared)]) {
+        self.fn_bases.push(self.frames.len());
+        self.push_frame();
+        let frame = self.frames.last_mut().unwrap();
+        for (name, cell) in captures {
+            frame.insert(name.clone(), Value::Cell(cell.clone()));
+        }
+    }
+
+    pub(crate) fn leave_call(&mut self) {
+        self.pop_frame();
+        self.fn_bases.pop();
+    }
+
+    pub(crate) fn capture_locals(&mut self) -> Vec<(String, crate::interpret::value::Shared)> {
+        let base = self.frame_base();
+        let mut captured: NameMap<crate::interpret::value::Shared> = NameMap::default();
+        for frame in self.frames[base..].iter_mut() {
+            for (name, slot) in frame.vars.iter_mut() {
+                captured.insert(name.clone(), share_slot(slot));
+            }
+        }
+        captured.into_iter().collect()
     }
 
     pub fn push_frame(&mut self) {
@@ -545,4 +586,13 @@ impl Interpreter {
 pub fn fast_hash(a: &str, b: &str) -> usize {
     let h = a.len().wrapping_mul(31).wrapping_add(b.len());
     h
+}
+
+fn share_slot(slot: &mut Value) -> crate::interpret::value::Shared {
+    if let Value::Cell(cell) = slot {
+        return cell.clone();
+    }
+    let cell = std::sync::Arc::new(std::sync::Mutex::new(std::mem::replace(slot, Value::None_)));
+    *slot = Value::Cell(cell.clone());
+    cell
 }

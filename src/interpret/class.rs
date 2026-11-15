@@ -12,11 +12,17 @@ pub type InlineCache = std::sync::Mutex<[(String, String, Option<FnDef>); INLINE
 pub struct FnDef {
     pub params: Arc<Vec<Param>>,
     pub body: Arc<Vec<StmtNode>>,
+    pub captures: Arc<Vec<(String, crate::interpret::value::Shared)>>,
 }
 
 impl FnDef {
     pub fn new(params: Vec<Param>, body: Vec<StmtNode>) -> Self {
-        FnDef { params: Arc::new(params), body: Arc::new(body) }
+        FnDef { params: Arc::new(params), body: Arc::new(body), captures: Arc::default() }
+    }
+
+    pub fn with_captures(mut self, captures: Vec<(String, crate::interpret::value::Shared)>) -> Self {
+        self.captures = Arc::new(captures);
+        self
     }
 }
 

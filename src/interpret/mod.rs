@@ -24,6 +24,42 @@ mod tests {
         interp.run_main().unwrap()
     }
 
+    fn try_run(source: &str) -> Result<String, String> {
+        ast::reset_ids();
+        let module = Parser::parse(source).map_err(|e| e.to_string())?;
+        let mut interp = Interpreter::new();
+        interp.load_module(&module);
+        interp.run_main().map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_closure_keeps_the_variables_of_a_finished_call() {
+        assert_eq!(run("fn adder(n: int) -> auto { return (x) => x + n; } fn main() { add5: auto = adder(5); print(add5(37)); }").trim(), "42");
+    }
+
+    #[test]
+    fn a_closure_shares_mutations_with_its_scope() {
+        let src = "fn counter() -> auto { c: int = 0; return () => { c = c + 1; return c; }; } fn main() { next: auto = counter(); next(); next(); print(next()); other: auto = counter(); print(other()); }";
+        assert_eq!(run(src).trim(), "3\n1");
+    }
+
+    #[test]
+    fn a_closure_sees_later_writes_in_its_defining_scope() {
+        assert_eq!(run("fn main() { k: int = 1; f: auto = () => k; k = 10; print(f()); }").trim(), "10");
+    }
+
+    #[test]
+    fn a_function_cannot_read_its_callers_locals() {
+        let src = "fn peek() -> int { return secret; } fn main() { secret: int = 7; print(peek()); }";
+        assert!(try_run(src).is_err());
+    }
+
+    #[test]
+    fn each_loop_iteration_gets_its_own_binding() {
+        let src = "fn main() { fs: auto = []; for (i in 1..3) { fs.push(() => i); } for (f: fs) { print(f()); } }";
+        assert_eq!(run(src).trim(), "1\n2\n3");
+    }
+
     #[test]
     fn json_objects_keep_their_key_order() {
         let src = "use {json} from \"json\"; fn main() { m: auto = json.parse(\"{\\\"zeta\\\":1,\\\"alpha\\\":2,\\\"mid\\\":3,\\\"beta\\\":4}\"); print(str(m)); for (k in m) { print(k); } }";

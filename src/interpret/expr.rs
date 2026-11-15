@@ -11,13 +11,13 @@ use super::class::NameSet;
 
 impl Interpreter {
     pub(crate) fn call_fn_value(&mut self, fn_def: &crate::interpret::class::FnDef, arg_vals: &[Value]) -> Result<Value> {
-        self.push_frame();
+        self.enter_call(&fn_def.captures);
         for (i, param) in fn_def.params.iter().enumerate() {
             let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
             self.frames.last_mut().unwrap().insert(param.name.clone(), val);
         }
         let result = self.run_fn_body(fn_def);
-        self.pop_frame();
+        self.leave_call();
         Ok(result?.unwrap_or(Value::None_))
     }
 
@@ -544,7 +544,7 @@ impl Interpreter {
                                     };
                                     match method {
                                         Some(fn_def) => {
-                                            self.push_frame();
+                                            self.enter_call(&fn_def.captures);
                                             let cls_receiver = receiver;
                                             self.frames.last_mut().unwrap().insert("self".into(), cls_receiver.clone());
                                             self.frames.last_mut().unwrap().insert("super".into(), cls_receiver);
@@ -553,9 +553,10 @@ impl Interpreter {
                                                 let val = arg_vals.get(i - start_idx).cloned().unwrap_or(Value::None_);
                                                 self.frames.last_mut().unwrap().insert(param.name.clone(), val);
                                             }
-                                            let result = self.run_fn_body(&fn_def)?;
+                                            let result = self.run_fn_body(&fn_def);
                                             let mutated = self.frames.last().and_then(|f| f.get("self")).cloned();
-                                            self.pop_frame();
+                                            self.leave_call();
+                                            let result = result?;
                                             if let Some(ref n) = var_name {
                                                 if let Some(m) = mutated { self.set_var(n, m).ok(); }
                                             } else if let Some(m) = mutated {
@@ -1131,7 +1132,7 @@ impl Interpreter {
                 let body_stmts = vec![
                     crate::syntax::ast::StmtNode::new(0, crate::diagnostics::span::Span::new(0,0), crate::syntax::ast::Stmt::Return(Some(*(*body).clone())))
                 ];
-                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts);
+                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts).with_captures(self.capture_locals());
                 Ok(EvalResult::Value(Value::Fn(fn_def)))
             }
             Expr::ListLit(items) => {
@@ -1369,7 +1370,7 @@ impl Interpreter {
                 let body_stmts = vec![
                     crate::syntax::ast::StmtNode::new(0, crate::diagnostics::span::Span::new(0,0), crate::syntax::ast::Stmt::Return(Some(*body.clone())))
                 ];
-                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts);
+                let fn_def = crate::interpret::class::FnDef::new(params.clone(), body_stmts).with_captures(self.capture_locals());
                 Ok(EvalResult::Value(Value::Fn(fn_def)))
             }
             Expr::PostInc(i) | Expr::PostDec(i) => {
@@ -1466,6 +1467,7 @@ impl Interpreter {
                         next_task_id: 0,
                         task_rxs: HashMap::new(),
                         value_pool: crate::memory::arena::ValuePool::new(),
+                        fn_bases: Vec::new(),
                         source_dir: std::path::PathBuf::from("."),
                     };
                     mini.push_frame();
