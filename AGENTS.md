@@ -7,7 +7,7 @@ Rust implementation of the **Yidika** language: lexer -> parser -> type checker 
 Every language and stdlib feature must work in **both** backends. They are separate implementations of the same semantics, and nothing enforces that except tests.
 
 - **Interpreter** - `src/interpret/` (`env.rs` evaluation driver, `expr.rs` expression eval, `stmt.rs`, `builtins.rs`, `class.rs` `FnDef`/`ClassDef`). The `net` module is served by `src/netlib/` (tokio async server; route handlers are MCJIT-compiled at runtime via `LLVM-C.dll`).
-- **AOT** - `src/codegen/llvm.rs`. Emits LLVM IR **as text strings**, then shells out to a generated `.bat` that runs `vcvars64.bat` -> `clang -c` -> `cl.exe` (compiles the embedded `RUNTIME_C`) -> `link.exe`.
+- **AOT** - `src/codegen/llvm.rs`. Emits LLVM IR **as text strings**, then shells out to a generated `.bat` that runs `vcvars64.bat` -> `clang -c` -> `cl.exe` (compiles the embedded runtime, `src/codegen/runtime/yk_rt.c`) -> `link.exe`.
 
 `src/compat.rs` (87 `compat_*` tests) is the enforcement: it runs one snippet through both backends and asserts identical stdout via `check_compat`. **Adding a feature without a compat test is the most common way to break this repo.** The harness is `run_interp` / `run_aot` / `check_compat` / `check_compat_approx` (use `_approx` for nondeterministic output like PIDs/timestamps).
 
@@ -99,7 +99,8 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 
 ## Layout notes a filename won't tell you
 
-- **`src/codegen/llvm.rs` (~420 KB, ~8 300 lines)** holds two unrelated things. Lines 10-3939 are `RUNTIME_C`: a C/C++ runtime stored in a raw string literal and compiled into every AOT binary (HTTP/1.1 + HPACK/HTTP-2, WebSocket, radix route trie, TLS memory pool, Winsock-IOCP on Windows / io_uring on Linux). Editing it means editing a Rust string: mind the escaping. It `#define WIN32_LEAN_AND_MEAN` before including `winsock2.h` - do not remove that. Everything from line 3941 on is the IR emitter (`LlvmCodegen` + its `HashMap` side-tables) and the Windows toolchain shell-out.
+- **`src/codegen/runtime/yk_rt.c` (~150 KB, ~3 900 lines)** is the C/C++ runtime compiled into every AOT binary (HTTP/1.1 + HPACK/HTTP-2, WebSocket, radix route trie, TLS memory pool, Winsock-IOCP on Windows / io_uring on Linux). `llvm.rs` embeds it with `include_str!` and prepends the status table from `runtime_status.rs`. It `#define WIN32_LEAN_AND_MEAN` before including `winsock2.h` - do not remove that. It still calls the Win32 API directly in many places, so it only compiles on Windows today (124 errors on Linux with clang 21).
+- **`src/codegen/llvm.rs` (~280 KB)** is the IR emitter (`LlvmCodegen` + its `HashMap` side-tables) and the Windows toolchain shell-out.
 - **`src/codegen/llvm_api.rs`** loads `LLVM-C.dll` at runtime via `libloading`. Used by `src/jit/` and `netlib`. `llvm.rs::compile_to_exe_fast` / `cache_runtime_obj` are `#[allow(dead_code)]` dead paths kept for reference - don't assume they run.
 - **`src/netlib/hyper_server.rs`** calls many `pub(crate)` helpers from `netlib/mod.rs` (`parse_request_line`, `execute_handler`, `write_response_async`, ...). Editing any of those signatures breaks the server.
 - **Server handlers get an isolated interpreter** via `SubInterpreterPool` (`interpret/env.rs`), not a shared `Interpreter`.
