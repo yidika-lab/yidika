@@ -305,6 +305,13 @@ impl LlvmCodegen {
         self.e_raw("%struct.Response = type { i64, %yk_string }");
     }
 
+    fn complex_to_ptr(&mut self, value: &str) -> String {
+        let slot = self.fresh_label();
+        self.e(&format!("%{} = alloca %yk_complex, align 8", slot));
+        self.e(&format!("store %yk_complex {}, ptr %{}", value, slot));
+        format!("%{}", slot)
+    }
+
     fn compile_int_for(&mut self, var: &str, start: &str, end: &str, inclusive: bool, body: &[StmtNode]) {
         let cond_label = self.fresh_label();
         let body_label = self.fresh_label();
@@ -540,7 +547,7 @@ impl LlvmCodegen {
                 else { lt }
             }
             Expr::UnOp(_, inner) => self.expr_type_str(inner),
-            Expr::Call(_, _) => "i64".into(),
+            Expr::Call(callee, _) => self.call_type_str(callee),
             Expr::StructLit(name, _) => {
                 if self.class_defs.contains_key(name) {
                     format!("%class.{}", name)
@@ -570,6 +577,17 @@ impl LlvmCodegen {
             Expr::Await(inner) => self.expr_type_str(inner),
             Expr::As(_, target_type) => self.type_to_llvm(&target_type.value),
             Expr::Match(_, arms) => arms.first().map(|a| self.expr_type_str(&a.body)).unwrap_or("i64".into()),
+            _ => "i64".into(),
+        }
+    }
+
+    fn call_type_str(&self, callee: &ExprNode) -> String {
+        let Expr::Ident(name) = &callee.value else { return "i64".into() };
+        if let Some(ret) = self.fn_ret_types.get(&self.mangle_name(name)) {
+            return ret.clone();
+        }
+        match name.as_str() {
+            "str" => "%yk_string".into(),
             _ => "i64".into(),
         }
     }
@@ -2890,7 +2908,8 @@ impl LlvmCodegen {
                                         self.e(&format!("call void @yk_print_str_ptr(ptr {})", p));
                                     }
                                     "%yk_complex" => {
-                                        self.e(&format!("call void @yk_print_complex(ptr {})", av));
+                                        let ca = self.complex_to_ptr(&av);
+                                        self.e(&format!("call void @yk_print_complex(ptr {})", ca));
                                     }
                                 "%yk_result" => {
                                     let payload = self.fresh_label();
@@ -3004,11 +3023,9 @@ impl LlvmCodegen {
                                     self.ssa(&t)
                                 }
                                 "%yk_complex" => {
-                                    let ca = self.fresh_label();
-                                    self.e(&format!("%{} = alloca %yk_complex, align 8", ca));
-                                    self.e(&format!("store %yk_complex {}, ptr %{}", av, ca));
+                                    let ca = self.complex_to_ptr(&av);
                                     let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr %{})", t, ca));
+                                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr {})", t, ca));
                                     self.ssa(&t)
                                 }
                                 "%yk_string" => {
@@ -3859,11 +3876,9 @@ impl LlvmCodegen {
                                     self.ssa(&t)
                                 }
                                 "%yk_complex" => {
-                                    let ca = self.fresh_label();
-                                    self.e(&format!("%{} = alloca %yk_complex, align 8", ca));
-                                    self.e(&format!("store %yk_complex {}, ptr %{}", o_val, ca));
+                                    let ca = self.complex_to_ptr(&o_val);
                                     let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr %{})", t, ca));
+                                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr {})", t, ca));
                                     self.ssa(&t)
                                 }
                                 "%yk_string" => {
