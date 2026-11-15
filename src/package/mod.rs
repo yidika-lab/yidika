@@ -12,10 +12,12 @@ mod remote;
 mod resolve;
 pub(crate) mod store;
 mod tree;
+mod verify;
 mod version;
 
 pub use init::init;
 pub use publish::publish;
+pub use verify::check as check_registry_entry;
 
 use index::Index;
 use install::Outcome;

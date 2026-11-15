@@ -26,6 +26,7 @@ pub enum Command {
     Remove(String),
     Update(Option<String>),
     Publish(bool),
+    RegistryCheck(String, Option<String>),
     Sync,
     Info,
     Version,
@@ -85,6 +86,11 @@ pub fn parse_from(args: &[String]) -> Command {
         "sync" => Command::Sync,
         "update" => Command::Update(args.get(2).cloned()),
         "publish" => Command::Publish(has_flag(args, "--dry-run")),
+        "registry" => {
+            if args.len() < 4 || args[2] != "check" { eprintln!("Usage: yidi registry check <entry.toml> [--previous <entry.toml>]"); std::process::exit(1); }
+            let previous = args.iter().position(|a| a == "--previous").and_then(|i| args.get(i + 1)).cloned();
+            Command::RegistryCheck(args[3].clone(), previous)
+        }
         "upgrade" => Command::Upgrade(has_flag(args, "--check")),
         _ => {
             // backward compatibility: treat bare path as "run"
@@ -113,6 +119,7 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Sync => crate::package::sync(),
         Command::Update(pkg) => crate::package::update(pkg.as_deref()),
         Command::Publish(dry_run) => crate::package::publish(dry_run),
+        Command::RegistryCheck(entry, previous) => crate::package::check_registry_entry(Path::new(&entry), previous.as_deref().map(Path::new)),
         Command::Version => Ok(version_string()),
         Command::Upgrade(check_only) => upgrade::upgrade(check_only),
     }
@@ -288,6 +295,12 @@ mod tests {
         assert!(matches!(parse_from(&args(&["yidi", "init"])), Command::Init(None)));
         assert!(matches!(parse_from(&args(&["yidi", "init", "app"])), Command::Init(Some(n)) if n == "app"));
         assert!(matches!(parse_from(&args(&["yidi", "remove", "greet"])), Command::Remove(n) if n == "greet"));
+    }
+
+    #[test]
+    fn registry_check_takes_an_entry_and_an_optional_previous_one() {
+        assert!(matches!(parse_from(&args(&["yidi", "registry", "check", "greet.toml"])), Command::RegistryCheck(e, None) if e == "greet.toml"));
+        assert!(matches!(parse_from(&args(&["yidi", "registry", "check", "greet.toml", "--previous", "old.toml"])), Command::RegistryCheck(_, Some(p)) if p == "old.toml"));
     }
 
     #[test]
