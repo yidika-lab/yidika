@@ -102,9 +102,13 @@ mod tests {
     }
 
     fn route_server(route: &str, body: &str, port: u16) -> String {
+        typed_route_server(route, "str", body, port)
+    }
+
+    fn typed_route_server(route: &str, return_type: &str, body: &str, port: u16) -> String {
         format!(
-            "use {{ Server }} from \"net\";\nfn handler(req: auto) -> str {{\n    return {};\n}}\nfn main() {{\n    app: Server = Server();\n    app.get(\"{}\", handler);\n    app.serve(\"127.0.0.1:{}\");\n}}",
-            body, route, port
+            "use {{ Server }} from \"net\";\nfn handler(req: auto) -> {} {{\n    return {};\n}}\nfn main() {{\n    app: Server = Server();\n    app.get(\"{}\", handler);\n    app.serve(\"127.0.0.1:{}\");\n}}",
+            return_type, body, route, port
         )
     }
 
@@ -588,6 +592,15 @@ mod tests {
         let missing = server.exchange(&get_request("/missing"));
         assert!(found.response.starts_with("HTTP/1.1 200 OK\r\n"), "got: {:?}\nserver log:\n{}", found.response, server.log());
         assert!(missing.response.starts_with("HTTP/1.1 404 Not Found\r\n"), "got: {:?}\nserver log:\n{}", missing.response, server.log());
+    }
+
+    #[test]
+    fn compat_net_server_response_status() {
+        let source = typed_route_server("/denied", "Response", "Response { status: 401, body: \"denied\" }", 19882);
+        let server = AotServer::start("net_server_response_status", &source, 19882);
+        let exchange = server.exchange(&get_request("/denied"));
+        assert!(exchange.response.starts_with("HTTP/1.1 401 Unauthorized\r\n"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+        assert!(exchange.response.ends_with("denied"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
     }
 
     #[test]

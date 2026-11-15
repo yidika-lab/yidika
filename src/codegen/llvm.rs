@@ -4225,6 +4225,15 @@ impl LlvmCodegen {
         }
     }
 
+    fn declare_builtin_response_struct(&mut self) {
+        if self.struct_defs.contains_key("Response") || self.class_defs.contains_key("Response") {
+            return;
+        }
+        let fields = vec![("status".to_string(), "i64".to_string()), ("body".to_string(), "%yk_string".to_string())];
+        self.struct_defs.insert("Response".into(), fields);
+        self.e_raw("%struct.Response = type { i64, %yk_string }");
+    }
+
     fn get_variant_tag(&mut self, variant_name: &str) -> i64 {
         if let Some(&tag) = self.variant_tags.get(variant_name) {
             tag
@@ -4568,6 +4577,7 @@ impl LlvmCodegen {
                 }
             }
         }
+        self.declare_builtin_response_struct();
         self.e_raw("");
 
         // Pre-scan: collect interface methods and class implements
@@ -8738,6 +8748,38 @@ fn find_return_expr(body: &[StmtNode]) -> Option<&ExprNode> {
     None
 }
 
+struct HandlerResult<'a> {
+    body: Option<&'a ExprNode>,
+    status: i64,
+}
+
+impl<'a> HandlerResult<'a> {
+    const DEFAULT_STATUS: i64 = 200;
+
+    fn of(expr: &'a ExprNode) -> Self {
+        match &expr.value {
+            Expr::StructLit(name, fields) if name == "Response" => HandlerResult {
+                body: Self::field(fields, "body"),
+                status: Self::field(fields, "status")
+                    .and_then(Self::literal_int)
+                    .unwrap_or(Self::DEFAULT_STATUS),
+            },
+            _ => HandlerResult { body: Some(expr), status: Self::DEFAULT_STATUS },
+        }
+    }
+
+    fn field(fields: &'a [(String, ExprNode)], name: &str) -> Option<&'a ExprNode> {
+        fields.iter().find(|(field, _)| field == name).map(|(_, value)| value)
+    }
+
+    fn literal_int(expr: &ExprNode) -> Option<i64> {
+        match expr.value {
+            Expr::LitInt(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
 struct FnIrGen {
     label: usize,
     prefix: String,
@@ -8780,13 +8822,17 @@ impl FnIrGen {
         ));
         self.output.push_str("entry:\n");
 
-        let (ptr_val, len_val) = self.gen_expr(ret_expr);
+        let parts = HandlerResult::of(ret_expr);
+        let (ptr_val, len_val) = match parts.body {
+            Some(body) => self.gen_expr(body),
+            None => self.gen_str_constant(""),
+        };
 
         self.e(&format!("store ptr {}, ptr %resp", ptr_val));
         self.e(&format!("%lp = getelementptr i8, ptr %resp, i32 8"));
         self.e(&format!("store i64 {}, ptr %lp", len_val));
         self.e(&format!("%sp = getelementptr i8, ptr %resp, i32 16"));
-        self.e("store i32 200, ptr %sp");
+        self.e(&format!("store i32 {}, ptr %sp", parts.status));
         self.e("ret void");
         self.output.push_str("}\n");
 
@@ -9036,6 +9082,56 @@ mod tests {
         assert!(ir.contains("%YkResponse = type { ptr, i64, i32 }"));
         assert!(ir.contains("store i32 200"));
         assert!(ir.contains("Hello World"));
+    }
+
+    fn handler_returning(expr: Expr) -> crate::interpret::FnDef {
+        use crate::syntax::ast::{Param, TypeNode, Stmt};
+        let param = Param {
+            name: "req".into(),
+            type_expr: TypeNode::new(fresh_id(), Span::new(0, 0), TypeExpr::Infer),
+            is_ref: false,
+        };
+        let ret = ExprNode::new(fresh_id(), Span::new(0, 0), expr);
+        let body = vec![StmtNode::new(fresh_id(), Span::new(0, 0), Stmt::Return(Some(ret)))];
+        crate::interpret::FnDef::new(vec![param], body)
+    }
+
+    fn response_lit(fields: Vec<(&str, Expr)>) -> Expr {
+        Expr::StructLit(
+            "Response".into(),
+            fields
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), ExprNode::new(fresh_id(), Span::new(0, 0), value)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn handler_returning_response_uses_its_status_and_body() {
+        let fndef = handler_returning(response_lit(vec![
+            ("status", Expr::LitInt(401)),
+            ("body", Expr::LitStr("denied".into())),
+        ]));
+        let ir = generate_fn_handler_ir("deny", &fndef).expect("IR");
+        assert!(ir.contains("store i32 401, ptr %sp"), "{ir}");
+        assert!(ir.contains("c\"denied\\00\""), "{ir}");
+        assert!(!ir.contains("store i32 200"), "{ir}");
+    }
+
+    #[test]
+    fn handler_returning_response_without_status_defaults_to_200() {
+        let fndef = handler_returning(response_lit(vec![("body", Expr::LitStr("ok".into()))]));
+        let ir = generate_fn_handler_ir("ok_handler", &fndef).expect("IR");
+        assert!(ir.contains("store i32 200, ptr %sp"), "{ir}");
+        assert!(ir.contains("c\"ok\\00\""), "{ir}");
+    }
+
+    #[test]
+    fn handler_returning_response_without_body_sends_an_empty_body() {
+        let fndef = handler_returning(response_lit(vec![("status", Expr::LitInt(204))]));
+        let ir = generate_fn_handler_ir("empty", &fndef).expect("IR");
+        assert!(ir.contains("store i32 204, ptr %sp"), "{ir}");
+        assert!(ir.contains("store i64 0, ptr %lp"), "{ir}");
     }
 
     #[test]
