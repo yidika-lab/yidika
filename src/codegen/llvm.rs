@@ -43,6 +43,7 @@ pub struct LlvmCodegen {
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
     char_vars: std::collections::HashSet<String>,
+    fn_value_sigs: HashMap<String, (Vec<String>, String)>,
     fn_param_types: HashMap<String, Vec<String>>,
     fn_param_union_variants: HashMap<String, Vec<Option<Vec<TypeExpr>>>>,
     handler_irs: Vec<String>,
@@ -92,6 +93,7 @@ impl LlvmCodegen {
             current_fn_ret: "void".into(),
             fn_ret_types: HashMap::new(),
             char_vars: std::collections::HashSet::new(),
+            fn_value_sigs: HashMap::new(),
             fn_param_types: HashMap::new(),
             fn_param_union_variants: HashMap::new(),
             handler_irs: Vec::new(),
@@ -451,6 +453,41 @@ impl LlvmCodegen {
             };
             self.e(&format!("call void @yk_print_field(ptr {}, i1 {})", ptr, i == last));
         }
+    }
+
+    fn record_fn_value(&mut self, name: &str, te: &TypeExpr) {
+        match te {
+            TypeExpr::Fn(params, ret) => {
+                let param_tys = params.iter().map(|p| self.type_to_llvm(p)).collect();
+                let ret_ty = match ret.as_ref() {
+                    TypeExpr::None_ => "void".to_string(),
+                    other => self.type_to_llvm(other),
+                };
+                self.fn_value_sigs.insert(name.to_string(), (param_tys, ret_ty));
+            }
+            _ => {
+                self.fn_value_sigs.remove(name);
+            }
+        }
+    }
+
+    fn call_through_value(&mut self, callee: &ExprNode, name: &str, args: &[(String, String)]) -> (String, String) {
+        let (param_tys, ret_ty) = self.fn_value_sigs.get(name).cloned().unwrap_or_default();
+        let (address, _) = self.compile_expr(callee);
+        let target = self.fresh_label();
+        self.e(&format!("%{} = inttoptr i64 {} to ptr", target, address));
+        let typed_args: Vec<String> = args
+            .iter()
+            .enumerate()
+            .map(|(i, (v, t))| format!("{} {}", param_tys.get(i).unwrap_or(t), v))
+            .collect();
+        if ret_ty == "void" {
+            self.e(&format!("call void %{}({})", target, typed_args.join(", ")));
+            return ("0".into(), "void".into());
+        }
+        let result = self.fresh_label();
+        self.e(&format!("%{} = call {} %{}({})", result, ret_ty, target, typed_args.join(", ")));
+        (self.ssa(&result), ret_ty)
     }
 
     fn complex_to_ptr(&mut self, value: &str) -> String {
@@ -1315,6 +1352,7 @@ impl LlvmCodegen {
             for (i, p) in params.iter().enumerate() {
                 let ty = self.type_to_llvm(&p.type_expr.value);
                 let ptr = self.alloca_name(&p.name);
+                self.record_fn_value(&p.name, &p.type_expr.value);
                 self.var_types.insert(p.name.clone(), ty.clone());
                 self.var_alloca.insert(p.name.clone(), ptr.clone());
                 self.e(&format!("{} = alloca {}, align 8", ptr, ty));
@@ -1401,6 +1439,7 @@ impl LlvmCodegen {
             for (i, p) in params.iter().enumerate() {
                 let ty = self.type_to_llvm(&p.type_expr.value);
                 let ptr = self.alloca_name(&p.name);
+                self.record_fn_value(&p.name, &p.type_expr.value);
                 self.var_types.insert(p.name.clone(), ty.clone());
                 self.var_alloca.insert(p.name.clone(), ptr.clone());
                 self.e(&format!("{} = alloca {}, align 8", ptr, ty));
@@ -1652,6 +1691,10 @@ impl LlvmCodegen {
                 };
                 let (val, val_ty) = self.compile_expr(value);
                 let effective_ty = if ty == "i64" && val_ty != "i64" { val_ty.clone() } else { ty.clone() };
+                match type_expr {
+                    Some(te) => self.record_fn_value(name, &te.value),
+                    None => { self.fn_value_sigs.remove(name); }
+                }
                 let ptr = self.alloca_name(name);
                 self.var_types.insert(name.clone(), effective_ty.clone());
                 self.var_alloca.insert(name.clone(), ptr.clone());
@@ -3277,6 +3320,9 @@ impl LlvmCodegen {
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = call i64 @yk_tcp_listen(ptr {})", tmp, addr_ptr));
                     (self.ssa(&tmp), "i64".into())
+                }
+                _ if self.var_alloca.contains_key(name) && self.fn_value_sigs.contains_key(name) => {
+                    self.call_through_value(callee, name, &arg_results)
                 }
                 _ => {
                     // Check if this is a class constructor (Foo(args) -> create Foo instance)
