@@ -1,6 +1,4 @@
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 use crate::codegen::backend::CodegenBackend;
 use crate::hardware;
 use crate::interpret::Interpreter;
@@ -10,6 +8,7 @@ use crate::semantic::typeck::TypeChecker;
 use crate::syntax::ast::Module;
 
 mod native;
+mod watch;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Engine {
@@ -139,16 +138,17 @@ fn typecheck_all(files: &[LoadedFile]) -> Result<(), String> {
 }
 
 fn run_program(path: &PathBuf, watch: bool, engine: Engine) -> Result<String, String> {
+    if watch {
+        return watch::run(path, engine);
+    }
     let files = load(path)?;
     typecheck_all(&files)?;
 
     if engine == Engine::Native {
-        if let Some(code) = run_native(&files) {
-            if code != 0 {
-                std::process::exit(code);
-            }
-            if watch {
-                watch_and_run(path, engine)?;
+        if let Some(exe) = native_executable(&files) {
+            let status = std::process::Command::new(&exe).status().map_err(|e| format!("Failed to start {}: {}", exe.display(), e))?;
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
             }
             return Ok(String::new());
         }
@@ -164,37 +164,39 @@ fn run_program(path: &PathBuf, watch: bool, engine: Engine) -> Result<String, St
         .map_err(|e| format!("{}", e.with_source(&files[0].source).with_file(&files[0].path.to_string_lossy())))?;
 
     print!("{}", output);
-
-    if watch {
-        watch_and_run(path, engine)?;
-    }
-
     Ok(String::new())
 }
 
-fn run_native(files: &[LoadedFile]) -> Option<i32> {
+fn native_executable(files: &[LoadedFile]) -> Option<PathBuf> {
     let sources: Vec<native::Source> = files
         .iter()
         .map(|f| native::Source { path: &f.path, text: &f.source, module: &f.module })
         .collect();
-    native::run(&sources, &crate::codegen::backend::LlvmBackend)
+    native::executable(&sources, &crate::codegen::backend::LlvmBackend)
 }
 
-fn watch_and_run(path: &PathBuf, engine: Engine) -> Result<(), String> {
-    let mut last = fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok();
-    loop {
-        std::thread::sleep(Duration::from_millis(500));
-        if let Ok(meta) = fs::metadata(path) {
-            if let Ok(modified) = meta.modified() {
-                if last.map_or(true, |l| modified > l) {
-                    last = Some(modified);
-                    let _ = run_program(path, false, engine);
-                }
-            }
-        }
-    }
+pub(super) struct Launch {
+    pub command: std::process::Command,
+    pub sources: Vec<PathBuf>,
+}
+
+pub(super) fn prepare_launch(path: &PathBuf, engine: Engine) -> Result<Launch, String> {
+    let files = load(path)?;
+    typecheck_all(&files)?;
+    let sources = files.iter().map(|f| f.path.clone()).collect();
+    let native = if engine == Engine::Native { native_executable(&files) } else { None };
+    let command = match native {
+        Some(exe) => std::process::Command::new(exe),
+        None => interpreter_command(path)?,
+    };
+    Ok(Launch { command, sources })
+}
+
+fn interpreter_command(path: &Path) -> Result<std::process::Command, String> {
+    let yidi = std::env::current_exe().map_err(|e| format!("Cannot locate the yidi binary: {}", e))?;
+    let mut command = std::process::Command::new(yidi);
+    command.arg("run").arg(path).arg("--interp");
+    Ok(command)
 }
 
 pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show_info: bool) -> Result<String, String> {
@@ -215,27 +217,10 @@ pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBa
         .map_err(|e| e.to_string())?;
 
     if watch {
-        watch_and_build(path)?;
+        return watch::rebuild(path, backend, show_info);
     }
 
     Ok(String::new())
-}
-
-fn watch_and_build(path: &PathBuf) -> Result<(), String> {
-    let mut last = fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok();
-    loop {
-        std::thread::sleep(Duration::from_millis(500));
-        if let Ok(meta) = fs::metadata(path) {
-            if let Ok(modified) = meta.modified() {
-                if last.map_or(true, |l| modified > l) {
-                    last = Some(modified);
-                    let _ = build_program(path, true, &crate::codegen::backend::LlvmBackend, false);
-                }
-            }
-        }
-    }
 }
 
 fn add_package(name: &str) -> Result<String, String> {
