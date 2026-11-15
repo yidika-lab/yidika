@@ -31,7 +31,10 @@ pub struct LlvmCodegen {
     variant_tag_counter: i64,
     /// Maps variable name -> the variant type expressions for its union type
     var_union_variants: HashMap<String, Vec<TypeExpr>>,
-    deferred_fns: Vec<(String, Vec<Param>, Option<TypeNode>, ExprNode)>,
+    deferred_fns: Vec<DeferredFn>,
+    captured_here: std::collections::HashSet<String>,
+    fn_ret_sigs: HashMap<String, FnSig>,
+    fn_value_records: Vec<String>,
     closure_counter: usize,
     spawn_wrappers: Vec<(String, String, ExprNode)>,
     spawn_counter: usize,
@@ -43,7 +46,7 @@ pub struct LlvmCodegen {
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
     char_vars: std::collections::HashSet<String>,
-    fn_value_sigs: HashMap<String, (Vec<String>, String)>,
+    fn_value_sigs: HashMap<String, FnSig>,
     fn_param_types: HashMap<String, Vec<String>>,
     fn_param_union_variants: HashMap<String, Vec<Option<Vec<TypeExpr>>>>,
     handler_irs: Vec<String>,
@@ -82,6 +85,9 @@ impl LlvmCodegen {
             variant_tag_counter: 0,
             var_union_variants: HashMap::new(),
             deferred_fns: Vec::new(),
+            captured_here: std::collections::HashSet::new(),
+            fn_ret_sigs: HashMap::new(),
+            fn_value_records: Vec::new(),
             closure_counter: 0,
             spawn_wrappers: Vec::new(),
             spawn_counter: 0,
@@ -456,38 +462,196 @@ impl LlvmCodegen {
     }
 
     fn record_fn_value(&mut self, name: &str, te: &TypeExpr) {
-        match te {
-            TypeExpr::Fn(params, ret) => {
-                let param_tys = params.iter().map(|p| self.type_to_llvm(p)).collect();
-                let ret_ty = match ret.as_ref() {
-                    TypeExpr::None_ => "void".to_string(),
-                    other => self.type_to_llvm(other),
-                };
-                self.fn_value_sigs.insert(name.to_string(), (param_tys, ret_ty));
-            }
-            _ => {
-                self.fn_value_sigs.remove(name);
-            }
+        match self.fn_sig_of(te) {
+            Some(sig) => { self.fn_value_sigs.insert(name.to_string(), sig); }
+            None => { self.fn_value_sigs.remove(name); }
         }
     }
 
     fn call_through_value(&mut self, callee: &ExprNode, name: &str, args: &[(String, String)]) -> (String, String) {
-        let (param_tys, ret_ty) = self.fn_value_sigs.get(name).cloned().unwrap_or_default();
-        let (address, _) = self.compile_expr(callee);
-        let target = self.fresh_label();
-        self.e(&format!("%{} = inttoptr i64 {} to ptr", target, address));
-        let typed_args: Vec<String> = args
-            .iter()
-            .enumerate()
-            .map(|(i, (v, t))| format!("{} {}", param_tys.get(i).unwrap_or(t), v))
-            .collect();
+        let sig = self.fn_value_sigs.get(name).cloned().unwrap_or_default();
+        let (record, _) = self.compile_expr(callee);
+        self.call_record(&record, &sig, args)
+    }
+
+    fn call_record(&mut self, record: &str, sig: &FnSig, args: &[(String, String)]) -> (String, String) {
+        let (param_tys, ret_ty) = sig;
+        let rec = self.fresh_label();
+        self.e(&format!("%{} = inttoptr i64 {} to ptr", rec, record));
+        let code = self.fresh_label();
+        self.e(&format!("%{} = load ptr, ptr %{}", code, rec));
+        let mut typed_args = vec![format!("ptr %{}", rec)];
+        typed_args.extend(args.iter().enumerate().map(|(i, (v, t))| format!("{} {}", param_tys.get(i).unwrap_or(t), v)));
         if ret_ty == "void" {
-            self.e(&format!("call void %{}({})", target, typed_args.join(", ")));
+            self.e(&format!("call void %{}({})", code, typed_args.join(", ")));
             return ("0".into(), "void".into());
         }
         let result = self.fresh_label();
-        self.e(&format!("%{} = call {} %{}({})", result, ret_ty, target, typed_args.join(", ")));
-        (self.ssa(&result), ret_ty)
+        self.e(&format!("%{} = call {} %{}({})", result, ret_ty, code, typed_args.join(", ")));
+        (self.ssa(&result), ret_ty.clone())
+    }
+
+    fn fn_sig_of(&mut self, te: &TypeExpr) -> Option<FnSig> {
+        let TypeExpr::Fn(params, ret) = te else { return None };
+        let param_tys = params.iter().map(|p| self.type_to_llvm(p)).collect();
+        let ret_ty = match ret.as_ref() {
+            TypeExpr::None_ => "void".to_string(),
+            other => self.type_to_llvm(other),
+        };
+        Some((param_tys, ret_ty))
+    }
+
+    fn record_value_sig(&mut self, name: &str, value: &ExprNode) {
+        match self.value_fn_sig(value) {
+            Some(sig) => { self.fn_value_sigs.insert(name.to_string(), sig); }
+            None => { self.fn_value_sigs.remove(name); }
+        }
+    }
+
+    fn value_fn_sig(&mut self, value: &ExprNode) -> Option<FnSig> {
+        match &value.value {
+            Expr::FnLit(params, ret_type, body) => Some(self.lambda_signature(params, ret_type.as_ref(), body)),
+            Expr::Closure(params, body) => Some(self.lambda_signature(params, None, body)),
+            Expr::Ident(other) if self.var_alloca.contains_key(other) => self.fn_value_sigs.get(other).cloned(),
+            Expr::Ident(func) => {
+                let mangled = self.mangle_name(func);
+                let ret = self.fn_ret_types.get(&mangled)?.clone();
+                Some((self.fn_param_types.get(&mangled).cloned().unwrap_or_default(), ret))
+            }
+            Expr::Call(callee, _) => match &callee.value {
+                Expr::Ident(func) if self.var_alloca.contains_key(func) => None,
+                Expr::Ident(func) => self.fn_ret_sigs.get(&self.mangle_name(func)).cloned(),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn lambda_signature(&mut self, params: &[Param], ret_type: Option<&TypeNode>, body: &ExprNode) -> FnSig {
+        let param_tys: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
+        if let Some(rt) = ret_type {
+            return match &rt.value {
+                TypeExpr::None_ => (param_tys, "void".into()),
+                other => (param_tys, self.type_to_llvm(other)),
+            };
+        }
+        let saved = self.var_types.clone();
+        for (p, ty) in params.iter().zip(&param_tys) {
+            self.var_types.insert(p.name.clone(), ty.clone());
+        }
+        let ret = match &body.value {
+            Expr::Block(stmts) => match find_return_expr(stmts) {
+                Some(e) => self.expr_type_str(e),
+                None => "i64".into(),
+            },
+            _ => self.expr_type_str(body),
+        };
+        self.var_types = saved;
+        (param_tys, ret)
+    }
+
+    fn compile_lambda(&mut self, params: &[Param], ret_type: Option<&TypeNode>, body: &ExprNode) -> (String, String) {
+        let prefix = if self.current_module.is_empty() { String::new() } else { format!("{}.", self.current_module) };
+        let name = format!("{}__closure_{}", prefix, self.closure_counter);
+        self.closure_counter += 1;
+        let captures: Vec<(String, String)> = crate::syntax::scope::free_names(params, body)
+            .into_iter()
+            .filter(|n| self.var_alloca.contains_key(n))
+            .map(|n| { let ty = self.val_ty(&n); (n, ty) })
+            .collect();
+        let sig = self.lambda_signature(params, ret_type, body);
+        let slots: Vec<String> = captures.iter().map(|(n, _)| self.var_alloca[n].clone()).collect();
+        let record = self.alloc_record(&format!("@{}", name), &slots);
+        self.deferred_fns.push(DeferredFn { name, params: params.to_vec(), body: body.clone(), captures, sig });
+        (record, "i64".into())
+    }
+
+    fn alloc_record(&mut self, code: &str, slots: &[String]) -> String {
+        let rec = self.fresh_label();
+        self.e(&format!("%{} = call ptr @malloc(i64 {})", rec, 8 * (slots.len() + 1)));
+        self.e(&format!("store ptr {}, ptr %{}", code, rec));
+        for (i, slot) in slots.iter().enumerate() {
+            let field = self.fresh_label();
+            self.e(&format!("%{} = getelementptr ptr, ptr %{}, i64 {}", field, rec, i + 1));
+            self.e(&format!("store ptr {}, ptr %{}", slot, field));
+        }
+        let value = self.fresh_label();
+        self.e(&format!("%{} = ptrtoint ptr %{} to i64", value, rec));
+        self.ssa(&value)
+    }
+
+    fn alloc_local(&mut self, name: &str, ptr: &str, ty: &str) {
+        if !self.captured_here.contains(name) {
+            self.e(&format!("{} = alloca {}, align 8", ptr, ty));
+            return;
+        }
+        let size = self.fresh_label();
+        self.e(&format!("%{} = ptrtoint ptr getelementptr ({}, ptr null, i32 1) to i64", size, ty));
+        self.e(&format!("{} = call ptr @malloc(i64 %{})", ptr, size));
+    }
+
+    fn compile_deferred_fn(&mut self, d: DeferredFn) {
+        let (param_types, ret) = d.sig.clone();
+        self.current_fn_ret = ret.clone();
+        let body_stmts = vec![StmtNode::new(0, Span::new(0, 0), Stmt::Return(Some(d.body)))];
+        self.captured_here = crate::syntax::scope::names_captured_in(&body_stmts).into_iter().collect();
+        let mut signature = vec!["ptr %env".to_string()];
+        signature.extend(param_types.iter().enumerate().map(|(i, t)| format!("{} %p{}", t, i)));
+        self.e_raw(&format!("define {} @{}({}) {{", ret, d.name, signature.join(", ")));
+        self.indent += 1;
+        for (i, (name, ty)) in d.captures.iter().enumerate() {
+            let field = self.fresh_label();
+            self.e(&format!("%{} = getelementptr ptr, ptr %env, i64 {}", field, i + 1));
+            let ptr = self.alloca_name(name);
+            self.e(&format!("{} = load ptr, ptr %{}", ptr, field));
+            self.var_types.insert(name.clone(), ty.clone());
+            self.var_alloca.insert(name.clone(), ptr);
+        }
+        for (i, (p, ty)) in d.params.iter().zip(&param_types).enumerate() {
+            let ptr = self.alloca_name(&p.name);
+            self.record_fn_value(&p.name, &p.type_expr.value);
+            self.var_types.insert(p.name.clone(), ty.clone());
+            self.var_alloca.insert(p.name.clone(), ptr.clone());
+            self.alloc_local(&p.name, &ptr, ty);
+            self.e(&format!("store {} %p{}, ptr {}", ty, i, ptr));
+        }
+        self.compile_fn_body(&body_stmts);
+        self.emit_default_return(&ret);
+        self.indent -= 1;
+        self.e_raw("}");
+        self.e_raw("");
+        self.var_types.clear();
+        self.var_alloca.clear();
+    }
+
+    fn emit_default_return(&mut self, ret: &str) {
+        match ret {
+            "void" => self.e("ret void"),
+            "%yk_string" => self.e("ret %yk_string zeroinitializer"),
+            "double" => self.e("ret double 0.0"),
+            "i1" => self.e("ret i1 false"),
+            "i64" | "i32" | "i16" | "i8" | "ptr" => self.e(&format!("ret {} {}", ret, if ret == "ptr" { "null" } else { "0" })),
+            other => self.e(&format!("ret {} zeroinitializer", other)),
+        }
+    }
+
+    fn emit_fn_value_record(&mut self, mangled: &str) {
+        let params = self.fn_param_types.get(mangled).cloned().unwrap_or_default();
+        let ret = self.fn_ret_types.get(mangled).cloned().unwrap_or_else(|| "i64".into());
+        let mut signature = vec!["ptr %env".to_string()];
+        signature.extend(params.iter().enumerate().map(|(i, t)| format!("{} %p{}", t, i)));
+        let args: Vec<String> = params.iter().enumerate().map(|(i, t)| format!("{} %p{}", t, i)).collect();
+        self.e_raw(&format!("@__yk_fnrec.{} = private constant ptr @__yk_fnwrap.{}", mangled, mangled));
+        self.e_raw(&format!("define private {} @__yk_fnwrap.{}({}) {{", ret, mangled, signature.join(", ")));
+        if ret == "void" {
+            self.e_raw(&format!("  call void @{}({})", mangled, args.join(", ")));
+            self.e_raw("  ret void");
+        } else {
+            self.e_raw(&format!("  %r = call {} @{}({})", ret, mangled, args.join(", ")));
+            self.e_raw(&format!("  ret {} %r", ret));
+        }
+        self.e_raw("}");
+        self.e_raw("");
     }
 
     fn complex_to_ptr(&mut self, value: &str) -> String {
@@ -1122,6 +1286,7 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_complex_div(ptr, ptr, ptr)");
         self.e_raw("declare void @yk_print_complex(ptr)");
         self.e_raw("declare void @yk_runtime_init()");
+        self.e_raw("declare ptr @malloc(i64)");
         self.e_raw("declare void @yk_print_field(ptr, i1)");
         self.e_raw("declare ptr @yk_string_from_char(i64)");
         self.e_raw("declare i64 @yk_run_thread(ptr, ptr)");
@@ -1246,6 +1411,9 @@ impl LlvmCodegen {
                     let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
                     self.current_fn_ret = ret.clone();
                     self.fn_ret_types.insert(mangled.clone(), ret);
+                    if let Some(sig) = ret_type.as_ref().and_then(|t| self.fn_sig_of(&t.value)) {
+                        self.fn_ret_sigs.insert(mangled.clone(), sig);
+                    }
                     let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
                     self.fn_param_types.insert(mangled.clone(), param_types);
                     let union_variants: Vec<Option<Vec<TypeExpr>>> = params.iter().map(|p| {
@@ -1341,43 +1509,15 @@ impl LlvmCodegen {
         }
 
         // Emit deferred closures (anonymous functions)
-        let deferred = std::mem::take(&mut self.deferred_fns);
-        for (name, params, ret_type, body) in deferred {
-            let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "i64".into());
-            self.current_fn_ret = ret.clone();
-            let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
-            let param_list = param_types.join(", ");
-            self.e_raw(&format!("define {} @{}({}) {{", ret, name, param_list));
-            self.indent += 1;
-            for (i, p) in params.iter().enumerate() {
-                let ty = self.type_to_llvm(&p.type_expr.value);
-                let ptr = self.alloca_name(&p.name);
-                self.record_fn_value(&p.name, &p.type_expr.value);
-                self.var_types.insert(p.name.clone(), ty.clone());
-                self.var_alloca.insert(p.name.clone(), ptr.clone());
-                self.e(&format!("{} = alloca {}, align 8", ptr, ty));
-                self.e(&format!("store {} %{}, ptr {}", ty, i, ptr));
+        while !self.deferred_fns.is_empty() {
+            let deferred = std::mem::take(&mut self.deferred_fns);
+            for d in deferred {
+                self.compile_deferred_fn(d);
             }
-            let body_stmts = vec![
-                StmtNode::new(0, Span::new(0, 0), Stmt::Return(Some(body)))
-            ];
-            self.compile_fn_body(&body_stmts);
-            if ret != "void" {
-                if ret == "%yk_string" {
-                    self.e("ret %yk_string zeroinitializer");
-                } else if ret == "double" {
-                    self.e("ret double 0.0");
-                } else if ret == "i1" {
-                    self.e("ret i1 false");
-                } else {
-                    self.e(&format!("ret {} 0", ret));
-                }
-            }
-            self.indent -= 1;
-            self.e_raw("}");
-            self.e_raw("");
-            self.var_types.clear();
-            self.var_alloca.clear();
+        }
+        let records = std::mem::take(&mut self.fn_value_records);
+        for mangled in records {
+            self.emit_fn_value_record(&mangled);
         }
 
         // Emit spawn wrappers
@@ -1433,6 +1573,7 @@ impl LlvmCodegen {
             let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
             let param_list = param_types.join(", ");
             self.fn_param_types.insert(mangled.clone(), param_types.clone());
+            self.captured_here = crate::syntax::scope::names_captured_in(body).into_iter().collect();
             self.e_raw(&format!("define {} @{}({}) {{", ret, mangled, param_list));
             self.indent += 1;
 
@@ -1442,7 +1583,7 @@ impl LlvmCodegen {
                 self.record_fn_value(&p.name, &p.type_expr.value);
                 self.var_types.insert(p.name.clone(), ty.clone());
                 self.var_alloca.insert(p.name.clone(), ptr.clone());
-                self.e(&format!("{} = alloca {}, align 8", ptr, ty));
+                self.alloc_local(&p.name, &ptr, &ty);
                 self.e(&format!("store {} %{}, ptr {}", ty, i, ptr));
             }
 
@@ -1693,12 +1834,12 @@ impl LlvmCodegen {
                 let effective_ty = if ty == "i64" && val_ty != "i64" { val_ty.clone() } else { ty.clone() };
                 match type_expr {
                     Some(te) => self.record_fn_value(name, &te.value),
-                    None => { self.fn_value_sigs.remove(name); }
+                    None => self.record_value_sig(name, value),
                 }
                 let ptr = self.alloca_name(name);
                 self.var_types.insert(name.clone(), effective_ty.clone());
                 self.var_alloca.insert(name.clone(), ptr.clone());
-                self.e(&format!("{} = alloca {}, align 8", ptr, effective_ty));
+                self.alloc_local(name, &ptr, &effective_ty);
 
                 // Store union variant definitions for later use in Assign
                 if effective_ty == "%yk_variant" {
@@ -1779,9 +1920,10 @@ impl LlvmCodegen {
                     Some(p) => p.clone(),
                     None => {
                         let p = self.alloca_name(name);
-                        self.e(&format!("{} = alloca {}, align 8", p, val_ty));
+                        self.alloc_local(name, &p, &val_ty);
                         self.var_alloca.insert(name.clone(), p.clone());
                         self.var_types.insert(name.clone(), val_ty.clone());
+                        self.record_value_sig(name, expr);
                         p
                     }
                 };
@@ -1990,8 +2132,11 @@ impl LlvmCodegen {
                     (val_name, ty)
                 } else if self.fn_ret_types.contains_key(&self.mangle_name(name)) {
                     let mangled = self.mangle_name(name);
+                    if !self.fn_value_records.contains(&mangled) {
+                        self.fn_value_records.push(mangled.clone());
+                    }
                     let tmp = self.fresh_label();
-                    self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, mangled));
+                    self.e(&format!("%{} = ptrtoint ptr @__yk_fnrec.{} to i64", tmp, mangled));
                     (self.ssa(&tmp), "i64".into())
                 } else {
                     (format!("%{}", name), self.val_ty(name))
@@ -2382,26 +2527,8 @@ impl LlvmCodegen {
                 }
                 (self.ssa(&list_ptr), "ptr".into())
             }
-            Expr::FnLit(params, ret_type, body) => {
-                let name = format!("__closure_{}", self.closure_counter);
-                self.closure_counter += 1;
-                self.deferred_fns.push((name.clone(), params.clone(), ret_type.clone(), *body.clone()));
-                let n = params.len();
-                let param_tys = if n == 0 { String::new() } else { vec!["i64"; n].join(", ") };
-                let tmp = self.fresh_label();
-                self.e(&format!("%{} = ptrtoint i64 ({})* @{} to i64", tmp, param_tys, name));
-                (self.ssa(&tmp), "i64".into())
-            }
-            Expr::Closure(params, body) => {
-                let name = format!("__closure_{}", self.closure_counter);
-                self.closure_counter += 1;
-                self.deferred_fns.push((name.clone(), params.clone(), None, *body.clone()));
-                let n = params.len();
-                let param_tys = if n == 0 { String::new() } else { vec!["i64"; n].join(", ") };
-                let tmp = self.fresh_label();
-                self.e(&format!("%{} = ptrtoint i64 ({})* @{} to i64", tmp, param_tys, name));
-                (self.ssa(&tmp), "i64".into())
-            }
+            Expr::FnLit(params, ret_type, body) => self.compile_lambda(params, ret_type.as_ref(), body),
+            Expr::Closure(params, body) => self.compile_lambda(params, None, body),
             Expr::Spawn(inner) => {
                 let wrapper_name = format!("__spawn_wrapper_{}", self.spawn_counter);
                 self.spawn_counter += 1;
@@ -3428,25 +3555,15 @@ impl LlvmCodegen {
                     }
                 }
             },
-            Expr::Closure(params, body) => {
-                let prefix = if self.current_module.is_empty() { String::new() } else { format!("{}.", self.current_module) };
-                let name = format!("{}__closure_{}", prefix, self.closure_counter);
-                self.closure_counter += 1;
-                self.deferred_fns.push((name.clone(), params.clone(), None, *body.clone()));
-                let tmp = self.fresh_label();
-                let args_str: Vec<String> = arg_results.iter().map(|(v, t)| format!("{} {}", t, v)).collect();
-                self.e(&format!("%{} = call i64 @{}({})", tmp, name, args_str.join(", ")));
-                (self.ssa(&tmp), "i64".into())
-            }
             Expr::FnLit(params, ret_type, body) => {
-                let prefix = if self.current_module.is_empty() { String::new() } else { format!("{}.", self.current_module) };
-                let name = format!("{}__closure_{}", prefix, self.closure_counter);
-                self.closure_counter += 1;
-                self.deferred_fns.push((name.clone(), params.clone(), ret_type.clone(), *body.clone()));
-                let tmp = self.fresh_label();
-                let args_str: Vec<String> = arg_results.iter().map(|(v, t)| format!("{} {}", t, v)).collect();
-                self.e(&format!("%{} = call i64 @{}({})", tmp, name, args_str.join(", ")));
-                (self.ssa(&tmp), "i64".into())
+                let sig = self.lambda_signature(params, ret_type.as_ref(), body);
+                let (record, _) = self.compile_lambda(params, ret_type.as_ref(), body);
+                self.call_record(&record, &sig, &arg_results)
+            }
+            Expr::Closure(params, body) => {
+                let sig = self.lambda_signature(params, None, body);
+                let (record, _) = self.compile_lambda(params, None, body);
+                self.call_record(&record, &sig, &arg_results)
             }
             Expr::Field(obj, field) => {
                 match (&obj.value, field.as_str()) {
@@ -5008,6 +5125,16 @@ impl<'a> HandlerResult<'a> {
             _ => None,
         }
     }
+}
+
+type FnSig = (Vec<String>, String);
+
+struct DeferredFn {
+    name: String,
+    params: Vec<Param>,
+    body: ExprNode,
+    captures: Vec<(String, String)>,
+    sig: FnSig,
 }
 
 struct FnIrGen {
