@@ -46,6 +46,36 @@ mod tests {
     }
 
     #[test]
+    fn fn_type_annotation_accepts_a_lambda() {
+        let out = run("fn apply(f: fn(int) -> int, x: int) -> int { return f(x); } fn main() { print(apply((x) => x - 1, 43)); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
+    fn fn_type_without_return_type() {
+        let out = run("fn each(f: fn(str), s: str) { f(s); } fn main() { each((m) => print(m), \"hi\"); }");
+        assert_eq!(out, "hi\n");
+    }
+
+    #[test]
+    fn anonymous_fn_body_can_return() {
+        let out = run("fn apply(f: auto, x: int) -> int { return f(x); } fn main() { print(apply(fn(x: int) { return x + 1; }, 41)); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
+    fn anonymous_fn_body_can_hold_statements() {
+        let out = run("fn main() { f: auto = fn(x: int) -> int { y: int = x * 2; return y + 1; }; print(f(20)); }");
+        assert_eq!(out, "41\n");
+    }
+
+    #[test]
+    fn anonymous_fn_expression_body_still_works() {
+        let out = run("fn apply(f: auto, x: int) -> int { return f(x); } fn main() { print(apply(fn(x: int) { x + 1 }, 41)); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
     fn empty_main() {
         let out = run("fn main() {}");
         assert_eq!(out, "");

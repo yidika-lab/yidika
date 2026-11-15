@@ -552,6 +552,24 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         Ok(v)
     }
 
+    fn fn_type(&mut self) -> Result<TypeExpr> {
+        self.eat(Token::LParen)?;
+        let mut params = Vec::new();
+        while self.tok() != &Token::RParen && self.tok() != &Token::Eof {
+            params.push(self.type_()?.value);
+            if self.tok() != &Token::Comma { break; }
+            self.advance();
+        }
+        self.eat(Token::RParen)?;
+        let ret = if self.tok() == &Token::Arrow {
+            self.advance();
+            self.type_()?.value
+        } else {
+            TypeExpr::None_
+        };
+        Ok(TypeExpr::Fn(params, Box::new(ret)))
+    }
+
     fn type_(&mut self) -> Result<TypeNode> {
         let (tok, span) = self.advance();
         let first = match tok {
@@ -583,6 +601,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     TypeNode::new(fresh_id(), span, TypeExpr::Complex(Box::new(TypeExpr::Real(0)), Box::new(TypeExpr::Real(0))))
                 }
             }
+            Token::Fn => TypeNode::new(fresh_id(), span, self.fn_type()?),
             Token::TBool => TypeNode::new(fresh_id(),span,TypeExpr::Bool),
             Token::TStr => TypeNode::new(fresh_id(),span,TypeExpr::Str),
             Token::TSymbol => TypeNode::new(fresh_id(),span,TypeExpr::Symbol),
@@ -1389,9 +1408,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 }
                 self.eat(Token::RParen)?;
                 let ret_type = if self.tok() == &Token::Arrow { self.advance(); Some(self.type_()?) } else { None };
-                self.eat(Token::LBrace)?;
-                let body = self.expr(0)?;
-                self.eat(Token::RBrace)?;
+                let body = fn_literal_body(self.block_stmts()?, span);
                 Ok(ExprNode::new(fresh_id(), span, Expr::FnLit(params, ret_type, Box::new(body))))
             }
             Token::LBracket => {
@@ -1808,4 +1825,13 @@ fn tokens_match(a: &Token, b: &Token) -> bool {
         |(Ident(_),Ident(_))|(IntLit(_),IntLit(_))|(StrLit(_),StrLit(_))|(BacktickStr(_),BacktickStr(_))|(FStrLit(_),FStrLit(_))|(RealLit(_),RealLit(_))|(HexLit(_),HexLit(_))|(SymbolLit(_),SymbolLit(_))|(CharLit(_),CharLit(_))
         |(Error(_),Error(_))
     )
+}
+
+fn fn_literal_body(mut stmts: Vec<StmtNode>, span: Span) -> ExprNode {
+    if let [StmtNode { value: Stmt::Expr(_), .. }] = stmts.as_slice() {
+        if let Some(StmtNode { value: Stmt::Expr(only), .. }) = stmts.pop() {
+            return only;
+        }
+    }
+    ExprNode::new(fresh_id(), span, Expr::Block(stmts))
 }
