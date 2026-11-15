@@ -8,6 +8,7 @@ use crate::semantic::typeck::TypeChecker;
 use crate::syntax::ast::Module;
 
 mod native;
+mod upgrade;
 mod watch;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,6 +27,7 @@ pub enum Command {
     Sync,
     Info,
     Version,
+    Upgrade(bool),
 }
 
 pub fn parse_args() -> Command {
@@ -47,6 +49,8 @@ pub fn parse_from(args: &[String]) -> Command {
         eprintln!("  yidi add <package>       Add a dependency (github:user/repo or a git URL)");
         eprintln!("  yidi remove <package>    Remove a dependency");
         eprintln!("  yidi sync                Install or update all dependencies");
+        eprintln!("  yidi upgrade             Install the latest release");
+        eprintln!("  yidi upgrade --check     Only report whether a newer release exists");
         eprintln!("  yidi --version           Show version");
         std::process::exit(1);
     }
@@ -75,6 +79,7 @@ pub fn parse_from(args: &[String]) -> Command {
             Command::Remove(args[2].clone())
         }
         "sync" => Command::Sync,
+        "upgrade" => Command::Upgrade(has_flag(args, "--check")),
         _ => {
             // backward compatibility: treat bare path as "run"
             Command::Run(args[1].clone(), has_flag(args, "--watch"), engine_from(args))
@@ -101,6 +106,7 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Remove(pkg) => crate::package::remove(&pkg),
         Command::Sync => crate::package::sync(),
         Command::Version => Ok(version_string()),
+        Command::Upgrade(check_only) => upgrade::upgrade(check_only),
     }
 }
 
@@ -261,6 +267,13 @@ mod tests {
         assert!(matches!(parse_from(&args(&["yidi", "init"])), Command::Init(None)));
         assert!(matches!(parse_from(&args(&["yidi", "init", "app"])), Command::Init(Some(n)) if n == "app"));
         assert!(matches!(parse_from(&args(&["yidi", "remove", "greet"])), Command::Remove(n) if n == "greet"));
+    }
+
+    #[test]
+    fn upgrade_accepts_self_and_check() {
+        assert!(matches!(parse_from(&args(&["yidi", "upgrade"])), Command::Upgrade(false)));
+        assert!(matches!(parse_from(&args(&["yidi", "upgrade", "--self"])), Command::Upgrade(false)));
+        assert!(matches!(parse_from(&args(&["yidi", "upgrade", "--check"])), Command::Upgrade(true)));
     }
 
     #[test]
