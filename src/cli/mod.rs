@@ -20,7 +20,9 @@ pub enum Command {
     Run(String, bool, Engine),
     Build(String, bool),
     BuildWithInfo(String, bool),
+    Init(Option<String>),
     Add(String),
+    Remove(String),
     Sync,
     Info,
     Version,
@@ -41,8 +43,10 @@ pub fn parse_from(args: &[String]) -> Command {
         eprintln!("  yidi build <file>        Build a .yk file");
         eprintln!("  yidi build <file> --watch Rebuild on file change");
         eprintln!("  yidi info                Show hardware info");
-        eprintln!("  yidi add <package>        Add a dependency");
-        eprintln!("  yidi sync               Sync dependencies");
+        eprintln!("  yidi init [name]         Create a project (here, or in a new directory)");
+        eprintln!("  yidi add <package>       Add a dependency (github:user/repo or a git URL)");
+        eprintln!("  yidi remove <package>    Remove a dependency");
+        eprintln!("  yidi sync                Install or update all dependencies");
         eprintln!("  yidi --version           Show version");
         std::process::exit(1);
     }
@@ -64,6 +68,11 @@ pub fn parse_from(args: &[String]) -> Command {
         "add" => {
             if args.len() < 3 { eprintln!("Usage: yidi add <package>"); std::process::exit(1); }
             Command::Add(args[2].clone())
+        }
+        "init" => Command::Init(args.get(2).cloned()),
+        "remove" => {
+            if args.len() < 3 { eprintln!("Usage: yidi remove <package>"); std::process::exit(1); }
+            Command::Remove(args[2].clone())
         }
         "sync" => Command::Sync,
         _ => {
@@ -87,8 +96,10 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Build(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, false),
         Command::BuildWithInfo(f, watch) => build_program(&PathBuf::from(f), watch, &crate::codegen::backend::LlvmBackend, true),
         Command::Info => show_info(),
-        Command::Add(pkg) => add_package(&pkg),
-        Command::Sync => sync_packages(),
+        Command::Init(name) => crate::package::init(name.as_deref()),
+        Command::Add(pkg) => crate::package::add(&pkg),
+        Command::Remove(pkg) => crate::package::remove(&pkg),
+        Command::Sync => crate::package::sync(),
         Command::Version => Ok(version_string()),
     }
 }
@@ -223,14 +234,6 @@ pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBa
     Ok(String::new())
 }
 
-fn add_package(name: &str) -> Result<String, String> {
-    crate::package::add(name)
-}
-
-fn sync_packages() -> Result<String, String> {
-    crate::package::sync()
-}
-
 #[cfg(test)]
 fn load_module(source: &str) -> Module {
     crate::syntax::ast::reset_ids();
@@ -251,6 +254,13 @@ mod tests {
         for flag in ["--version", "-V", "version"] {
             assert!(matches!(parse_from(&args(&["yidi", flag])), Command::Version));
         }
+    }
+
+    #[test]
+    fn package_commands_are_parsed() {
+        assert!(matches!(parse_from(&args(&["yidi", "init"])), Command::Init(None)));
+        assert!(matches!(parse_from(&args(&["yidi", "init", "app"])), Command::Init(Some(n)) if n == "app"));
+        assert!(matches!(parse_from(&args(&["yidi", "remove", "greet"])), Command::Remove(n) if n == "greet"));
     }
 
     #[test]

@@ -16,6 +16,8 @@ pub mod runtime;
 pub mod semantic;
 pub mod stdlib;
 pub mod syntax;
+#[cfg(test)]
+mod test_support;
 
 #[cfg(test)]
 mod tests {

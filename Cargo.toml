@@ -26,7 +26,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 chrono = "0.4"
 base64 = "0.22"
 regex = "1"
-toml = "0.7"
+toml = { version = "0.7", features = ["preserve_order"] }
 libloading = "0.8"
 sysinfo = "0.33"
 crossbeam-deque = "0.8"
