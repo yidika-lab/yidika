@@ -619,6 +619,31 @@ mod tests {
     }
 
     #[test]
+    fn compat_closure_keeps_a_parameter_of_a_finished_call() {
+        check_compat("fn adder(n: int) -> fn(int) -> int { return (x) => x + n; } fn main() { add5 = adder(5); print(add5(37)); add1 = adder(1); print(add1(1)); print(add5(0)); }", "closure_adder");
+    }
+
+    #[test]
+    fn compat_closure_shares_mutations() {
+        check_compat("fn counter() -> fn() -> int { c: int = 0; return () => { c = c + 1; return c; }; } fn main() { next = counter(); next(); next(); print(next()); other = counter(); print(other()); }", "closure_counter");
+    }
+
+    #[test]
+    fn compat_closure_sees_later_writes() {
+        check_compat("fn main() { k: int = 1; f = () => k; k = 10; print(f()); }", "closure_later_write");
+    }
+
+    #[test]
+    fn compat_lambda_in_an_untyped_variable() {
+        check_compat("fn main() { f = (x) => x + 1; print(f(41)); name: str = \"bob\"; g = () => \"hi \" + name; print(g()); }", "closure_untyped");
+    }
+
+    #[test]
+    fn compat_lambda_called_where_it_is_written() {
+        check_compat("fn main() { k: int = 2; print(((x) => x * 3)(5)); print((() => k + 1)()); }", "closure_immediate");
+    }
+
+    #[test]
     fn compat_named_function_passed_as_a_value() {
         check_compat("fn twice(x: int) -> int { return x * 2; } fn apply(g: fn(int) -> int, v: int) -> int { return g(v); } fn main() { print(apply(twice, 21)); f: fn(int) -> int = twice; print(f(5)); }", "fn_value_named");
     }
