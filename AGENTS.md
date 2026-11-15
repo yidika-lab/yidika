@@ -76,7 +76,7 @@ cargo run -- <file>.yk           # run (bare path == run)
 cargo run -- run <file>.yk       # compile once into ~/.cache/yidi/run, run the binary; interpreter if the AOT cannot build it
 cargo run -- run <file>.yk --interp  # interpreter only
 cargo run -- build <file>.yk     # AOT compile -> <file>.exe next to the source
-cargo run -- <file>.yk --watch   # re-run on change (poller, 500ms)
+cargo run -- <file>.yk --watch   # OS file events (notify); restarts the program on every .yk change
 cargo run -- info                # detected hardware, printed to stdout
 
 cargo test                       # everything - SLOW, see below

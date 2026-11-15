@@ -16,6 +16,7 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     let mut cmd = Command::new(&compiler);
     cmd.args(["-O3", "-Wno-override-module"])
         .arg(native_cpu_flag())
+        .args(fast_linker_flag(&search_path()))
         .arg(&ll_path)
         .arg(&runtime_obj)
         .args(extra_libs)
@@ -27,15 +28,32 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     Ok(())
 }
 
+const FAST_LINKERS: &[(&str, &str)] = &[("mold", "-fuse-ld=mold"), ("ld.lld", "-fuse-ld=lld")];
+
+fn fast_linker_flag(path: &std::ffi::OsStr) -> Option<&'static str> {
+    if cfg!(target_os = "macos") {
+        return None;
+    }
+    FAST_LINKERS.iter().find(|(name, _)| find_in(path, name).is_some()).map(|(_, flag)| *flag)
+}
+
+fn search_path() -> std::ffi::OsString {
+    std::env::var_os("PATH").unwrap_or_default()
+}
+
+fn find_in(path: &std::ffi::OsStr, name: &str) -> Option<PathBuf> {
+    std::env::split_paths(path).map(|dir| dir.join(name)).find(|p| p.is_file())
+}
+
 fn native_cpu_flag() -> &'static str {
     if cfg!(target_arch = "aarch64") { "-mcpu=native" } else { "-march=native" }
 }
 
 pub fn find_compiler() -> Result<PathBuf> {
-    let path = std::env::var_os("PATH").unwrap_or_default();
+    let path = search_path();
     COMPILERS
         .iter()
-        .find_map(|name| std::env::split_paths(&path).map(|dir| dir.join(name)).find(|p| p.is_file()))
+        .find_map(|name| find_in(&path, name))
         .ok_or_else(|| fail(ErrorKind::Internal, missing_compiler_help()))
 }
 
@@ -91,6 +109,20 @@ fn fail(kind: ErrorKind, msg: String) -> error::YkError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
+    fn prefers_a_fast_linker_found_on_the_path() {
+        let dir = std::env::temp_dir().join(format!("yidi_linker_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(fast_linker_flag(dir.as_os_str()), None);
+        std::fs::write(dir.join("ld.lld"), b"").unwrap();
+        assert_eq!(fast_linker_flag(dir.as_os_str()), Some("-fuse-ld=lld"));
+        std::fs::write(dir.join("mold"), b"").unwrap();
+        assert_eq!(fast_linker_flag(dir.as_os_str()), Some("-fuse-ld=mold"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 
     #[test]
     fn runtime_key_changes_with_the_source() {

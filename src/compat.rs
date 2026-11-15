@@ -127,6 +127,22 @@ mod tests {
     }
 
     fn run_aot(source: &str, test_name: &str) -> Result<String, String> {
+        let exe_path = build_aot(source, test_name)?;
+        let dir = exe_path.parent().unwrap().to_path_buf();
+        let output = Command::new(&exe_path)
+            .output()
+            .map_err(|e| format!("run exe: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("exe exit {:?}: {}", output.status.code(), stderr));
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    fn build_aot(source: &str, test_name: &str) -> Result<std::path::PathBuf, String> {
         let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
         let _ = std::fs::create_dir_all(&dir);
@@ -142,17 +158,23 @@ mod tests {
         if !exe_path.exists() {
             return Err("AOT exe not produced".into());
         }
-        let output = Command::new(&exe_path)
-            .output()
-            .map_err(|e| format!("run exe: {}", e))?;
+        Ok(exe_path)
+    }
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("exe exit {:?}: {}", output.status.code(), stderr));
-        }
-
-        let _ = std::fs::remove_dir_all(&dir);
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    fn first_line_before_exit(exe: &std::path::Path) -> Option<String> {
+        use std::io::BufRead;
+        let mut child = Command::new(exe).stdout(std::process::Stdio::piped()).spawn().ok()?;
+        let stdout = child.stdout.take()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut line = String::new();
+            let _ = std::io::BufReader::new(stdout).read_line(&mut line);
+            let _ = tx.send(line);
+        });
+        let line = rx.recv_timeout(std::time::Duration::from_secs(10)).ok();
+        let _ = child.kill();
+        let _ = child.wait();
+        line.map(|l| l.trim_end().to_string())
     }
 
     /// Normalize line endings and trim whitespace
@@ -581,6 +603,19 @@ mod tests {
     #[test]
     fn compat_complex_prints_like_the_interpreter() {
         check_compat("fn main() { x = 5.4i; y = 0.5i + 4; z = 4 - 0.5i; print(x); print(y); print(z); print(f`{y} and {z}`); print(y.mod); }", "complex_format");
+    }
+
+    #[test]
+    fn compat_output_is_written_before_the_program_ends() {
+        let exe = build_aot("fn main() { print(\"ready\"); while (true) { } }", "line_flush").expect("AOT build failed");
+        let line = first_line_before_exit(&exe);
+        let _ = std::fs::remove_dir_all(exe.parent().unwrap());
+        assert_eq!(line.as_deref(), Some("ready"));
+    }
+
+    #[test]
+    fn compat_equality_on_ints_and_reals() {
+        check_compat("fn main() { a: int = 4; b: real = 0.5; for (i in 1..6) { if (i % 2 == 0) { print(i); } if (i != 3) { print(\"not3\"); } } print(a == 4); print(a != 4); print(b == 0.5); print(b != 0.25); }", "equality");
     }
 
     #[test]

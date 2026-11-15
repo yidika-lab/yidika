@@ -1084,6 +1084,7 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_complex_mul(ptr, ptr, ptr)");
         self.e_raw("declare void @yk_complex_div(ptr, ptr, ptr)");
         self.e_raw("declare void @yk_print_complex(ptr)");
+        self.e_raw("declare void @yk_runtime_init()");
         self.e_raw("declare void @yk_print_field(ptr, i1)");
         self.e_raw("declare ptr @yk_string_from_char(i64)");
         self.e_raw("declare i64 @yk_run_thread(ptr, ptr)");
@@ -1270,6 +1271,7 @@ impl LlvmCodegen {
                 self.current_fn_ret = "i32".into();
                 self.e_raw("define i32 @main(i32 %argc, ptr %argv) {");
                 self.indent += 1;
+                self.e("call void @yk_runtime_init()");
                 let entry_ptr = self.fresh_label();
                 self.e(&format!("%{} = alloca i32, align 4", entry_ptr));
                 self.e(&format!("store i32 %argc, ptr %{}", entry_ptr));
@@ -2900,11 +2902,13 @@ impl LlvmCodegen {
                 (self.ssa(&tmp), lt)
             }
             BinOp::Eq => {
-                self.e(&format!("%{} = {} oeq {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "oeq" } else { "eq" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Ne => {
-                self.e(&format!("%{} = {} one {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "une" } else { "ne" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Lt => {
