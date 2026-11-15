@@ -30,7 +30,7 @@ jobs:
       - name: Report formatting backlog
         shell: bash
         run: |
-          files=$(cargo fmt --all --check -l | sort -u | wc -l)
+          files=$( (cargo fmt --all --check -l || true) | sort -u | wc -l)
           echo "Files not formatted: ${files} (tree-wide backlog, issue #2)" >> "$GITHUB_STEP_SUMMARY"
           if [ "$files" -gt 0 ]; then
             echo "::warning title=Formatting backlog::${files} files differ from cargo fmt; not caused by this change, see issue #2"
