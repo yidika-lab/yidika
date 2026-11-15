@@ -2,6 +2,9 @@
 name = "yk_ffi_gui"
 version = "0.1.0"
 edition = "2021"
+description = "Native GUI engine used by the Yidika gui std module"
+license = "MIT"
+repository = "https://github.com/yidika-lab/yidika"
 
 [lib]
 name = "yk_ffi_gui"

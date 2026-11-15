@@ -89,5 +89,40 @@ jobs:
         run: |
           gh release create "${GITHUB_REF_NAME}" dist/* \
             --title "Yidika ${GITHUB_REF_NAME}" \
-            --generate-notes \
-            --prerelease
+            --generate-notes
+
+  install-smoke:
+    name: Install smoke test (${{ matrix.os }})
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install with install.sh
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          YIDI_VERSION: ${{ github.ref_name }}
+        run: |
+          sh install.sh
+          echo "$HOME/.yidi/bin" >> "$GITHUB_PATH"
+
+      - name: Install with install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          YIDI_VERSION: ${{ github.ref_name }}
+        run: |
+          ./install.ps1
+          Add-Content $env:GITHUB_PATH (Join-Path $HOME '.yidi\bin')
+
+      - name: Run a program with the installed binary
+        shell: bash
+        run: |
+          yidi --version | grep -q "yidi ${GITHUB_REF_NAME#v}"
+          printf 'fn main() {\n    print("smoke ok");\n}\n' > smoke.yk
+          yidi smoke.yk | grep -q "smoke ok"
