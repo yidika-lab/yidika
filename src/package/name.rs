@@ -11,11 +11,14 @@ pub fn validate(name: &str) -> Result<&str, String> {
     }
 }
 
-pub fn from_spec(spec: &str) -> Result<(String, String), String> {
+pub fn from_spec(spec: &str) -> Result<(String, Option<String>), String> {
+    if !spec.contains('/') && !spec.contains(':') {
+        return Ok((validate(spec)?.to_string(), None));
+    }
     let url = url_of(spec)?;
     let last = url.trim_end_matches('/').rsplit(['/', ':']).next().unwrap_or("");
     let name = validate(last.strip_suffix(".git").unwrap_or(last))?.to_string();
-    Ok((name, url))
+    Ok((name, Some(url)))
 }
 
 fn url_of(spec: &str) -> Result<String, String> {
@@ -55,7 +58,7 @@ mod tests {
 
     #[test]
     fn specs_give_a_name_and_a_url() {
-        let gh = ("greet".to_string(), "https://github.com/user/greet.git".to_string());
+        let gh = ("greet".to_string(), Some("https://github.com/user/greet.git".to_string()));
         assert_eq!(from_spec("github:user/greet").unwrap(), gh);
         assert_eq!(from_spec("user/greet").unwrap(), gh);
         assert_eq!(from_spec("user/greet.git").unwrap(), gh);
@@ -64,8 +67,13 @@ mod tests {
     }
 
     #[test]
+    fn a_bare_name_is_a_registry_package() {
+        assert_eq!(from_spec("greet").unwrap(), ("greet".to_string(), None));
+    }
+
+    #[test]
     fn specs_that_name_no_safe_directory_are_rejected() {
-        for spec in ["file:///tmp/../..", "https://host/a/.", "greet", "github:user", "ext::sh -c x://y", "user/../x", "-u/x"] {
+        for spec in ["file:///tmp/../..", "https://host/a/.", "..", "github:user", "ext::sh -c x://y", "user/../x", "-u/x"] {
             assert!(from_spec(spec).is_err(), "{}", spec);
         }
     }

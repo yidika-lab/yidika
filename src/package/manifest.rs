@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Dep {
-    pub url: String,
+    pub url: Option<String>,
     pub req: String,
 }
 
 impl Dep {
     pub fn any(url: &str) -> Self {
-        Self { url: url.to_string(), req: "*".to_string() }
+        Self { url: Some(url.to_string()), req: "*".to_string() }
     }
 }
 
@@ -52,18 +52,31 @@ impl Manifest {
         deps.iter().map(|(n, value)| Ok((name::validate(n)?.to_string(), dep_of(n, value)?))).collect()
     }
 
+    pub fn package(&self) -> Result<(String, String), String> {
+        let package = self.table.get("package").and_then(|p| p.as_table()).ok_or_else(|| format!("{} has no [package] section", FILE))?;
+        let field = |k: &str| package.get(k).and_then(|v| v.as_str()).map(str::to_string).ok_or_else(|| format!("[package] in {} needs a {}", FILE, k));
+        let (name, version) = (field("name")?, field("version")?);
+        name::validate(&name)?;
+        if version::parse_tag(&version).is_none() || version.starts_with('v') {
+            return Err(format!("[package] version '{}' is not a semver version such as 1.2.0", version));
+        }
+        Ok((name, version))
+    }
+
     pub fn contains(&self, name: &str) -> bool {
         self.deps().is_some_and(|d| d.contains_key(name))
     }
 
     pub fn insert(&mut self, name: &str, dep: &Dep) {
-        let value: toml::Value = if dep.req == "*" {
-            dep.url.clone().into()
-        } else {
-            let mut t = toml::Table::new();
-            t.insert("git".into(), dep.url.clone().into());
-            t.insert("version".into(), dep.req.clone().into());
-            t.into()
+        let value: toml::Value = match &dep.url {
+            None => dep.req.clone().into(),
+            Some(url) if dep.req == "*" => url.clone().into(),
+            Some(url) => {
+                let mut t = toml::Table::new();
+                t.insert("git".into(), url.clone().into());
+                t.insert("version".into(), dep.req.clone().into());
+                t.into()
+            }
         };
         let deps = self.table.entry(DEPENDENCIES).or_insert_with(|| toml::Table::new().into());
         if let Some(deps) = deps.as_table_mut() {
@@ -87,11 +100,15 @@ impl Manifest {
 }
 
 fn dep_of(name: &str, value: &toml::Value) -> Result<Dep, String> {
-    let bad = || format!("dependency '{}' in {} must be a git URL or {{ git = \"...\", version = \"...\" }}", name, FILE);
+    let bad = || format!("dependency '{}' in {} must be a version range, a git URL or {{ git = \"...\", version = \"...\" }}", name, FILE);
     let dep = match value {
-        toml::Value::String(url) => Dep::any(url),
+        toml::Value::String(text) if text.contains("://") => Dep::any(text),
+        toml::Value::String(range) => Dep { url: None, req: range.clone() },
         toml::Value::Table(t) => Dep {
-            url: t.get("git").and_then(|v| v.as_str()).ok_or_else(bad)?.to_string(),
+            url: match t.get("git") {
+                None => None,
+                Some(v) => Some(v.as_str().ok_or_else(bad)?.to_string()),
+            },
             req: match t.get("version") {
                 None => "*".to_string(),
                 Some(v) => v.as_str().ok_or_else(bad)?.to_string(),
@@ -119,12 +136,14 @@ mod tests {
         let dir = TempDir::new();
         write_file(dir.path(), FILE, "[package]\nname = \"app\"\n\n[tools]\nfmt = true\n");
         let mut m = Manifest::load(dir.path()).unwrap();
-        m.insert("greet", &Dep { url: "https://x/greet.git".into(), req: "^1.2".into() });
+        m.insert("greet", &Dep { url: Some("https://x/greet.git".into()), req: "^1.2".into() });
+        m.insert("text", &Dep { url: None, req: "^2".into() });
         m.save(dir.path()).unwrap();
         let saved = fs::read_to_string(Manifest::path(dir.path())).unwrap();
         assert!(saved.contains("name = \"app\"") && saved.contains("fmt = true"), "{}", saved);
-        let deps = Manifest::load(dir.path()).unwrap().dependencies().unwrap();
-        assert_eq!(deps, vec![("greet".to_string(), Dep { url: "https://x/greet.git".into(), req: "^1.2".into() })]);
+        let mut deps = Manifest::load(dir.path()).unwrap().dependencies().unwrap();
+        deps.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(deps, vec![("greet".to_string(), Dep { url: Some("https://x/greet.git".into()), req: "^1.2".into() }), ("text".to_string(), Dep { url: None, req: "^2".into() })]);
         assert!(saved.find("[package]").unwrap() < saved.find("[dependencies").unwrap(), "{}", saved);
     }
 

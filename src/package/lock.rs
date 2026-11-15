@@ -25,7 +25,7 @@ pub struct Lock {
 pub fn inputs_of(deps: &[(String, Dep)]) -> String {
     let mut hasher = Sha256::new();
     for (name, dep) in deps {
-        hasher.update(format!("{}\0{}\0{}\n", name, dep.url, dep.req));
+        hasher.update(format!("{}\0{}\0{}\n", name, dep.url.as_deref().unwrap_or("registry"), dep.req));
     }
     hex(&hasher.finalize())
 }
@@ -114,8 +114,8 @@ mod tests {
 
     #[test]
     fn inputs_change_with_any_range() {
-        let a = inputs_of(&[("greet".into(), Dep { url: "u".into(), req: "^1".into() })]);
-        let b = inputs_of(&[("greet".into(), Dep { url: "u".into(), req: "^2".into() })]);
+        let a = inputs_of(&[("greet".into(), Dep { url: Some("u".into()), req: "^1".into() })]);
+        let b = inputs_of(&[("greet".into(), Dep { url: Some("u".into()), req: "^2".into() })]);
         assert_ne!(a, b);
     }
 }
