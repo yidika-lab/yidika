@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 use crate::codegen::llvm_api::{LlvmApi, LLVMExecutionEngineRef, LLVMModuleRef};
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
@@ -48,7 +48,7 @@ impl McJit {
             let module = (api.LLVMModuleCreateWithNameInContext)(empty_mod_name.as_ptr(), ctx);
 
             let mut engine: LLVMExecutionEngineRef = std::ptr::null_mut();
-            let mut err: *mut i8 = std::ptr::null_mut();
+            let mut err: *mut c_char = std::ptr::null_mut();
             let rc = create_ee(&mut engine, module, &mut err);
 
             if rc != 0 || engine.is_null() {
@@ -99,7 +99,7 @@ impl McJit {
             }
 
             let mut module: LLVMModuleRef = std::ptr::null_mut();
-            let mut parse_err: *mut i8 = std::ptr::null_mut();
+            let mut parse_err: *mut c_char = std::ptr::null_mut();
             let parse_rc = (self.api.LLVMParseIRInContext)(ctx, membuf, &mut module, &mut parse_err);
 
             if parse_rc != 0 || module.is_null() {
