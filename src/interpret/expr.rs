@@ -9,6 +9,31 @@ use super::value::{Value, EvalResult, is_truthy, cmp_binop};
 use super::env::Interpreter;
 
 impl Interpreter {
+    pub(crate) fn call_fn_value(&mut self, fn_def: &crate::interpret::class::FnDef, arg_vals: &[Value]) -> Result<Value> {
+        self.push_frame();
+        for (i, param) in fn_def.params.iter().enumerate() {
+            let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
+            self.frames.last_mut().unwrap().insert(param.name.clone(), val);
+        }
+        let result = self.run_fn_body(fn_def);
+        self.pop_frame();
+        Ok(result?.unwrap_or(Value::None_))
+    }
+
+    fn field_fn(&self, receiver: &Value, field: &str) -> Option<crate::interpret::class::FnDef> {
+        let value = match receiver {
+            Value::Struct(_, fields) => fields.get(field),
+            Value::Instance(cls_name, vals) => self.classes.get(cls_name)
+                .and_then(|cls| cls.fields.iter().position(|f| f == field))
+                .and_then(|idx| vals.get(idx)),
+            _ => None,
+        };
+        match value {
+            Some(Value::Fn(fn_def)) => Some(fn_def.clone()),
+            _ => None,
+        }
+    }
+
     fn eval_binop(&self, lv: Value, op: BinOp, rv: Value, span: Span) -> Result<Value> {
         match op {
             BinOp::Add => {
@@ -440,16 +465,7 @@ impl Interpreter {
                                 } else {
                                     let fndef = self.functions.get(name).cloned();
                                     match fndef {
-                                        Some(fn_def) => {
-                                            self.push_frame();
-                                            for (i, param) in fn_def.params.iter().enumerate() {
-                                                let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
-                                                self.frames.last_mut().unwrap().insert(param.name.clone(), val);
-                                            }
-                                            let result = self.run_fn_body(&fn_def)?;
-                                            self.pop_frame();
-                                            Ok(EvalResult::Value(result.unwrap_or(Value::None_)))
-                                        }
+                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
                                         None => {
                                             // Check if name is a class (constructor call)
                                             if let Some(cls) = self.classes.get(name).cloned() {
@@ -467,16 +483,7 @@ impl Interpreter {
                                             // Check if name is a variable holding a function value
                                             match self.get_var(name) {
                                                 Ok(val) => match val {
-                                                    Value::Fn(fn_def) => {
-                                                        self.push_frame();
-                                                        for (i, param) in fn_def.params.iter().enumerate() {
-                                                            let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
-                                                            self.frames.last_mut().unwrap().insert(param.name.clone(), val);
-                                                        }
-                                                        let result = self.run_fn_body(&fn_def)?;
-                                                        self.pop_frame();
-                                                        Ok(EvalResult::Value(result.unwrap_or(Value::None_)))
-                                                    }
+                                                    Value::Fn(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
                                                     _ => Err(self.err(expr.span, format!("'{}' is not a function", name))),
                                                 },
                                                 Err(_) => Err(self.err(expr.span, format!("Unknown function '{}'", name))),
@@ -1073,7 +1080,10 @@ impl Interpreter {
                                         }
                                         _ => Err(self.err(expr.span, "difference requires a set")),
                                     },
-                                    _ => Err(self.err(expr.span, format!("Unknown method '{}'", field))),
+                                    _ => match self.field_fn(&receiver, field) {
+                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                                        None => Err(self.err(expr.span, format!("Unknown method '{}'", field))),
+                                    },
                                 }
                             }
                         }

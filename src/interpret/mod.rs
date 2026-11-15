@@ -76,6 +76,30 @@ mod tests {
     }
 
     #[test]
+    fn struct_field_holding_a_closure_can_be_called() {
+        let out = run("struct Btn { label: str; on_click: auto; } fn main() { b: Btn = Btn { label: \"ok\", on_click: () => print(\"clicked\") }; b.on_click(); }");
+        assert_eq!(out, "clicked\n");
+    }
+
+    #[test]
+    fn struct_field_holding_a_function_gets_arguments() {
+        let out = run("struct Op { run: auto; } fn dbl(x: int) -> int { return x * 2; } fn main() { o: Op = Op { run: dbl }; print(o.run(21)); }");
+        assert_eq!(out, "42\n");
+    }
+
+    #[test]
+    fn class_field_holding_a_closure_can_be_called() {
+        let out = run("class Btn { on_click: auto; } fn main() { b: Btn = Btn { on_click: () => print(\"class clicked\") }; b.on_click(); }");
+        assert_eq!(out, "class clicked\n");
+    }
+
+    #[test]
+    fn calling_a_field_that_is_not_a_function_fails() {
+        let err = run_invalid("struct Btn { label: str; } fn main() { b: Btn = Btn { label: \"ok\" }; b.label(); }");
+        assert!(err.contains("Unknown method 'label'"), "{err}");
+    }
+
+    #[test]
     fn empty_main() {
         let out = run("fn main() {}");
         assert_eq!(out, "");
