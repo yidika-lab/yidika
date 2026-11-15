@@ -18,7 +18,7 @@ Comparaison au **14 novembre 2026**, à partir du code de ce dépôt (`yidi`), p
 | Gestion mémoire | Interpréteur : GC de valeurs ; AOT : runtime C | Ownership + borrow checker | Ramasse-miettes (V8) | Comptage de références + GC cyclique | GC JVM/ART |
 | Compilation | Interpréteur **et** AOT LLVM (Windows) | AOT natif | Transpilation vers JS | Bytecode CPython | Bytecode JVM, AOT Android (ART), Kotlin/Native |
 | Concurrence | `spawn`/`await` parsés, runtime synchrone | Threads, async, rayon | Event loop, Web Workers | `asyncio`, threads, `multiprocessing` | Coroutines, threads |
-| GUI | Module `gui` (Win32, Windows uniquement) | Crates externes (`egui`, `iced`…) | React/TSX vers DOM | Tkinter, Qt, etc. | Jetpack Compose, JavaFX |
+| GUI | Module `gui` (Win32, Windows uniquement) | Crates externes (`egui`, `iced`, ...) | React/TSX vers DOM | Tkinter, Qt, etc. | Jetpack Compose, JavaFX |
 | HTTP intégré | Oui (`net`), interpréteur + handlers JIT | Crates (`axum`, `actix`) | Frameworks npm (`express`, `next`) | Frameworks (`fastapi`, `django`) | Ktor, Spring Boot |
 | FFI | `use ... from "c++:..."` / `"rust:..."` | `extern "C"`, `bindgen`, `cbindgen` | N-API / WASM | `ctypes`, `cffi`, extensions C | JNI, `cinterop` |
 | Écosystème | Quasi nul (dépôt unique) | Très large (crates.io) | Immense (npm) | Immense (PyPI) | Large (Maven Central) |
@@ -263,7 +263,7 @@ fn main() {
 | Immutabilité | `const` / `as const` | Défaut | `const` | Conventions | `val` |
 | Surcharge d'opérateurs | Non | Oui (traits) | Non | Oui (`__add__`) | Oui |
 | Métaprogrammation | Non | Macros | Décorateurs, types conditionnels | Métaclasses | Annotations, KSP |
-| Async/await | Syntaxe, exécution synchrone | Oui (tokio…) | Oui (promesses) | Oui (`asyncio`) | Oui (coroutines) |
+| Async/await | Syntaxe, exécution synchrone | Oui (tokio, ...) | Oui (promesses) | Oui (`asyncio`) | Oui (coroutines) |
 | Threads natifs | `spawn` (runtime virtuel) | Oui | Workers | Oui | Oui |
 | GC | Interpréteur | Non | Oui | Oui | Oui |
 | Compilation native | Oui (Windows) | Oui | Non (via bundlers) | Non (via Nuitka/PyInstaller) | Kotlin/Native |

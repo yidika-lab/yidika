@@ -74,7 +74,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
         let cors = cors_headers(server);
 
         if headers_too_large {
-            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "431 Request Header Fields Too Large".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "431 Request Header Fields Too Large".to_string(), body: Vec::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
             return;
         }
 
@@ -92,14 +92,14 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
         let (method_raw, path_raw) = match parse_request_line(raw) {
             Some(r) => (r.0.to_uppercase(), r.1.to_string()),
             None => {
-                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "400 Bad Request".to_string(), body: "Bad Request".to_string(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "400 Bad Request".to_string(), body: b"Bad Request".to_vec(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
                 return;
             }
         };
 
         let body = match content_length(raw) {
             Some(cl) if cl > MAX_BODY_BYTES => {
-                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "413 Content Too Large".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "413 Content Too Large".to_string(), body: Vec::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
                 return;
             }
             Some(cl) => {
@@ -120,7 +120,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
 
         // Handle OPTIONS preflight
         if method_raw == "OPTIONS" {
-            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "204 No Content".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, keep_alive, &cors).await;
+            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "204 No Content".to_string(), body: Vec::new(), content_type: "text/plain".to_string(), headers: vec![] }, keep_alive, &cors).await;
             if !keep_alive { return; } else { continue; }
         };
 
@@ -177,7 +177,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
                         } else {
                             ProcessedResponse {
                                 status: "404 Not Found".to_string(),
-                                body: "Not Found".to_string(),
+                                body: b"Not Found".to_vec(),
                                 content_type: "text/plain".to_string(),
                                 headers: Vec::new(),
                             }
@@ -185,7 +185,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
                     } else {
                         ProcessedResponse {
                             status: "404 Not Found".to_string(),
-                            body: "Not Found".to_string(),
+                            body: b"Not Found".to_vec(),
                             content_type: "text/plain".to_string(),
                             headers: Vec::new(),
                         }
@@ -193,7 +193,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
                 } else {
                     ProcessedResponse {
                         status: "404 Not Found".to_string(),
-                        body: "Not Found".to_string(),
+                        body: b"Not Found".to_vec(),
                         content_type: "text/plain".to_string(),
                         headers: Vec::new(),
                     }
@@ -211,7 +211,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
                 &query_params,
                 &cookies,
                 &response.status,
-                &response.body,
+                &String::from_utf8_lossy(&response.body),
                 pool
             );
         }

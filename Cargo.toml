@@ -5,7 +5,6 @@ edition = "2021"
 description = "Compiler, interpreter and toolchain for the Yidika programming language"
 license = "MIT"
 repository = "https://github.com/yidika-lab/yidika"
-homepage = "https://github.com/yidika-lab/yidika"
 readme = "README.md"
 keywords = ["language", "compiler", "interpreter", "llvm"]
 categories = ["compilers", "development-tools"]

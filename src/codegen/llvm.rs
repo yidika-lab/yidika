@@ -8095,11 +8095,7 @@ pub fn compile_to_llvm_modules(modules: &[&Module]) -> String {
 }
 
 pub fn validate_modules(modules: &[&Module], file_paths: &[String]) -> Vec<String> {
-    const GUI_FUNCS: [&str; 20] = [
-        "window", "div", "text", "button", "style", "set_text", "append", "remove",
-        "on", "run", "refresh", "quit", "auto_exit", "dump", "synthetic_click",
-        "synthetic_hover", "node_x", "node_y", "node_w", "node_h",
-    ];
+    let gui_funcs = crate::stdlib::submodule_funcs("gui").unwrap_or(&[]);
     let unsupported_stds: [&str; 0] = [];
     let mut errors = Vec::new();
     for (mod_idx, module) in modules.iter().enumerate() {
@@ -8127,7 +8123,7 @@ pub fn validate_modules(modules: &[&Module], file_paths: &[String]) -> Vec<Strin
         }
 
         for item in &module.items {
-            validate_gui_item(item, &gui_aliases, &GUI_FUNCS, fname, &mut errors);
+            validate_gui_item(item, &gui_aliases, gui_funcs, fname, &mut errors);
         }
     }
     errors

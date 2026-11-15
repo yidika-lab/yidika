@@ -107,17 +107,34 @@ pub(crate) fn compile_fn_handler(name: &str, fndef: &FnDef) -> Option<JitFnHandl
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-static BASE_INTERP: std::sync::OnceLock<crate::interpret::InterpBase> = std::sync::OnceLock::new();
+type SharedBase = std::sync::Arc<crate::interpret::InterpBase>;
 
-pub(crate) fn base_interp() -> &'static crate::interpret::InterpBase {
-    BASE_INTERP.get_or_init(crate::interpret::InterpBase::default)
+struct BaseSlot(std::sync::RwLock<Option<SharedBase>>);
+
+impl BaseSlot {
+    const fn new() -> Self {
+        BaseSlot(std::sync::RwLock::new(None))
+    }
+
+    fn get(&self) -> SharedBase {
+        let current = self.0.read().unwrap_or_else(|p| p.into_inner()).clone();
+        current.unwrap_or_else(|| std::sync::Arc::new(crate::interpret::InterpBase::default()))
+    }
+
+    fn replace(&self, interp: &Interpreter) {
+        let snapshot = std::sync::Arc::new(crate::interpret::InterpBase::from_interp(interp));
+        *self.0.write().unwrap_or_else(|p| p.into_inner()) = Some(snapshot);
+    }
+}
+
+static BASE_INTERP: BaseSlot = BaseSlot::new();
+
+pub(crate) fn base_interp() -> SharedBase {
+    BASE_INTERP.get()
 }
 
 pub(crate) fn install_base_interp(interp: &Interpreter) {
-    if BASE_INTERP.get().is_some() {
-        return;
-    }
-    let _ = BASE_INTERP.set(crate::interpret::InterpBase::from_interp(interp));
+    BASE_INTERP.replace(interp);
 }
 
 #[derive(Clone)]
@@ -514,28 +531,40 @@ pub(crate) fn parse_cookies(headers: &HashMap<String, String>) -> HashMap<String
 
 pub(crate) struct ProcessedResponse {
     pub status: String,
-    pub body: String,
+    pub body: Vec<u8>,
     pub content_type: String,
     pub headers: Vec<String>,
 }
 
+const INVALID_STATUS: &str = "500 Internal Server Error";
+
 fn response_status(value: &crate::interpret::Value) -> Option<String> {
     match value {
-        crate::interpret::Value::Int(i) => Some(match i {
-            200 => "200 OK".to_string(),
-            201 => "201 Created".to_string(),
-            204 => "204 No Content".to_string(),
-            301 => "301 Moved Permanently".to_string(),
-            302 => "302 Found".to_string(),
-            400 => "400 Bad Request".to_string(),
-            401 => "401 Unauthorized".to_string(),
-            403 => "403 Forbidden".to_string(),
-            404 => "404 Not Found".to_string(),
-            500 => "500 Internal Server Error".to_string(),
-            _ => format!("{} OK", i),
-        }),
-        crate::interpret::Value::Str(s) => Some(s.clone()),
+        crate::interpret::Value::Int(i) => Some(status_line_for_code(*i)),
+        crate::interpret::Value::Str(s) => Some(validated_status_text(s)),
         _ => None,
+    }
+}
+
+fn status_line_for_code(code: i64) -> String {
+    if (100..=599).contains(&code) {
+        format!("{} {}", code, status_reason(code))
+    } else {
+        INVALID_STATUS.to_string()
+    }
+}
+
+fn validated_status_text(text: &str) -> String {
+    let code_is_valid = text
+        .get(..3)
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .is_some_and(|code| (100..=599).contains(&code));
+    let rest_is_valid = text.len() == 3 || text.as_bytes().get(3) == Some(&b' ');
+    let has_control = text.chars().any(|c| c.is_control());
+    if code_is_valid && rest_is_valid && !has_control {
+        text.to_string()
+    } else {
+        INVALID_STATUS.to_string()
     }
 }
 
@@ -601,8 +630,7 @@ pub(crate) fn try_serve_static(static_dir: &str, path: &str) -> Option<Processed
         return None;
     }
 
-    let content = std::fs::read(&resolved).ok()?;
-    let body = String::from_utf8(content).ok()?;
+    let body = std::fs::read(&resolved).ok()?;
     let content_type = guess_content_type(resolved.to_str().unwrap_or(""));
     Some(ProcessedResponse {
         status: "200 OK".to_string(),
@@ -652,7 +680,7 @@ fn run_logger(
     match logger {
         Handler::Literal(_text) => {},
         Handler::Fn(_name, fndef) => {
-            let mut interp = pool.take(base_interp());
+            let mut interp = pool.take(&base_interp());
             ensure_log_entry_class(&mut interp);
             ensure_response_class(&mut interp);
             interp.push_frame();
@@ -686,7 +714,7 @@ fn execute_handler(
     match handler {
         Handler::Literal(text) => ProcessedResponse::from_string(text.clone()),
         Handler::Fn(_name, fndef) => {
-            let mut interp = pool.take(base_interp());
+            let mut interp = pool.take(&base_interp());
             interp.push_frame();
 
             let mut fields = HashMap::with_capacity(8);
@@ -764,7 +792,7 @@ fn execute_handler(
                     eprintln!("handler error: {}", e.msg);
                     ProcessedResponse {
                         status: "500 Internal Server Error".to_string(),
-                        body: "Internal Server Error".to_string(),
+                        body: b"Internal Server Error".to_vec(),
                         content_type: "text/plain".to_string(),
                         headers: Vec::new(),
                     }
@@ -852,7 +880,7 @@ impl ProcessedResponse {
     pub fn new() -> Self {
         ProcessedResponse {
             status: "200 OK".to_string(),
-            body: String::new(),
+            body: Vec::new(),
             content_type: "text/plain".to_string(),
             headers: Vec::new(),
         }
@@ -866,7 +894,7 @@ impl ProcessedResponse {
         };
         ProcessedResponse {
             status: "200 OK".to_string(),
-            body,
+            body: body.into_bytes(),
             content_type,
             headers: Vec::new(),
         }
@@ -876,7 +904,7 @@ impl ProcessedResponse {
         match value {
             crate::interpret::Value::Struct(class_name, fields) if class_name == "Response" => {
                 let status = fields.get("status")
-                    .and_then(|v| response_status(v))
+                    .and_then(response_status)
                     .unwrap_or_else(|| "200 OK".to_string());
 
                 let body = fields.get("body")
@@ -897,7 +925,7 @@ impl ProcessedResponse {
 
                 ProcessedResponse {
                     status,
-                    body,
+                    body: body.into_bytes(),
                     content_type,
                     headers,
                 }
@@ -914,7 +942,7 @@ impl ProcessedResponse {
                 }
                 ProcessedResponse {
                     status,
-                    body,
+                    body: body.into_bytes(),
                     content_type,
                     headers,
                 }
@@ -983,7 +1011,7 @@ pub(crate) async fn write_response_async(
     }
     http_response.push_str("\r\n");
     stream.write_all(http_response.as_bytes()).await?;
-    stream.write_all(response.body.as_bytes()).await?;
+    stream.write_all(&response.body).await?;
     stream.flush().await
 }
 
@@ -1032,7 +1060,7 @@ fn write_response(
     }
     http_response.push_str("\r\n");
     write!(stream, "{}", http_response)?;
-    stream.write_all(response.body.as_bytes())?;
+    stream.write_all(&response.body)?;
     stream.flush()
 }
 
@@ -1192,7 +1220,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                         } else {
                             ProcessedResponse {
                                 status: "404 Not Found".to_string(),
-                                body: "Not Found".to_string(),
+                                body: b"Not Found".to_vec(),
                                 content_type: "text/plain".to_string(),
                                 headers: Vec::new(),
                             }
@@ -1200,7 +1228,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                     } else {
                         ProcessedResponse {
                             status: "404 Not Found".to_string(),
-                            body: "Not Found".to_string(),
+                            body: b"Not Found".to_vec(),
                             content_type: "text/plain".to_string(),
                             headers: Vec::new(),
                         }
@@ -1208,7 +1236,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                 } else {
                     ProcessedResponse {
                         status: "404 Not Found".to_string(),
-                        body: "Not Found".to_string(),
+                        body: b"Not Found".to_vec(),
                         content_type: "text/plain".to_string(),
                         headers: Vec::new(),
                     }
@@ -1226,7 +1254,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                 &query_params,
                 &cookies,
                 &response.status,
-                &response.body,
+                &String::from_utf8_lossy(&response.body),
                 pool
             );
         }
@@ -1708,7 +1736,7 @@ mod tests {
         );
         let response = ProcessedResponse::from_value(&value);
         assert_eq!(response.status, "401 Unauthorized");
-        assert_eq!(response.body, "denied");
+        assert_eq!(response.body, b"denied");
         assert_eq!(response.headers, vec!["X-Test: 1".to_string()]);
     }
 
@@ -1732,6 +1760,23 @@ mod tests {
     }
 
     #[test]
+    fn static_serving_keeps_binary_files_intact() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("yk_static_bin_{}_{}", std::process::id(), unique));
+        std::fs::create_dir_all(&base).unwrap();
+        let png_header = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00];
+        std::fs::write(base.join("logo.png"), &png_header).unwrap();
+
+        let served = try_serve_static(base.to_str().unwrap(), "/logo.png").expect("binary file should be served");
+        assert_eq!(served.body, png_header);
+        assert_eq!(served.content_type, "image/png");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn static_serving_rejects_traversal() {
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1745,7 +1790,7 @@ mod tests {
 
         let base_str = base.to_str().unwrap();
         let served = try_serve_static(base_str, "/index.html").expect("index should be served");
-        assert_eq!(served.body, "hello");
+        assert_eq!(served.body, b"hello");
         assert!(try_serve_static(base_str, "/../secret.txt").is_none());
         assert!(try_serve_static(base_str, "/%2e%2e/secret.txt").is_none());
         assert!(try_serve_static(base_str, "/missing.html").is_none());
@@ -2027,6 +2072,51 @@ mod tests {
             let resp = ProcessedResponse::from_value(&Value::Struct("Response".into(), fields));
             assert_eq!(resp.status, expected, "status line for {code}");
         }
+    }
+
+    #[test]
+    fn base_slot_keeps_the_latest_program() {
+        let slot = BaseSlot::new();
+        let mut first = Interpreter::new();
+        first.source_dir = std::path::PathBuf::from("first");
+        slot.replace(&first);
+        let mut second = Interpreter::new();
+        second.source_dir = std::path::PathBuf::from("second");
+        slot.replace(&second);
+        assert_eq!(slot.get().source_dir, std::path::PathBuf::from("second"));
+    }
+
+    fn status_of(value: Value) -> String {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), value);
+        ProcessedResponse::from_value(&Value::Struct("Response".into(), fields)).status
+    }
+
+    #[test]
+    fn out_of_range_status_codes_become_500() {
+        for code in [0, -1, 99, 600, 99999] {
+            assert_eq!(status_of(Value::Int(code)), "500 Internal Server Error", "code {code}");
+        }
+    }
+
+    #[test]
+    fn string_status_with_crlf_is_rejected() {
+        let injected = "200 OK\r\nSet-Cookie: session=stolen";
+        assert_eq!(status_of(Value::Str(injected.into())), "500 Internal Server Error");
+    }
+
+    #[test]
+    fn malformed_string_status_is_rejected() {
+        for text in ["", "OK", "20", "2000 OK", "200OK", "abc Teapot", "700 Custom"] {
+            assert_eq!(status_of(Value::Str(text.into())), "500 Internal Server Error", "{text:?}");
+        }
+    }
+
+    #[test]
+    fn well_formed_string_status_is_kept() {
+        assert_eq!(status_of(Value::Str("201 Created".into())), "201 Created");
+        assert_eq!(status_of(Value::Str("299 Custom Reason".into())), "299 Custom Reason");
+        assert_eq!(status_of(Value::Str("204".into())), "204");
     }
 
     #[test]
