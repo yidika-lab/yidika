@@ -35,9 +35,9 @@ pub fn parse_args() -> Command {
 pub fn parse_from(args: &[String]) -> Command {
     if args.len() < 2 {
         eprintln!("Usage:");
-        eprintln!("  yidi <file>              Run a .yk file (interpreter)");
-        eprintln!("  yidi run <file>          Run a .yk file (interpreter)");
-        eprintln!("  yidi run <file> --native Compile, cache and run natively; falls back to the interpreter");
+        eprintln!("  yidi <file>              Run a .yk file (native build, cached)");
+        eprintln!("  yidi run <file>          Run a .yk file (native build, cached)");
+        eprintln!("  yidi run <file> --interp Run with the interpreter");
         eprintln!("  yidi <file> --watch      Run file and watch for changes");
         eprintln!("  yidi build <file>        Build a .yk file");
         eprintln!("  yidi build <file> --watch Rebuild on file change");
@@ -79,7 +79,7 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 }
 
 fn engine_from(args: &[String]) -> Engine {
-    if has_flag(args, "--native") { Engine::Native } else { Engine::Interp }
+    if has_flag(args, "--interp") { Engine::Interp } else { Engine::Native }
 }
 
 pub fn execute(cmd: Command) -> Result<String, String> {
@@ -276,14 +276,14 @@ mod tests {
 
     #[test]
     fn bare_path_still_runs_file() {
-        assert!(matches!(parse_from(&args(&["yidi", "hello.yk"])), Command::Run(ref f, false, Engine::Interp) if f == "hello.yk"));
+        assert!(matches!(parse_from(&args(&["yidi", "hello.yk"])), Command::Run(ref f, false, Engine::Native) if f == "hello.yk"));
     }
 
     #[test]
-    fn native_flag_selects_the_native_engine() {
-        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk", "--native"])), Command::Run(_, false, Engine::Native)));
-        assert!(matches!(parse_from(&args(&["yidi", "a.yk", "--native", "--watch"])), Command::Run(_, true, Engine::Native)));
-        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk"])), Command::Run(_, false, Engine::Interp)));
+    fn native_is_the_default_and_interp_opts_out() {
+        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk"])), Command::Run(_, false, Engine::Native)));
+        assert!(matches!(parse_from(&args(&["yidi", "run", "a.yk", "--interp"])), Command::Run(_, false, Engine::Interp)));
+        assert!(matches!(parse_from(&args(&["yidi", "a.yk", "--interp", "--watch"])), Command::Run(_, true, Engine::Interp)));
     }
 
     #[test]

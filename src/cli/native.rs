@@ -12,21 +12,31 @@ pub(super) struct Source<'a> {
 }
 
 pub(super) fn run(sources: &[Source], backend: &dyn CodegenBackend) -> Option<i32> {
+    if !crate::codegen::llvm::toolchain_available() {
+        return None;
+    }
+    run_in(&crate::cache::cache_dir().join("run"), sources, backend)
+}
+
+fn run_in(root: &Path, sources: &[Source], backend: &dyn CodegenBackend) -> Option<i32> {
     let modules: Vec<&Module> = sources.iter().map(|s| s.module).collect();
     if crate::codegen::backend::needs_side_artifacts(&modules) {
         return None;
     }
-    let exe = cached_executable(sources, &modules, backend)?;
+    let exe = cached_executable(root, sources, &modules, backend)?;
     let status = std::process::Command::new(&exe).status().ok()?;
     Some(status.code().unwrap_or(1))
 }
 
-fn cached_executable(sources: &[Source], modules: &[&Module], backend: &dyn CodegenBackend) -> Option<PathBuf> {
-    let root = crate::cache::cache_dir().join("run");
+fn cached_executable(root: &Path, sources: &[Source], modules: &[&Module], backend: &dyn CodegenBackend) -> Option<PathBuf> {
     let key = format!("{:016x}", program_key(sources));
     let exe = executable_in(&root.join(&key));
     if exe.is_file() {
         return Some(exe);
+    }
+    let unsupported = root.join(format!("{}.interp", key));
+    if unsupported.is_file() {
+        return None;
     }
     let staging = root.join(format!("{}.tmp-{}", key, std::process::id()));
     std::fs::create_dir_all(&staging).ok()?;
@@ -34,6 +44,7 @@ fn cached_executable(sources: &[Source], modules: &[&Module], backend: &dyn Code
     let built = backend.compile_with_paths(modules, &paths, &staging.join("main"), &hardware::detect());
     if built.is_err() || !executable_in(&staging).is_file() {
         let _ = std::fs::remove_dir_all(&staging);
+        let _ = std::fs::write(&unsupported, b"");
         return None;
     }
     if std::fs::rename(&staging, root.join(&key)).is_err() {
@@ -69,6 +80,12 @@ mod tests {
     use super::*;
     use crate::codegen::backend::MockBackend;
 
+    fn test_root(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("yidi_native_{}_{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
     fn module(src: &str) -> Module {
         crate::syntax::parser::Parser::parse(src).unwrap()
     }
@@ -88,8 +105,23 @@ mod tests {
         let text = format!("fn main() {{ print(\"mock {}\"); }}", std::process::id());
         let sources = [Source { path: Path::new("mock.yk"), text: &text, module: &m }];
         let backend = MockBackend::new();
-        assert_eq!(run(&sources, &backend), None);
+        let root = test_root("fallback");
+        assert_eq!(run_in(&root, &sources, &backend), None);
         assert_eq!(backend.output_paths.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_failed_build_is_not_retried() {
+        let m = module("fn main() {}");
+        let text = format!("fn main() {{ print(\"retry {}\"); }}", std::process::id());
+        let sources = [Source { path: Path::new("retry.yk"), text: &text, module: &m }];
+        let backend = MockBackend::new();
+        let root = test_root("retry");
+        assert_eq!(run_in(&root, &sources, &backend), None);
+        assert_eq!(run_in(&root, &sources, &backend), None);
+        assert_eq!(backend.output_paths.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -97,7 +129,7 @@ mod tests {
         let m = module("use { add } from \"c++:math.h\"; fn main() {}");
         let sources = [Source { path: Path::new("ffi.yk"), text: "x", module: &m }];
         let backend = MockBackend::new();
-        assert_eq!(run(&sources, &backend), None);
+        assert_eq!(run_in(&test_root("ffi"), &sources, &backend), None);
         assert_eq!(backend.output_paths.lock().unwrap().len(), 0);
     }
 }

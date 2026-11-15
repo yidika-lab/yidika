@@ -73,9 +73,9 @@ Prefer not to pipe a script into your shell? Download the archive for your platf
 
 #### What works on each platform
 
-The interpreter (`yidi file.yk`, `yidi run`) works on every platform above. Native compilation (`yidi build`, `yidi run --native`) needs `clang++` on Linux and macOS (`sudo apt install clang`, `xcode-select --install`), and LLVM with the Visual Studio Build Tools on Windows.
+The interpreter (`yidi run --interp`) works on every platform above. Native compilation (`yidi build`, `yidi run`) needs `clang++` on Linux and macOS (`sudo apt install clang`, `xcode-select --install`), and LLVM with the Visual Studio Build Tools on Windows.
 
-`yidi run --native` compiles the program once, caches the binary in `~/.cache/yidi/run`, and runs it at native speed: `fib(35)` takes 0.03 s, the same as `rustc -O`, against about 14 s in the interpreter. A program the compiler cannot build yet (closures, GUI, FFI) runs in the interpreter instead.
+`yidi run` compiles the program once, caches the binary in `~/.cache/yidi/run`, and runs it at native speed: `fib(35)` takes 0.03 s, the same as `rustc -O`, against about 14 s in the interpreter. A program the compiler cannot build yet (closures, GUI, FFI), or a machine without a C++ compiler, uses the interpreter instead. `yidi run --interp` forces the interpreter.
 
 ### Build from source
 
