@@ -94,6 +94,24 @@ jobs:
       - run: cargo test --workspace --locked --lib --bins -- --skip compat
       - run: cargo run --quiet --bin yidi -- --version
 
+  installer:
+    name: Installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the latest release into a clean HOME and open a new shell
+        shell: bash
+        run: |
+          home="$(mktemp -d)"
+          HOME="$home" SHELL=/bin/bash sh install.sh
+          HOME="$home" SHELL=/bin/bash sh install.sh
+          test "$(grep -c '.yidi/bin' "$home/.bashrc")" = 1
+          HOME="$home" bash -c 'source "$HOME/.bashrc"; yidi --version'
+
   aot-compat:
     name: Interpreter/AOT parity (Windows)
     runs-on: windows-latest

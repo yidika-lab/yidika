@@ -4,6 +4,7 @@
 # Environment:
 #   YIDI_VERSION  release tag to install (default: latest), e.g. v0.1.0
 #   YIDI_HOME     install prefix (default: $HOME/.yidi); the binary goes to $YIDI_HOME/bin
+#   YIDI_NO_MODIFY_PATH=1  do not add the bin directory to your shell profile
 set -eu
 
 REPO="yidika-lab/yidika"
@@ -59,6 +60,62 @@ release_url() {
     fi
 }
 
+bin_dir_for_profile() {
+    if [ "$1" = "$HOME/.yidi" ]; then
+        echo '$HOME/.yidi/bin'
+    else
+        echo "$1/bin"
+    fi
+}
+
+shell_profiles() {
+    case "$(basename "${SHELL:-sh}")" in
+        zsh) echo "${ZDOTDIR:-$HOME}/.zshrc" ;;
+        bash)
+            echo "$HOME/.bashrc"
+            if [ "$(uname -s)" = "Darwin" ]; then
+                echo "$HOME/.bash_profile"
+            fi
+            ;;
+        fish) echo "$HOME/.config/fish/conf.d/yidi.fish" ;;
+        *) echo "$HOME/.profile" ;;
+    esac
+}
+
+path_line() {
+    case "$1" in
+        *.fish) echo "fish_add_path -g \"$2\"" ;;
+        *) echo "export PATH=\"$2:\$PATH\"" ;;
+    esac
+}
+
+add_line_to_profile() {
+    if grep -qsF "$2" "$1"; then
+        return
+    fi
+    mkdir -p "$(dirname "$1")"
+    printf '\n# yidi\n%s\n' "$2" >> "$1"
+    say "added yidi to your PATH in $1"
+}
+
+configure_path() {
+    if [ "${YIDI_NO_MODIFY_PATH:-0}" = "1" ]; then
+        return
+    fi
+    dir="$(bin_dir_for_profile "$1")"
+    shell_profiles | while IFS= read -r profile; do
+        add_line_to_profile "$profile" "$(path_line "$profile" "$dir")"
+    done
+}
+
+path_hint() {
+    if [ "${YIDI_NO_MODIFY_PATH:-0}" = "1" ]; then
+        echo "add yidi to your PATH:"
+    else
+        echo "open a new terminal to use yidi, or run now:"
+    fi
+}
+
 main() {
     need uname
     need tar
@@ -82,9 +139,10 @@ main() {
     install -m 755 "${tmp}/yidi-${target}/yidi" "${prefix}/bin/yidi"
 
     say "installed $("${prefix}/bin/yidi" --version) to ${prefix}/bin/yidi"
+    configure_path "$prefix"
     case ":${PATH}:" in
         *":${prefix}/bin:"*) ;;
-        *) say "add it to your PATH:  export PATH=\"${prefix}/bin:\$PATH\"" ;;
+        *) say "$(path_hint)  export PATH=\"${prefix}/bin:\$PATH\"" ;;
     esac
 }
 

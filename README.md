@@ -24,7 +24,7 @@ A **modern systems programming language** designed for **hardware-aware computin
 
 ### Install
 
-Prebuilt binaries are published on [GitHub Releases](https://github.com/yidika-lab/yidika/releases) for every tagged version. The install scripts pick the right one for your machine, check its SHA-256 checksum and put `yidi` in `~/.yidi/bin`. Nothing else on the system is touched and no admin rights are needed.
+Prebuilt binaries are published on [GitHub Releases](https://github.com/yidika-lab/yidika/releases) for every tagged version. The install scripts pick the right one for your machine, check its SHA-256 checksum and put `yidi` in `~/.yidi/bin`. Nothing outside your home folder is changed and no admin rights are needed.
 
 | OS | Architectures | Requirements |
 |---|---|---|
@@ -32,45 +32,21 @@ Prebuilt binaries are published on [GitHub Releases](https://github.com/yidika-l
 | macOS | Apple Silicon (arm64), Intel (x86_64) | macOS 11 or later |
 | Linux | x86_64, aarch64 | glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36 and newer) |
 
-#### Windows
+#### Linux and macOS
 
-Open PowerShell (no need for an administrator window) and run:
+```sh
+curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
+```
+
+#### Windows (PowerShell, no administrator rights needed)
 
 ```powershell
 irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex
 ```
 
-The script adds `%USERPROFILE%\.yidi\bin` to your user `PATH`. Open a new terminal, then check:
-
-```powershell
-yidi --version
-```
-
-#### macOS
+That is the whole install. The script also adds `~/.yidi/bin` to your `PATH`: in `~/.zshrc`, `~/.bashrc` (plus `~/.bash_profile` on macOS), fish's `conf.d` or `~/.profile` depending on your shell, and in the user `PATH` on Windows. Open a new terminal and run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
-```
-
-Then add `yidi` to your `PATH` (zsh is the default shell on macOS):
-
-```sh
-echo 'export PATH="$HOME/.yidi/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
-yidi --version
-```
-
-#### Linux
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
-```
-
-Then add `yidi` to your `PATH` (use `~/.zshrc` instead if your shell is zsh):
-
-```sh
-echo 'export PATH="$HOME/.yidi/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
 yidi --version
 ```
 
@@ -79,9 +55,10 @@ yidi --version
 | Task | Linux and macOS | Windows (PowerShell) |
 |---|---|---|
 | Install a specific version | `curl -fsSL .../install.sh \| YIDI_VERSION=v0.1.0 sh` | `$env:YIDI_VERSION='v0.1.0'; irm .../install.ps1 \| iex` |
+| Leave my shell profile alone | `curl -fsSL .../install.sh \| YIDI_NO_MODIFY_PATH=1 sh` | Not needed: only the user `PATH` is changed |
 | Install somewhere else | `YIDI_HOME=/opt/yidi` before `sh` | `$env:YIDI_HOME='D:\tools\yidi'` before `irm` |
 | Update | Run the install command again | Run the install command again |
-| Uninstall | `rm -rf ~/.yidi`, then remove the `PATH` line from your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
+| Uninstall | `rm -rf ~/.yidi`, then delete the `# yidi` line and the line below it in your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
 
 Prefer not to pipe a script into your shell? Download the archive for your platform from the [latest release](https://github.com/yidika-lab/yidika/releases/latest), check it against its `.sha256` file (`sha256sum -c`, `shasum -a 256 -c` or `Get-FileHash`), extract it and put `yidi` (or `yidi.exe` with its `yk_ffi_gui.dll`) in a folder on your `PATH`.
 
