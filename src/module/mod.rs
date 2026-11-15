@@ -271,42 +271,7 @@ impl ModuleLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::io::Write;
-
-    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    struct TempDir {
-        path: PathBuf,
-    }
-
-    impl TempDir {
-        fn new() -> Self {
-            let n = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!("yk_test_{}", n));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
-    fn write_file(dir: &Path, name: &str, content: &str) {
-        let path = dir.join(name);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        let mut file = fs::File::create(&path).unwrap();
-        write!(file, "{}", content).unwrap();
-    }
+    use crate::test_support::{write_file, TempDir};
 
     #[test]
     fn load_single_file() {

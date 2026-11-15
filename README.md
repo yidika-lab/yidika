@@ -106,10 +106,14 @@ yidi test.yk --watch
 # Build for production
 yidi build test.yk
 
-# Package management
-yidi add <package>
-yidi install
+# Projects and packages
+yidi init my-app             # new project in ./my-app (or `yidi init` in an empty folder)
+yidi add github:user/repo    # clone into lib/repo and record it in project.toml
+yidi sync                    # install missing packages and update the others
+yidi remove repo             # delete lib/repo and its project.toml entry
 ```
+
+A package is a git repository cloned into `lib/<name>/` next to `project.toml`; `yidi init` adds `lib/` to `.gitignore`, so a fresh checkout runs `yidi sync`. Import what a package marks `export fn` by path, for example `use {hello} from "./lib/greet/main.yk";`.
 
 ### Hello World
 
