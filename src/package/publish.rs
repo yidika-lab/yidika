@@ -77,12 +77,11 @@ fn check_entry_file(root: &Path, name: &str) -> Result<(), String> {
 }
 
 fn committed_hash(root: &Path) -> Result<String, String> {
-    let output = Command::new("git").arg("-C").arg(root).args(["archive", "--format=tar.gz", "--prefix=package/", "HEAD"]).output().map_err(|e| format!("cannot run git archive: {}", e))?;
-    if !output.status.success() {
-        return Err(format!("git archive failed: {}", String::from_utf8_lossy(&output.stderr).trim()));
-    }
-    let staging = std::env::temp_dir().join(format!("yidi-publish-{}", std::process::id()));
-    let result = fetch::unpack(&output.stdout, &staging).and_then(|_| tree::hash(&staging));
+    let bytes = fetch::archive(root, "HEAD")?;
+    static RUNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staging = std::env::temp_dir().join(format!("yidi-publish-{}-{}", std::process::id(), run));
+    let result = fetch::unpack(&bytes, &staging).and_then(|_| tree::hash(&staging));
     let _ = std::fs::remove_dir_all(&staging);
     result
 }
@@ -163,6 +162,16 @@ mod tests {
         let url = format!("file://{}", pkg.path().display().to_string().replace('\\', "/"));
         fetch::fetch(&url, &p.commit, &copy.path().join("c")).unwrap();
         assert_eq!(p.entry.releases[0].hash, tree::hash(&copy.path().join("c")).unwrap());
+    }
+
+    #[test]
+    fn the_hash_ignores_the_line_ending_settings_of_the_machine() {
+        let pkg = package("1.0.0");
+        let index = TempDir::new();
+        let plain = prepare(pkg.path(), &Index::Dir(index.path().to_path_buf())).unwrap();
+        run(pkg.path(), &["config", "core.autocrlf", "true"]);
+        let converted = prepare(pkg.path(), &Index::Dir(index.path().to_path_buf())).unwrap();
+        assert_eq!(plain.entry.releases[0].hash, converted.entry.releases[0].hash);
     }
 
     #[test]

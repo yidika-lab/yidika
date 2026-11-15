@@ -80,26 +80,32 @@ fn without_top_dir(path: &Path) -> Option<PathBuf> {
 }
 
 fn fetch_git(url: &str, commit: &str, dest: &Path) -> Result<(), String> {
-    let _ = fs::remove_dir_all(dest);
-    fs::create_dir_all(dest).map_err(|e| format!("cannot create {}: {}", dest.display(), e))?;
-    let git = |args: &[&str]| -> Result<(), String> {
-        let output = Command::new("git").arg("-C").arg(dest).args(args).output().map_err(|e| format!("cannot run git ({}): is git installed?", e))?;
-        if output.status.success() {
-            Ok(())
-        } else {
-            Err(format!("cannot fetch {} at {}: {}", url, commit, String::from_utf8_lossy(&output.stderr).trim()))
-        }
-    };
-    let result = git(&["init", "-q"])
-        .and_then(|_| git(&["fetch", "-q", "--depth", "1", "--", url, commit]))
-        .and_then(|_| git(&["-c", "advice.detachedHead=false", "checkout", "-q", "FETCH_HEAD"]));
-    match result {
-        Ok(()) => fs::remove_dir_all(dest.join(".git")).map_err(|e| format!("cannot clean {}: {}", dest.display(), e)),
-        Err(e) => {
-            let _ = fs::remove_dir_all(dest);
-            Err(e)
-        }
+    let repo = dest.with_extension("git");
+    let _ = fs::remove_dir_all(&repo);
+    fs::create_dir_all(&repo).map_err(|e| format!("cannot create {}: {}", repo.display(), e))?;
+    let result = git(&repo, &["init", "-q", "--bare"])
+        .and_then(|_| git(&repo, &["fetch", "-q", "--depth", "1", "--", url, commit]))
+        .and_then(|_| archive(&repo, "FETCH_HEAD"))
+        .and_then(|bytes| unpack(&bytes, dest))
+        .map_err(|e| format!("cannot fetch {} at {}: {}", url, commit, e));
+    let _ = fs::remove_dir_all(&repo);
+    if result.is_err() {
+        let _ = fs::remove_dir_all(dest);
     }
+    result
+}
+
+fn git(repo: &Path, args: &[&str]) -> Result<Vec<u8>, String> {
+    let output = Command::new("git").arg("-C").arg(repo).args(args).output().map_err(|e| format!("cannot run git ({}): is git installed?", e))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+pub fn archive(repo: &Path, revision: &str) -> Result<Vec<u8>, String> {
+    git(repo, &["-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive", "--format=tar.gz", "--prefix=package/", revision])
 }
 
 #[cfg(test)]
