@@ -897,34 +897,10 @@ impl<'a> TypeChecker<'a> {
                 Ok(TypeExpr::Matrix(Box::new(elem_ty)))
             }
             Expr::FnLit(params, ret_type, body) => {
-                let saved = self.vars.clone();
-                let mut param_types = Vec::new();
-                for p in params {
-                    let pt = self.resolve_type(&p.type_expr.value);
-                    param_types.push(pt);
-                    self.vars.insert(p.name.clone(), VarInfo { type_expr: self.resolve_type(&p.type_expr.value), is_const: false, moved: false });
-                }
-                let rt = ret_type.as_ref().map(|t| self.resolve_type(&t.value)).unwrap_or(TypeExpr::Infer);
-                if !matches!(rt, TypeExpr::Infer) {
-                    let _body_ty = self.check_expr(body)?;
-                } else {
-                    self.check_expr(body)?;
-                }
-                self.vars = saved;
-                Ok(TypeExpr::Fn(param_types, Box::new(rt)))
+                let declared = ret_type.as_ref().map(|t| self.resolve_type(&t.value)).unwrap_or(TypeExpr::Infer);
+                self.check_lambda(params, declared, body)
             }
-            Expr::Closure(params, body) => {
-                let saved = self.vars.clone();
-                let mut param_types = Vec::new();
-                for p in params {
-                    let pt = self.resolve_type(&p.type_expr.value);
-                    param_types.push(pt);
-                    self.vars.insert(p.name.clone(), VarInfo { type_expr: self.resolve_type(&p.type_expr.value), is_const: false, moved: false });
-                }
-                self.check_expr(body)?;
-                self.vars = saved;
-                Ok(TypeExpr::Fn(param_types, Box::new(TypeExpr::Infer)))
-            }
+            Expr::Closure(params, body) => self.check_lambda(params, TypeExpr::Infer, body),
             Expr::StructLit(name, fields) => {
                 let struct_def_opt = self.env.get_struct(name).cloned();
                 if let Some(struct_def) = struct_def_opt {
@@ -1028,6 +1004,21 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
+    fn check_lambda(&mut self, params: &[Param], declared_ret: TypeExpr, body: &ExprNode) -> Result<TypeExpr> {
+        let saved_vars = self.vars.clone();
+        let saved_ret = self.current_fn_ret_type.replace(declared_ret.clone());
+        let param_types: Vec<TypeExpr> = params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect();
+        for (p, ty) in params.iter().zip(&param_types) {
+            self.vars.insert(p.name.clone(), VarInfo { type_expr: ty.clone(), is_const: false, moved: false });
+        }
+        let checked = self.check_expr(body);
+        let ret = self.current_fn_ret_type.take().unwrap_or(declared_ret);
+        self.current_fn_ret_type = saved_ret;
+        self.vars = saved_vars;
+        checked?;
+        Ok(TypeExpr::Fn(param_types, Box::new(ret)))
+    }
+
     fn resolve_type(&self, t: &TypeExpr) -> TypeExpr {
         match t {
             TypeExpr::Named(name) => self.types.get(name).cloned()
@@ -1088,6 +1079,24 @@ mod tests {
 
     fn fn_type(params: Vec<TypeExpr>, ret: TypeExpr) -> TypeExpr {
         TypeExpr::Fn(params, Box::new(ret))
+    }
+
+    fn check(source: &str) -> Result<()> {
+        let module = crate::syntax::parser::Parser::parse(source).unwrap();
+        let mut env = crate::semantic::env::Env::new();
+        TypeChecker::new(&mut env).check_module(&module)
+    }
+
+    #[test]
+    fn a_return_inside_a_lambda_does_not_type_the_enclosing_function() {
+        assert!(check("fn main() { a = () => { return 4; }; b = () => { return \"x\"; }; print(a()); print(b()); }").is_ok());
+        assert!(check("fn main() { a = () => { return \"x\"; }; return; }").is_ok());
+        assert!(check("fn main() { f = fn() -> int { return 1; }; g = fn() -> str { return \"s\"; }; print(f()); print(g()); }").is_ok());
+    }
+
+    #[test]
+    fn a_lambda_body_still_checks_against_its_declared_return_type() {
+        assert!(check("fn main() { f = fn() -> int { return \"s\"; }; print(f()); }").is_err());
     }
 
     #[test]
