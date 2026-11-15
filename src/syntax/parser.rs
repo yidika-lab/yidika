@@ -267,7 +267,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     // ─── Items ────────────────────────────────────────
 
     fn item(&mut self) -> Result<ItemNode> {
-        // @use() or @align(N) decorators — consume and apply to next item
+        // @use() or @align(N) decorators - consume and apply to next item
         if let Token::SymbolLit(sym) = self.tok() {
             let name = sym[1..].to_string(); // strip @
             self.advance();
@@ -1092,7 +1092,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 args.push(lambda);
             }
         }
-        // Trailing block: app.get("/") { body } — sugar for app.get("/", fn() { body })
+        // Trailing block: app.get("/") { body } - sugar for app.get("/", fn() { body })
         if self.tok() == &Token::LBrace {
             if let Expr::Call(func_expr, ref mut args) = &mut lhs.value {
                 if is_method_call(&func_expr.value, &["get", "post", "put", "delete", "patch", "ws", "serve"]) {
@@ -1224,7 +1224,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                             }).collect();
                             Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(params, Box::new(body))))
                         } else {
-                            // Check if all items are list literals → matrix
+                            // Check if all items are list literals -> matrix
                             let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
                             if all_list && items.len() >= 1 {
                                 let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
@@ -1262,19 +1262,19 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 let is_map = match tok {
                     Token::RBrace => true,  // empty {}
                     Token::Ident(_) => {
-                        // ident followed by ':', ',' or '}' → map
+                        // ident followed by ':', ',' or '}' -> map
                         self.tokens.get(self.pos + 1)
                             .map(|(t, _)| matches!(t, Token::Colon | Token::Comma | Token::RBrace))
                             .unwrap_or(false)
                     }
                     Token::StrLit(_) | Token::IntLit(_) | Token::RealLit(_) => {
-                        // str/int/real followed by ':' → map
+                        // str/int/real followed by ':' -> map
                         self.tokens.get(self.pos + 1)
                             .map(|(t, _)| t == &Token::Colon)
                             .unwrap_or(false)
                     }
                     Token::LBracket => {
-                        // [expr]: → computed property
+                        // [expr]: -> computed property
                         let mut found = false;
                         for i in (self.pos + 1)..(self.pos + 20).min(self.tokens.len()) {
                             if matches!(&self.tokens[i].0, Token::RBracket) {
@@ -1332,7 +1332,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     }
                     Ok(ExprNode::new(fresh_id(), span, Expr::MapLit(pairs)))
                 } else {
-                    // Check if comma-separated values → set literal: { 1, 2, 3 }
+                    // Check if comma-separated values -> set literal: { 1, 2, 3 }
                     let mut depth = 0i32;
                     let mut is_set = false;
                     for (tok, _) in self.tokens.iter().skip(self.pos + 1).take(100) {

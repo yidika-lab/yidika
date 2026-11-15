@@ -38,7 +38,7 @@ impl ModuleLoader {
                 .collect();
             return Err(error::err(
                 ErrorKind::Internal, Span::new(0, 0),
-                format!("Circular import detected: {}", cycle.join(" → ")),
+                format!("Circular import detected: {}", cycle.join(" -> ")),
             ));
         }
 
@@ -152,7 +152,7 @@ impl ModuleLoader {
         }
 
         if src_path.is_dir() {
-            // Cargo project — run cargo build
+            // Cargo project - run cargo build
             let output = std::process::Command::new("cargo")
                 .args(["build", "--release", "--message-format=json"])
                 .current_dir(&src_path)
@@ -165,7 +165,7 @@ impl ModuleLoader {
                     format!("cargo build failed for FFI: {}", stderr)));
             }
         } else {
-            // Single .rs file — compile with rustc
+            // Single .rs file - compile with rustc
             let output = std::process::Command::new("rustc")
                 .args(["--crate-type", "cdylib", "-o"])
                 .arg(&dll_path)

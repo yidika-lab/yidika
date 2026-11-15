@@ -1,22 +1,22 @@
 # Yidika (yidi)
 
-A **modern systems programming language** designed for **hardware-aware computing** — blending the safety and expressiveness of Rust with the ergonomics of modern scripting languages.
+A **modern systems programming language** designed for **hardware-aware computing** - blending the safety and expressiveness of Rust with the ergonomics of modern scripting languages.
 
-> **Status**: MVP / Experimental — parsing, type checking, and an interpreter are functional.
+> **Status**: MVP / Experimental - parsing, type checking, and an interpreter are functional.
 
 ---
 
 ## Features
 
-- **Mutable by default** — variables are mutable unless declared `const`
+- **Mutable by default** - variables are mutable unless declared `const`
 - **Strong, static typing** with type inference
-- **Algebraic data types** — structs, unions, type aliases, generics
+- **Algebraic data types** - structs, unions, type aliases, generics
 - **Pattern matching** (`match`) with guards
 - **Async/await & spawn** (parsed; synchronous runtime for now)
 - **Module system** with relative path imports
-- **FFI** — import C/C++/Rust symbols via `use from "lang:path"`
-- **Built-in collections** — lists, maps, sets (interpreter support in progress)
-- **Rich type system** — `int`, `rint`, `real`, `bool`, `str`, `symbol`, `null`, `None`, vectors, matrices
+- **FFI** - import C/C++/Rust symbols via `use from "lang:path"`
+- **Built-in collections** - lists, maps, sets (interpreter support in progress)
+- **Rich type system** - `int`, `rint`, `real`, `bool`, `str`, `symbol`, `null`, `None`, vectors, matrices
 
 ---
 
@@ -24,25 +24,74 @@ A **modern systems programming language** designed for **hardware-aware computin
 
 ### Install
 
-Linux and macOS:
+Prebuilt binaries are published on [GitHub Releases](https://github.com/yidika-lab/yidika/releases) for every tagged version. The install scripts pick the right one for your machine, check its SHA-256 checksum and put `yidi` in `~/.yidi/bin`. Nothing else on the system is touched and no admin rights are needed.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
-```
+| OS | Architectures | Requirements |
+|---|---|---|
+| Windows | x86_64; ARM64 runs the x86_64 build through Windows 11 emulation | Windows 10 or 11, PowerShell 5.1 or later |
+| macOS | Apple Silicon (arm64), Intel (x86_64) | macOS 11 or later |
+| Linux | x86_64, aarch64 | glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36 and newer) |
 
-Windows (PowerShell):
+#### Windows
+
+Open PowerShell (no need for an administrator window) and run:
 
 ```powershell
 irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex
 ```
 
-Both scripts download a prebuilt binary from [GitHub Releases](https://github.com/yidika-lab/yidika/releases), verify its SHA-256 checksum, and install it to `~/.yidi/bin`. Set `YIDI_VERSION=v0.1.0` to pin a version, or `YIDI_HOME` to change the install location. Check the install with `yidi --version`.
+The script adds `%USERPROFILE%\.yidi\bin` to your user `PATH`. Open a new terminal, then check:
 
-Prebuilt targets: Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64. The interpreter (`yidi run`) works on all of them; native compilation (`yidi build`) currently needs Windows with LLVM and the MSVC Build Tools.
+```powershell
+yidi --version
+```
+
+#### macOS
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
+```
+
+Then add `yidi` to your `PATH` (zsh is the default shell on macOS):
+
+```sh
+echo 'export PATH="$HOME/.yidi/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+yidi --version
+```
+
+#### Linux
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
+```
+
+Then add `yidi` to your `PATH` (use `~/.zshrc` instead if your shell is zsh):
+
+```sh
+echo 'export PATH="$HOME/.yidi/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+yidi --version
+```
+
+#### Options, updates and removal
+
+| Task | Linux and macOS | Windows (PowerShell) |
+|---|---|---|
+| Install a specific version | `curl -fsSL .../install.sh \| YIDI_VERSION=v0.1.0 sh` | `$env:YIDI_VERSION='v0.1.0'; irm .../install.ps1 \| iex` |
+| Install somewhere else | `YIDI_HOME=/opt/yidi` before `sh` | `$env:YIDI_HOME='D:\tools\yidi'` before `irm` |
+| Update | Run the install command again | Run the install command again |
+| Uninstall | `rm -rf ~/.yidi`, then remove the `PATH` line from your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
+
+Prefer not to pipe a script into your shell? Download the archive for your platform from the [latest release](https://github.com/yidika-lab/yidika/releases/latest), check it against its `.sha256` file (`sha256sum -c`, `shasum -a 256 -c` or `Get-FileHash`), extract it and put `yidi` (or `yidi.exe` with its `yk_ffi_gui.dll`) in a folder on your `PATH`.
+
+#### What works on each platform
+
+The interpreter (`yidi file.yk`, `yidi run`) works on every platform above. Native compilation (`yidi build`) currently needs Windows with LLVM and the Visual Studio Build Tools; Linux and macOS support is tracked in [#3](https://github.com/yidika-lab/yidika/issues/3).
 
 ### Build from source
 
-Requires [Rust](https://www.rust-lang.org/) stable (via `rustup`) and a C toolchain (`build-essential` on Debian/Ubuntu, Xcode Command Line Tools on macOS, MSVC Build Tools on Windows).
+Requires [Rust](https://www.rust-lang.org/) stable (via `rustup`) and a C toolchain: `build-essential` on Debian/Ubuntu, Xcode Command Line Tools (`xcode-select --install`) on macOS, Visual Studio Build Tools on Windows.
 
 ```sh
 cargo install --git https://github.com/yidika-lab/yidika yidi
@@ -59,7 +108,7 @@ cargo build --release
 ### Usage
 
 ```sh
-# Run a .yk file (interpreter — quiet, just output)
+# Run a .yk file (interpreter - quiet, just output)
 yidi test.yk
 
 # Run with file watching
@@ -84,7 +133,7 @@ fn main() {
 
 Run it:
 ```sh
-cargo run -- hello.yk
+yidi hello.yk
 ```
 
 ### More examples
@@ -155,8 +204,8 @@ src/
 ## Language Specification
 
 Detailed specs are in [`docs/dev/`](docs/dev/):
-- [MVP Specification](docs/dev/SPEC_MVP.md) — complete language reference
-- [Architecture](docs/dev/ARCHITECTURE.md) — compiler pipeline & MLIR/LLVM strategy
+- [MVP Specification](docs/dev/SPEC_MVP.md) - complete language reference
+- [Architecture](docs/dev/ARCHITECTURE.md) - compiler pipeline & MLIR/LLVM strategy
 - [Type System](docs/dev/TYPE_SYSTEM.md)
 - [Memory Model](docs/dev/MEMORY_MODEL.md)
 - [Module System](docs/dev/MODULE_SYSTEM.md)
@@ -187,7 +236,7 @@ cargo run -- test.yk --watch  # Watch mode
 - [x] Type checker (env + type inference)
 - [x] Module loader (import resolution, cycle detection)
 - [x] Tree-walking interpreter
-- [ ] Code generation (MLIR dialect → LLVM IR)
+- [ ] Code generation (MLIR dialect -> LLVM IR)
 - [ ] Full async runtime
 - [ ] GPU/NPU backend
 - [ ] Package manager
@@ -203,7 +252,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT - see [LICENSE](LICENSE).
 
 Copyright (c) 2022 Espoir LOEMBA
 

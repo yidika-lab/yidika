@@ -1,4 +1,4 @@
-# Python vs Yidika — Syntax Comparison
+# Python vs Yidika - Syntax Comparison
 
 ## Variables
 
@@ -16,19 +16,19 @@ y = "hello"
 z: const<bool> = true
 ```
 
-> Yidika sépare déclaration (`x: int = 5`) et assignation (`x = 10`). Pas de mot-clé `let`/`var` — le `:` fait la différence.
+> Yidika sépare déclaration (`x: int = 5`) et assignation (`x = 10`). Pas de mot-clé `let`/`var` - le `:` fait la différence.
 
 ## Types primitifs
 
 | Concept | Python | Yidika |
 |---------|--------|--------|
 | Entier | `int` | `int` (ou `int8`, `int16`, `int32`, `int64`) |
-| Entier rangeé | — | `rint`, `rint32` |
+| Entier rangeé | - | `rint`, `rint32` |
 | Flottant | `float` | `real` (ou `real16`, `real32`, `real64`) |
 | Booléen | `bool` | `bool` |
 | Chaîne | `str` | `str` |
 | Complexe | `complex` | `complex` |
-| Symbole | — | `symbol` |
+| Symbole | - | `symbol` |
 | Aucun | `None` | `null` / `None` |
 
 ## Types composés
@@ -150,7 +150,7 @@ while (i < 3) { print(i); i = i + 1 }
 loop { print("infini") }
 ```
 
-> Yidika supporte le C-style `for (init; cond; inc)`, pas de `for i in range()` — les ranges sont `0..3`. L'indentation Python est remplacée par `{ }`.
+> Yidika supporte le C-style `for (init; cond; inc)`, pas de `for i in range()` - les ranges sont `0..3`. L'indentation Python est remplacée par `{ }`.
 
 ## Classes
 
@@ -177,7 +177,7 @@ p = Point { x: 10, y: 20 }
 p = Point(10, 20)
 ```
 
-> En Yidika, les paramètres du constructeur principal deviennent automatiquement des champs — similaire à `@dataclass` mais natif. Self s'écrit `&self` pour la référence.
+> En Yidika, les paramètres du constructeur principal deviennent automatiquement des champs - similaire à `@dataclass` mais natif. Self s'écrit `&self` pour la référence.
 
 ## Héritage
 
@@ -249,7 +249,7 @@ enum Color {
 }
 ```
 
-> Yidika n'a pas besoin d'importer `Enum` — c'est natif.
+> Yidika n'a pas besoin d'importer `Enum` - c'est natif.
 
 ## Gestion d'erreurs
 
@@ -281,7 +281,7 @@ def foo() -> int:
 ```
 
 ```yidika
-# Yidika — propagation automatique
+# Yidika - propagation automatique
 fn foo() -> int {
     x: int = risky()?  // propage Error vers l'appelant
     return x
@@ -410,12 +410,12 @@ fn identity<T>(x: T) -> T { return x }
 struct Box<T> { val: T }
 ```
 
-> En Yidika les génériques sont natifs et intégrés dans la syntaxe — pas besoin de `TypeVar` ou `Generic`.
+> En Yidika les génériques sont natifs et intégrés dans la syntaxe - pas besoin de `TypeVar` ou `Generic`.
 
 ## Comparaison des blocs et de l'indentation
 
 ```python
-# Python — indentation significative
+# Python - indentation significative
 def foo(x):
     if x > 0:
         for i in range(x):
@@ -425,7 +425,7 @@ def foo(x):
 ```
 
 ```yidika
-# Yidika — accolades, pas d'indentation significative
+# Yidika - accolades, pas d'indentation significative
 fn foo(x: int) {
     if (x > 0) {
         for (i: int = 0; i < x; i = i + 1) {

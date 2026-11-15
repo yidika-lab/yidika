@@ -1,9 +1,9 @@
-# Generic Structs & Classes — Implementation Plan
+# Generic Structs & Classes - Implementation Plan
 
 ## Goal
 Support `struct Pair<T, U> { first: T; second: U; }` and `class Box<T> { value: T; fn get(self) -> T { ... } }` with type-checked instantiations.
 
-## 1. Type Checker — `src/semantic/typeck.rs`
+## 1. Type Checker - `src/semantic/typeck.rs`
 
 ### 1a. New structs (after `GenericFnDef`, line ~237)
 
@@ -13,7 +13,7 @@ struct GenericClassDef { fields: Vec<Param>, methods: Vec<ItemKind>, generics: V
 ```
 
 ### 1b. `mangle_struct_name(name, &[TypeExpr]) -> String`
-Safe LLVM name: `Pair` + `int` + `str` → `Pair-int-str`, nested: `List-int` etc.
+Safe LLVM name: `Pair` + `int` + `str` -> `Pair-int-str`, nested: `List-int` etc.
 Replace non-alphanumeric chars with nothing.
 
 ### 1c. Add fields to `TypeChecker` struct
@@ -30,13 +30,13 @@ Remove `#[allow(dead_code)]` from `GenericFnDef.body`.
 
 ### 1e. `check_item` for `ItemKind::Class`
 - Currently unhandled (falls through to `_ => Ok(())`)
-- Same logic: if generics empty → register class, if non-empty → store in `generic_classs`
+- Same logic: if generics empty -> register class, if non-empty -> store in `generic_classs`
 
-### 1f. `resolve_type` — handle `TypeExpr::Generic`
+### 1f. `resolve_type` - handle `TypeExpr::Generic`
 When `Pair<int, str>` is used as a type annotation:
 1. Look up `"Pair"` in `generic_structs` (or `generic_classs`)
-2. Create mangled name: `mangle_struct_name("Pair", &[Int(0), Str])` → `"Pair-int-str"`
-3. Substitute type params in field types → concrete field types
+2. Create mangled name: `mangle_struct_name("Pair", &[Int(0), Str])` -> `"Pair-int-str"`
+3. Substitute type params in field types -> concrete field types
 4. Store in `struct_fields["Pair-int-str"]`
 5. Register in `self.types["Pair-int-str"] = Named("Pair-int-str")`
 6. Return `Named("Pair-int-str")`
@@ -83,7 +83,7 @@ Expr::StructLit(sname, fields) => {
         }
         Ok(TypeExpr::Named(sname.clone()))
     }
-    // Check generic struct — infer type params from field values
+    // Check generic struct - infer type params from field values
     else if let Some(gdef) = self.generic_structs.get(sname) {
         let mut type_args = HashMap::new();
         for (fname, fexpr) in fields {
@@ -115,7 +115,7 @@ Expr::StructLit(sname, fields) => {
 }
 ```
 
-### 1h. `Expr::Field(obj, field)` — return correct type
+### 1h. `Expr::Field(obj, field)` - return correct type
 Currently the field access falls through to `_ => Ok(TypeExpr::Infer)` too. Need to add a handler that:
 1. Dermine `obj` type
 2. If `Named("Pair-int-str")` or similar, strip mangled name
@@ -145,13 +145,13 @@ When a generic class method is called, same pattern as generic fn:
 2. Instantiate method signatures: substitute type params in params + ret_type
 3. Type-check method body with concrete param types
 
-## 2. Parser — `src/syntax/parser.rs`
+## 2. Parser - `src/syntax/parser.rs`
 No changes needed. Already parses:
-- `struct Pair<T, U> { ... }` → `ItemKind::Struct { generics: ["T", "U"] }`
-- `Pair<int, str>` in type context → `TypeExpr::Generic`
-- `Pair { first: 42, ... }` → `Expr::StructLit("Pair", ...)`
+- `struct Pair<T, U> { ... }` -> `ItemKind::Struct { generics: ["T", "U"] }`
+- `Pair<int, str>` in type context -> `TypeExpr::Generic`
+- `Pair { first: 42, ... }` -> `Expr::StructLit("Pair", ...)`
 
-## 3. Codegen — `src/codegen/llvm.rs`
+## 3. Codegen - `src/codegen/llvm.rs`
 
 ### 3a. Add `generic_struct_defs: HashMap<String, Vec<Param>>` and `generic_class_defs` to `LlvmCodegen`
 
@@ -167,7 +167,7 @@ No changes needed. Already parses:
 
 ### 3e. Field access: handle mangled names (strip `%struct.` prefix works regardless)
 
-## 4. Tests — `src/lib.rs`
+## 4. Tests - `src/lib.rs`
 
 ```rust
 #[test]

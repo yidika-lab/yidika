@@ -92,7 +92,7 @@ mod tests {
         // Both should parse as numbers (approximate comparison)
         let interp_num: i64 = interp_norm.parse().expect("compat_{}: interp not a number");
         let aot_num: i64 = aot_norm.parse().expect("compat_{}: aot not a number");
-        // Just verify they're valid — don't compare exact values (PID, timestamps differ)
+        // Just verify they're valid - don't compare exact values (PID, timestamps differ)
         assert!(interp_num > 0, "compat_{}: interp value must be positive", test_name);
         assert!(aot_num > 0, "compat_{}: aot value must be positive", test_name);
     }
@@ -1309,7 +1309,7 @@ fn main() {{
             if frame_end > resp.len() { break; }
 
             if frame_type == 0x04 && (frame_flags & 0x01) == 0 {
-                // Non-ACK SETTINGS from server — just skip
+                // Non-ACK SETTINGS from server - just skip
             } else if frame_type == 0x01 && (frame_flags & 0x04) != 0 { // HEADERS + END_HEADERS
                 found_headers = true;
                 // HPACK block should contain extended status (index 8 = :status 200 = 0x88)
@@ -1319,7 +1319,7 @@ fn main() {{
                     "expected :status 200 HPACK (0x88), got 0x{:02x}", payload[0]);
                 break;
             } else if frame_type == 0x00 { // DATA
-                // Body frame — just track it
+                // Body frame - just track it
             }
             pos = frame_end;
         }

@@ -12,6 +12,10 @@ $Repo = 'yidika-lab/yidika'
 function Get-Target {
     switch ($env:PROCESSOR_ARCHITECTURE) {
         'AMD64' { return 'x86_64-pc-windows-msvc' }
+        'ARM64' {
+            Write-Host 'yidi-install: no native ARM64 build yet, installing the x86_64 build (runs under Windows 11 x64 emulation)'
+            return 'x86_64-pc-windows-msvc'
+        }
         default { throw "unsupported CPU architecture: $($env:PROCESSOR_ARCHITECTURE)" }
     }
 }

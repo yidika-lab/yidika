@@ -1,5 +1,5 @@
 fn main() {
-    // Test 1: Simple inheritance — access parent field
+    // Test 1: Simple inheritance - access parent field
     dog = Dog { name: "Rex", breed: "Labrador" };
     println(dog.name);
     println(dog.breed);

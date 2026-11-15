@@ -1,4 +1,4 @@
-# Yidika — Specification MVP
+# Yidika - Specification MVP
 
 ## 1. Syntaxe générale
 
@@ -251,7 +251,7 @@ let [a, b] = [1, 2];
 
 ---
 
-## 12. Opérateurs (priorité haute → basse)
+## 12. Opérateurs (priorité haute -> basse)
 
 | Priorité | Opérateurs |
 |----------|------------|

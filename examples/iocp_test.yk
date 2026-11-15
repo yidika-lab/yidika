@@ -10,7 +10,7 @@ fn used(req: auto)->auto {
 
 fn main() {
     app: Server = Server();
-    app.get("/", "Static text — literal string");
+    app.get("/", "Static text - literal string");
     app.get("/hello", hello);
     app.get("/he", used);
     app.serve(3000);

@@ -36,6 +36,20 @@ jobs:
             echo "::warning title=Formatting backlog::${files} files differ from cargo fmt; not caused by this change, see issue #2"
           fi
 
+  style:
+    name: Style (no AI-tell characters)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject em dashes, curly quotes, ellipses, arrows and invisible spaces
+        shell: bash
+        run: |
+          pattern='[\x{2013}\x{2014}\x{2018}\x{2019}\x{201C}\x{201D}\x{2026}\x{2190}\x{2192}\x{21D2}\x{00D7}\x{00A0}\x{200B}\x{200D}\x{FEFF}]'
+          if git grep -nIP "$pattern" -- . ':!AGENTS.md'; then
+            echo "::error title=AI-tell characters::Replace the characters above, see AGENTS.md 'Writing and design style'"
+            exit 1
+          fi
+
   clippy:
     name: Clippy (gui crate, blocking)
     runs-on: ubuntu-latest

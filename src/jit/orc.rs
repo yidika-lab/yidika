@@ -29,7 +29,7 @@ impl OrcJit {
     pub fn new(api: LlvmApi) -> Result<Self> {
         unsafe {
             // On this LLVM build, target init functions may crash when
-            // called from ORC. Skip them — LLJIT will return a clear
+            // called from ORC. Skip them - LLJIT will return a clear
             // "no targets registered" error and the caller should fall
             // back to MCJIT.
 
@@ -51,7 +51,7 @@ impl OrcJit {
 
             if !err.is_null() {
                 // Builder was moved-from during the failed attempt.
-                // Do NOT dispose builder — it was consumed by the failed JIT
+                // Do NOT dispose builder - it was consumed by the failed JIT
                 // attempt. Just consume the error.
                 let msg = api.consume_orc_error(err);
                 return Err(error::err(ErrorKind::Internal, Span::new(0, 0),

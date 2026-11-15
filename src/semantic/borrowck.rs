@@ -270,7 +270,7 @@ impl BorrowChecker {
                     span.start, span.end, name
                 ));
             }
-            _ => {} // Live or borrowed — can read
+            _ => {} // Live or borrowed - can read
         }
     }
 }
