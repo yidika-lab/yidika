@@ -2,6 +2,15 @@ use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 
 pub type ValueMap = indexmap::IndexMap<String, Value>;
+pub type Shared = std::sync::Arc<std::sync::Mutex<Value>>;
+
+pub fn read_shared(cell: &Shared) -> Value {
+    cell.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+pub fn write_shared(cell: &Shared, value: Value) {
+    *cell.lock().unwrap_or_else(|e| e.into_inner()) = value;
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -21,6 +30,7 @@ pub enum Value {
     Instance(String, Vec<Value>),
     Variant(String, Vec<Value>),
     Fn(crate::interpret::class::FnDef),
+    Cell(Shared),
     Result(bool, Box<Value>),
     Null,
     None_,
@@ -28,6 +38,12 @@ pub enum Value {
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
+        if let Value::Cell(c) = self {
+            return read_shared(c) == *other;
+        }
+        if let Value::Cell(c) = other {
+            return *self == read_shared(c);
+        }
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Real(a), Value::Real(b)) => a == b,
@@ -57,6 +73,7 @@ impl PartialEq for Value {
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Value::Cell(c) => write!(f, "{}", read_shared(c)),
             Value::Int(i) => write!(f, "{}", i),
             Value::Real(r) => write!(f, "{}", r),
             Value::Bool(b) => write!(f, "{}", b),

@@ -574,6 +574,7 @@ pub fn value_to_json(v: &Value) -> serde_json::Value {
             serde_json::Value::Object(m)
         }
         Value::Fn(_) => serde_json::Value::Null,
+        Value::Cell(cell) => value_to_json(&crate::interpret::value::read_shared(cell)),
     }
 }
 
