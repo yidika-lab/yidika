@@ -172,7 +172,7 @@ mod tests {
         assert!(matches!(Index::from_setting(None), Index::Http(u) if u == DEFAULT_BASE));
         assert!(matches!(Index::from_setting(Some(" ")), Index::Http(u) if u == DEFAULT_BASE));
         assert!(matches!(Index::from_setting(Some("https://mirror.example/idx/")), Index::Http(u) if u == "https://mirror.example/idx"));
-        assert!(matches!(Index::from_setting(Some("/srv/registry")), Index::Dir(d) if d == PathBuf::from("/srv/registry")));
+        assert!(matches!(Index::from_setting(Some("/srv/registry")), Index::Dir(d) if d.as_path() == std::path::Path::new("/srv/registry")));
     }
 
     #[test]
