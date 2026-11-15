@@ -102,17 +102,14 @@ fn detect_simd() -> SimdCapabilities {
 
     #[cfg(target_arch = "aarch64")]
     {
-        let mut simd = SimdCapabilities {
+        return SimdCapabilities {
             sse: false, sse2: false, sse3: false, ssse3: false,
             sse4_1: false, sse4_2: false,
             avx: false, avx2: false, avx512: false,
             neon: true,
-            sve: false,
+            sve: cfg!(target_feature = "sve"),
             amx: false,
         };
-        #[cfg(target_feature = "sve")]
-        { simd.sve = true; }
-        return simd;
     }
 
     #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]

@@ -8215,7 +8215,7 @@ pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str
         let name = std::ffi::CString::new("yk").unwrap();
         let membuf = (api.LLVMCreateMemoryBufferWithMemoryRange)(ir_str.as_ptr(), llvm_ir.len(), name.as_ptr(), 1);
         let mut module: *mut std::ffi::c_void = std::ptr::null_mut();
-        let mut err: *mut i8 = std::ptr::null_mut();
+        let mut err: *mut std::ffi::c_char = std::ptr::null_mut();
         let parse_rc = (api.LLVMParseIRInContext)(ctx, membuf, &mut module, &mut err);
         if parse_rc != 0 {
             let err_str = api.get_error(err);
@@ -8245,7 +8245,7 @@ pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str
 
         let mut target_ref = (api.LLVMGetFirstTarget)();
         if target_ref.is_null() {
-            let mut err_target: *mut i8 = std::ptr::null_mut();
+            let mut err_target: *mut std::ffi::c_char = std::ptr::null_mut();
             let rc = (api.LLVMGetTargetFromTriple)(triple_c.as_ptr(), &mut target_ref, &mut err_target);
             if rc != 0 || target_ref.is_null() {
                 let err_str = if !err_target.is_null() { api.get_error(err_target) } else { "unknown".into() };
@@ -8268,7 +8268,7 @@ pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str
 
         // Emit to memory buffer
         let mut membuf_out: *mut std::ffi::c_void = std::ptr::null_mut();
-        let mut err2: *mut i8 = std::ptr::null_mut();
+        let mut err2: *mut std::ffi::c_char = std::ptr::null_mut();
         let emit_result = (api.LLVMTargetMachineEmitToMemoryBuffer)(tm, module, 1, &mut err2, &mut membuf_out);
         if emit_result != 0 {
             let err_str = api.get_error(err2);
