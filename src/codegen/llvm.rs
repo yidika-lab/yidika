@@ -4503,6 +4503,13 @@ pub fn compile_to_exe(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo) -> R
     compile_to_exe_with_extra_libs(llvm_ir, output_path, hw, &[])
 }
 
+pub fn toolchain_available() -> bool {
+    #[cfg(windows)]
+    return detect_vcvars().is_some() && detect_clang().is_some();
+    #[cfg(not(windows))]
+    return crate::codegen::posix_toolchain::find_compiler().is_ok();
+}
+
 pub fn compile_to_exe_with_extra_libs(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo, extra_libs: &[String]) -> Result<()> {
     #[cfg(windows)]
     return compile_to_exe_batch(llvm_ir, output_path, hw, extra_libs);
