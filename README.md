@@ -66,7 +66,8 @@ yidi hello.yk
 | Leave my shell profile alone | `curl -fsSL .../install.sh \| YIDI_NO_MODIFY_PATH=1 sh` | Not needed: only the user `PATH` is changed |
 | Do not open a new shell at the end | `curl -fsSL .../install.sh \| YIDI_NO_SHELL=1 sh` | Not applicable |
 | Install somewhere else | `YIDI_HOME=/opt/yidi` before `sh` | `$env:YIDI_HOME='D:\tools\yidi'` before `irm` |
-| Update | Run the install command again | Run the install command again |
+| Update | `yidi upgrade` (or run the install command again) | `yidi upgrade` (or run the install command again) |
+| Check for an update | `yidi upgrade --check` | `yidi upgrade --check` |
 | Uninstall | `rm -rf ~/.yidi`, then delete the `# yidi` line and the line below it in your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
 
 Prefer not to pipe a script into your shell? Download the archive for your platform from the [latest release](https://github.com/yidika-lab/yidika/releases/latest), check it against its `.sha256` file (`sha256sum -c`, `shasum -a 256 -c` or `Get-FileHash`), extract it and put `yidi` (or `yidi.exe` with its `yk_ffi_gui.dll`) in a folder on your `PATH`.
