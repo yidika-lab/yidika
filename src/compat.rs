@@ -584,6 +584,11 @@ mod tests {
     }
 
     #[test]
+    fn compat_equality_on_ints_and_reals() {
+        check_compat("fn main() { a: int = 4; b: real = 0.5; for (i in 1..6) { if (i % 2 == 0) { print(i); } if (i != 3) { print(\"not3\"); } } print(a == 4); print(a != 4); print(b == 0.5); print(b != 0.25); }", "equality");
+    }
+
+    #[test]
     fn compat_range_ascending_includes_both_bounds() {
         check_compat("fn main() { s: str = \"\"; for (i in 1..5) { s = s + str(i) + \",\"; } print(s); }", "range_ascending");
     }

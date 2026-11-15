@@ -2900,11 +2900,13 @@ impl LlvmCodegen {
                 (self.ssa(&tmp), lt)
             }
             BinOp::Eq => {
-                self.e(&format!("%{} = {} oeq {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "oeq" } else { "eq" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Ne => {
-                self.e(&format!("%{} = {} one {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "une" } else { "ne" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Lt => {
