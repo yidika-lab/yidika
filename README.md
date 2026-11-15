@@ -44,10 +44,18 @@ curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh |
 irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex
 ```
 
-That is the whole install. The script also adds `~/.yidi/bin` to your `PATH`: in `~/.zshrc`, `~/.bashrc` (plus `~/.bash_profile` on macOS), fish's `conf.d` or `~/.profile` depending on your shell, and in the user `PATH` on Windows. Open a new terminal and run:
+That is the whole install. The script then:
+
+1. checks the download against its SHA-256 checksum;
+2. runs a test program with the installed `yidi` and prints `self-test passed: Hello from Yidika!`;
+3. adds `~/.yidi/bin` to your `PATH` for future terminals: in `~/.zshrc`, `~/.bashrc` (plus `~/.bash_profile` on macOS), fish's `conf.d` or `~/.profile` depending on your shell, and in the user `PATH` on Windows;
+4. makes `yidi` usable right away. On Windows it works in the same PowerShell window. On Linux and macOS a script piped into `sh` cannot change the shell that started it, so the installer opens a new shell where `yidi` is ready; type `exit` to go back.
+
+Then write your first program (on Windows, create `hello.yk` with any editor and run the second line):
 
 ```sh
-yidi --version
+printf 'fn main() {\n    print("Hello, Yidika!");\n}\n' > hello.yk
+yidi hello.yk
 ```
 
 #### Options, updates and removal
@@ -56,6 +64,7 @@ yidi --version
 |---|---|---|
 | Install a specific version | `curl -fsSL .../install.sh \| YIDI_VERSION=v0.1.0 sh` | `$env:YIDI_VERSION='v0.1.0'; irm .../install.ps1 \| iex` |
 | Leave my shell profile alone | `curl -fsSL .../install.sh \| YIDI_NO_MODIFY_PATH=1 sh` | Not needed: only the user `PATH` is changed |
+| Do not open a new shell at the end | `curl -fsSL .../install.sh \| YIDI_NO_SHELL=1 sh` | Not applicable |
 | Install somewhere else | `YIDI_HOME=/opt/yidi` before `sh` | `$env:YIDI_HOME='D:\tools\yidi'` before `irm` |
 | Update | Run the install command again | Run the install command again |
 | Uninstall | `rm -rf ~/.yidi`, then delete the `# yidi` line and the line below it in your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
