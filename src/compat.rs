@@ -586,6 +586,16 @@ mod tests {
     }
 
     #[test]
+    fn compat_char_values_print_as_characters() {
+        check_compat("fn main() { c = 'A'; print(c); print('\u{e9}'); print(str(c) + \"!\"); print(f`[{c}]`); s: str = \"\"; for (x in 'a'..'e') { s = s + str(x); } print(s); for (y in 'c'..'a') { print(y); } }", "char_values");
+    }
+
+    #[test]
+    fn compat_print_joins_its_arguments_with_spaces() {
+        check_compat("fn main() { n: int = 2; print(\"=\", n, 1.5, true, 'z'); }", "print_args");
+    }
+
+    #[test]
     fn compat_real_prints_the_shortest_round_trip() {
         check_compat("fn main() { print(32.2 + 2.71); print(0.1 + 0.2); print(1.5); print(3.0); print(-0.25); print(1.0 / 3.0); print(123456789.125); print(0.000001); print(1048576.5 * 1048576.0); s: str = str(2.5); print(s); }", "real_format");
     }
@@ -601,6 +611,11 @@ mod tests {
         let line = first_line_before_exit(&exe);
         let _ = std::fs::remove_dir_all(exe.parent().unwrap());
         assert_eq!(line.as_deref(), Some("ready"));
+    }
+
+    #[test]
+    fn compat_equality_on_ints_and_reals() {
+        check_compat("fn main() { a: int = 4; b: real = 0.5; for (i in 1..6) { if (i % 2 == 0) { print(i); } if (i != 3) { print(\"not3\"); } } print(a == 4); print(a != 4); print(b == 0.5); print(b != 0.25); }", "equality");
     }
 
     #[test]

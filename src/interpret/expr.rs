@@ -997,7 +997,7 @@ impl Interpreter {
                                             let key = arg_vals.into_iter().next()
                                                 .ok_or_else(|| self.err(expr.span, "delete requires 1 argument"))?;
                                             match key {
-                                                Value::Str(k) => { m.remove(&k); }
+                                                Value::Str(k) => { m.shift_remove(&k); }
                                                 _ => return Err(self.err(expr.span, "delete key must be a string")),
                                             }
                                             if let Some(ref n) = var_name { self.set_var(n, receiver)?; }

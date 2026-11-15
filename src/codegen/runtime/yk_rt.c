@@ -434,6 +434,25 @@ static yk_string* yk_string_from_buffer(const char* buf, int n) {
     return s;
 }
 
+static int yk_encode_utf8(int64_t cp, char* out) {
+    if (cp < 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) cp = 0xFFFD;
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) { out[0] = (char)(0xC0 | (cp >> 6)); out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    if (cp < 0x10000) { out[0] = (char)(0xE0 | (cp >> 12)); out[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
+    out[0] = (char)(0xF0 | (cp >> 18)); out[1] = (char)(0x80 | ((cp >> 12) & 0x3F)); out[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+yk_string* yk_string_from_char(int64_t cp) {
+    char buf[4];
+    return yk_string_from_buffer(buf, yk_encode_utf8(cp, buf));
+}
+
+void yk_print_field(yk_string* s, bool last) {
+    fwrite(s->data, 1, (size_t)s->len, stdout);
+    fputc(last ? '\n' : ' ', stdout);
+}
+
 yk_string* yk_string_from_real(double v) {
     char buf[400];
     return yk_string_from_buffer(buf, yk_format_real(v, buf, sizeof(buf)));

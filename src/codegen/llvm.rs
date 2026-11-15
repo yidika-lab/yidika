@@ -42,6 +42,7 @@ pub struct LlvmCodegen {
     gui_modules: HashSet<String>,
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
+    char_vars: std::collections::HashSet<String>,
     fn_param_types: HashMap<String, Vec<String>>,
     fn_param_union_variants: HashMap<String, Vec<Option<Vec<TypeExpr>>>>,
     handler_irs: Vec<String>,
@@ -90,6 +91,7 @@ impl LlvmCodegen {
             gui_modules: HashSet::new(),
             current_fn_ret: "void".into(),
             fn_ret_types: HashMap::new(),
+            char_vars: std::collections::HashSet::new(),
             fn_param_types: HashMap::new(),
             fn_param_union_variants: HashMap::new(),
             handler_irs: Vec::new(),
@@ -303,6 +305,152 @@ impl LlvmCodegen {
         let fields = vec![("status".to_string(), "i64".to_string()), ("body".to_string(), "%yk_string".to_string())];
         self.struct_defs.insert("Response".into(), fields);
         self.e_raw("%struct.Response = type { i64, %yk_string }");
+    }
+
+    fn value_to_string_ptr(&mut self, av: &str, at: &str) -> String {
+        if at.starts_with("%__nullable_") {
+            let flag = self.fresh_label();
+            let inner = self.fresh_label();
+            self.e(&format!("%{} = extractvalue {} {}, 1", flag, at, av));
+            self.e(&format!("%{} = extractvalue {} {}, 0", inner, at, av));
+            let isnull_bb = self.fresh_label();
+            let nonnull_bb = self.fresh_label();
+            let merge_bb = self.fresh_label();
+            self.e(&format!("br i1 %{}, label %{}, label %{}", flag, nonnull_bb, isnull_bb));
+            self.e(&format!("{}:", isnull_bb));
+            let null_str = self.make_string_slot("(null)");
+            let null_alloca = self.fresh_label();
+            self.e(&format!("%{} = alloca %yk_string, align 8", null_alloca));
+            self.e(&format!("store %yk_string {}, ptr %{}", null_str, null_alloca));
+            self.e(&format!("br label %{}", merge_bb));
+            self.e(&format!("{}:", nonnull_bb));
+            let t = self.fresh_label();
+            self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t, inner));
+            self.e(&format!("br label %{}", merge_bb));
+            self.e(&format!("{}:", merge_bb));
+            let phi = self.fresh_label();
+            self.e(&format!("%{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]", phi, null_alloca, isnull_bb, t, nonnull_bb));
+            phi
+        } else {
+            match at {
+                "i64" => {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
+                    self.ssa(&t)
+                }
+                "double" => {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_string_from_real(double {})", t, av));
+                    self.ssa(&t)
+                }
+                "i1" => {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_string_from_bool(i1 {})", t, av));
+                    self.ssa(&t)
+                }
+                "%yk_complex" => {
+                    let ca = self.complex_to_ptr(&av);
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr {})", t, ca));
+                    self.ssa(&t)
+                }
+                "%yk_string" => {
+                    // Already a %yk_string value, alloca and get ptr
+                    let ca = self.fresh_label();
+                    self.e(&format!("%{} = alloca %yk_string, align 8", ca));
+                    self.e(&format!("store %yk_string {}, ptr %{}", av, ca));
+                    self.ssa(&ca)
+                }
+                "%yk_variant" => {
+                    let tag = self.fresh_label();
+                    let payload = self.fresh_label();
+                    self.e(&format!("%{} = extractvalue %yk_variant {}, 0", tag, av));
+                    self.e(&format!("%{} = extractvalue %yk_variant {}, 1", payload, av));
+                    let int_name = "int(0)";
+                    let str_name = "str";
+                    let int_tag = self.variant_name_tag(int_name);
+                    let str_tag = self.variant_name_tag(str_name);
+                    if int_tag >= 0 && str_tag >= 0 {
+                        let is_int = self.fresh_label();
+                        self.e(&format!("%{} = icmp eq i64 %{}, {}", is_int, tag, int_tag));
+                        let int_bb = self.fresh_label();
+                        let str_bb = self.fresh_label();
+                        let done_bb = self.fresh_label();
+                        let result = self.fresh_label();
+                        self.e(&format!("br i1 %{}, label %{}, label %{}", is_int, int_bb, str_bb));
+                        self.e(&format!("{}:", int_bb));
+                        let t1 = self.fresh_label();
+                        self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t1, payload));
+                        self.e(&format!("br label %{}", done_bb));
+                        self.e(&format!("{}:", str_bb));
+                        let str_ptr = self.fresh_label();
+                        self.e(&format!("%{} = inttoptr i64 %{} to ptr", str_ptr, payload));
+                        self.e(&format!("br label %{}", done_bb));
+                        self.e(&format!("{}:", done_bb));
+                        self.e(&format!("%{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]", result, t1, int_bb, str_ptr, str_bb));
+                        self.ssa(&result)
+                    } else {
+                        let t = self.fresh_label();
+                        self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t, payload));
+                        self.ssa(&t)
+                    }
+                }
+                "ptr" => {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_list_to_string(ptr {})", t, av));
+                    self.ssa(&t)
+                }
+                _ => {
+                    let t = self.fresh_label();
+                    self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
+                    self.ssa(&t)
+                }
+            }
+        }
+    }
+
+    fn char_to_string_ptr(&mut self, code_point: &str) -> String {
+        let t = self.fresh_label();
+        self.e(&format!("%{} = call ptr @yk_string_from_char(i64 {})", t, code_point));
+        self.ssa(&t)
+    }
+
+    fn expr_is_char(&self, expr: &ExprNode) -> bool {
+        match &expr.value {
+            Expr::LitChar(_) => true,
+            Expr::Ident(name) => self.char_vars.contains(name),
+            _ => false,
+        }
+    }
+
+    fn set_char_var(&mut self, name: &str, is_char: bool) {
+        if is_char {
+            self.char_vars.insert(name.to_string());
+        } else {
+            self.char_vars.remove(name);
+        }
+    }
+
+    fn track_char_binding(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Decl { name, value, .. } | Stmt::Assign(name, value) => {
+                let is_char = self.expr_is_char(value);
+                self.set_char_var(name, is_char);
+            }
+            _ => {}
+        }
+    }
+
+    fn print_joined(&mut self, args: &[ExprNode], arg_results: &[(String, String)]) {
+        let last = arg_results.len().saturating_sub(1);
+        for (i, (av, at)) in arg_results.iter().enumerate() {
+            let ptr = if args.get(i).is_some_and(|a| self.expr_is_char(a)) {
+                self.char_to_string_ptr(av)
+            } else {
+                self.value_to_string_ptr(av, at)
+            };
+            self.e(&format!("call void @yk_print_field(ptr {}, i1 {})", ptr, i == last));
+        }
     }
 
     fn complex_to_ptr(&mut self, value: &str) -> String {
@@ -937,6 +1085,8 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_complex_div(ptr, ptr, ptr)");
         self.e_raw("declare void @yk_print_complex(ptr)");
         self.e_raw("declare void @yk_runtime_init()");
+        self.e_raw("declare void @yk_print_field(ptr, i1)");
+        self.e_raw("declare ptr @yk_string_from_char(i64)");
         self.e_raw("declare i64 @yk_run_thread(ptr, ptr)");
         self.e_raw("declare i64 @yk_join_thread(i64)");
         self.e_raw("declare void @yk_task_set_result(i64, i64)");
@@ -1493,6 +1643,7 @@ impl LlvmCodegen {
     }
 
     fn compile_stmt(&mut self, stmt: &StmtNode) {
+        self.track_char_binding(&stmt.value);
         match &stmt.value {
             Stmt::Decl { name, type_expr, value, .. } => {
                 let ty = match type_expr {
@@ -1747,6 +1898,8 @@ impl LlvmCodegen {
                         _ => ("0".to_string(), self.compile_expr(iter).0),
                     };
                     let inclusive = matches!(&iter.value, Expr::Range(_, _));
+                    let chars = matches!(&iter.value, Expr::Range(l, r) if self.expr_is_char(l) || self.expr_is_char(r));
+                    self.set_char_var(var, chars);
                     self.compile_int_for(var, &start_val, &end_val, inclusive, body);
                 }
             }
@@ -2749,11 +2902,13 @@ impl LlvmCodegen {
                 (self.ssa(&tmp), lt)
             }
             BinOp::Eq => {
-                self.e(&format!("%{} = {} oeq {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "oeq" } else { "eq" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Ne => {
-                self.e(&format!("%{} = {} one {} {}, {}", tmp, cmp_op, lt, lc, rc));
+                let cond = if is_float { "une" } else { "ne" };
+                self.e(&format!("%{} = {} {} {} {}, {}", tmp, cmp_op, cond, lt, lc, rc));
                 (self.ssa(&tmp), "i1".into())
             }
             BinOp::Lt => {
@@ -2880,6 +3035,9 @@ impl LlvmCodegen {
                 "print" | "println" => {
                     if arg_results.is_empty() {
                         ("0".into(), "void".into())
+                    } else if arg_results.len() > 1 || args.first().is_some_and(|a| self.expr_is_char(a)) {
+                        self.print_joined(args, &arg_results);
+                        ("0".into(), "void".into())
                     } else {
                         for (av, at) in &arg_results {
                             if at.starts_with("%__nullable_") {
@@ -2984,104 +3142,10 @@ impl LlvmCodegen {
                 }
                 "str" => {
                     if let Some((av, at)) = arg_results.first() {
-                        let ptr_ssa = if at.starts_with("%__nullable_") {
-                            let flag = self.fresh_label();
-                            let inner = self.fresh_label();
-                            self.e(&format!("%{} = extractvalue {} {}, 1", flag, at, av));
-                            self.e(&format!("%{} = extractvalue {} {}, 0", inner, at, av));
-                            let isnull_bb = self.fresh_label();
-                            let nonnull_bb = self.fresh_label();
-                            let merge_bb = self.fresh_label();
-                            self.e(&format!("br i1 %{}, label %{}, label %{}", flag, nonnull_bb, isnull_bb));
-                            self.e(&format!("{}:", isnull_bb));
-                            let null_str = self.make_string_slot("(null)");
-                            let null_alloca = self.fresh_label();
-                            self.e(&format!("%{} = alloca %yk_string, align 8", null_alloca));
-                            self.e(&format!("store %yk_string {}, ptr %{}", null_str, null_alloca));
-                            self.e(&format!("br label %{}", merge_bb));
-                            self.e(&format!("{}:", nonnull_bb));
-                            let t = self.fresh_label();
-                            self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t, inner));
-                            self.e(&format!("br label %{}", merge_bb));
-                            self.e(&format!("{}:", merge_bb));
-                            let phi = self.fresh_label();
-                            self.e(&format!("%{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]", phi, null_alloca, isnull_bb, t, nonnull_bb));
-                            phi
+                        let ptr_ssa = if args.first().is_some_and(|a| self.expr_is_char(a)) {
+                            self.char_to_string_ptr(av)
                         } else {
-                            match at.as_str() {
-                                "i64" => {
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
-                                    self.ssa(&t)
-                                }
-                                "double" => {
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_real(double {})", t, av));
-                                    self.ssa(&t)
-                                }
-                                "i1" => {
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_bool(i1 {})", t, av));
-                                    self.ssa(&t)
-                                }
-                                "%yk_complex" => {
-                                    let ca = self.complex_to_ptr(&av);
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_complex(ptr {})", t, ca));
-                                    self.ssa(&t)
-                                }
-                                "%yk_string" => {
-                                    // Already a %yk_string value, alloca and get ptr
-                                    let ca = self.fresh_label();
-                                    self.e(&format!("%{} = alloca %yk_string, align 8", ca));
-                                    self.e(&format!("store %yk_string {}, ptr %{}", av, ca));
-                                    self.ssa(&ca)
-                                }
-                                "%yk_variant" => {
-                                    let tag = self.fresh_label();
-                                    let payload = self.fresh_label();
-                                    self.e(&format!("%{} = extractvalue %yk_variant {}, 0", tag, av));
-                                    self.e(&format!("%{} = extractvalue %yk_variant {}, 1", payload, av));
-                                    let int_name = "int(0)";
-                                    let str_name = "str";
-                                    let int_tag = self.variant_name_tag(int_name);
-                                    let str_tag = self.variant_name_tag(str_name);
-                                    if int_tag >= 0 && str_tag >= 0 {
-                                        let is_int = self.fresh_label();
-                                        self.e(&format!("%{} = icmp eq i64 %{}, {}", is_int, tag, int_tag));
-                                        let int_bb = self.fresh_label();
-                                        let str_bb = self.fresh_label();
-                                        let done_bb = self.fresh_label();
-                                        let result = self.fresh_label();
-                                        self.e(&format!("br i1 %{}, label %{}, label %{}", is_int, int_bb, str_bb));
-                                        self.e(&format!("{}:", int_bb));
-                                        let t1 = self.fresh_label();
-                                        self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t1, payload));
-                                        self.e(&format!("br label %{}", done_bb));
-                                        self.e(&format!("{}:", str_bb));
-                                        let str_ptr = self.fresh_label();
-                                        self.e(&format!("%{} = inttoptr i64 %{} to ptr", str_ptr, payload));
-                                        self.e(&format!("br label %{}", done_bb));
-                                        self.e(&format!("{}:", done_bb));
-                                        self.e(&format!("%{} = phi ptr [ %{}, %{} ], [ %{}, %{} ]", result, t1, int_bb, str_ptr, str_bb));
-                                        self.ssa(&result)
-                                    } else {
-                                        let t = self.fresh_label();
-                                        self.e(&format!("%{} = call ptr @yk_string_from_int(i64 %{})", t, payload));
-                                        self.ssa(&t)
-                                    }
-                                }
-                                "ptr" => {
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_list_to_string(ptr {})", t, av));
-                                    self.ssa(&t)
-                                }
-                                _ => {
-                                    let t = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_string_from_int(i64 {})", t, av));
-                                    self.ssa(&t)
-                                }
-                            }
+                            self.value_to_string_ptr(av, at)
                         };
                         let loaded = self.fresh_label();
                         self.e(&format!("%{} = load %yk_string, ptr {}", loaded, ptr_ssa));

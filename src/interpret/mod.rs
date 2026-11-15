@@ -6,7 +6,7 @@ mod env;
 mod expr;
 mod stmt;
 
-pub use value::{Value, EvalResult, is_truthy, is_copy_value, cmp_binop};
+pub use value::{Value, ValueMap, EvalResult, is_truthy, is_copy_value, cmp_binop};
 pub use class::{FnDef, ClassDef, ObjectDef, Frame, MethodCache, InlineCache};
 pub use env::{Interpreter, InterpBase, SubInterpreterPool, fast_hash};
 
@@ -22,6 +22,14 @@ mod tests {
         let mut interp = Interpreter::new();
         interp.load_module(&module);
         interp.run_main().unwrap()
+    }
+
+    #[test]
+    fn json_objects_keep_their_key_order() {
+        let src = "use {json} from \"json\"; fn main() { m: auto = json.parse(\"{\\\"zeta\\\":1,\\\"alpha\\\":2,\\\"mid\\\":3,\\\"beta\\\":4}\"); print(str(m)); for (k in m) { print(k); } }";
+        for _ in 0..8 {
+            assert_eq!(run(src).trim(), "{\"zeta\": 1, \"alpha\": 2, \"mid\": 3, \"beta\": 4}\nzeta\nalpha\nmid\nbeta");
+        }
     }
 
     fn run_invalid(source: &str) -> String {
