@@ -1,4 +1,5 @@
 use super::global;
+use super::index::Index;
 use super::lock::Locked;
 use super::manifest::{Dep, Manifest};
 use super::pool::parallel;
@@ -24,14 +25,33 @@ struct Contents {
 
 pub struct Resolver {
     store: PathBuf,
+    index: Index,
     remotes: HashMap<String, Remote>,
+    sources: HashMap<String, String>,
+    expected: HashMap<String, String>,
     contents: HashMap<String, Contents>,
     pub downloaded: usize,
 }
 
 impl Resolver {
-    pub fn new(store: &Path) -> Self {
-        Self { store: store.to_path_buf(), remotes: HashMap::new(), contents: HashMap::new(), downloaded: 0 }
+    pub fn new(store: &Path, index: Index) -> Self {
+        Self { store: store.to_path_buf(), index, remotes: HashMap::new(), sources: HashMap::new(), expected: HashMap::new(), contents: HashMap::new(), downloaded: 0 }
+    }
+
+    pub fn locate(&mut self, name: &str, dep: &Dep) -> Result<String, String> {
+        if let Some(url) = &dep.url {
+            return Ok(url.clone());
+        }
+        if let Some(url) = self.sources.get(name) {
+            return Ok(url.clone());
+        }
+        let entry = self.index.entry(name)?.ok_or_else(|| format!("package '{}' is not in the registry; add it by URL (github:user/{}) or publish it with `yidi publish`", name, name))?;
+        for r in &entry.releases {
+            self.expected.insert(r.commit.clone(), r.hash.clone());
+        }
+        self.remotes.insert(entry.source.clone(), entry.remote());
+        self.sources.insert(name.to_string(), entry.source.clone());
+        Ok(entry.source)
     }
 
     pub fn remote(&mut self, url: &str) -> Result<&Remote, String> {
@@ -65,24 +85,20 @@ impl Resolver {
         Err("dependency versions did not settle; check for packages that require each other with conflicting ranges".into())
     }
 
-    fn needs(&self, roots: &[(String, Dep)], chosen: &BTreeMap<String, Locked>) -> Result<BTreeMap<String, Need>, String> {
-        let mut needs: BTreeMap<String, Need> = BTreeMap::new();
-        let mut add = |name: &str, dep: &Dep, by: &str| -> Result<(), String> {
-            let need = needs.entry(name.to_string()).or_insert_with(|| Need { url: dep.url.clone(), reqs: Vec::new(), by: Vec::new() });
-            if need.url != dep.url {
-                return Err(format!("'{}' is required from two sources: {} (by {}) and {} (by {})", name, need.url, need.by.join(", "), dep.url, by));
-            }
-            need.reqs.push(dep.req.clone());
-            need.by.push(by.to_string());
-            Ok(())
-        };
-        for (name, dep) in roots {
-            add(name, dep, PROJECT)?;
-        }
+    fn needs(&mut self, roots: &[(String, Dep)], chosen: &BTreeMap<String, Locked>) -> Result<BTreeMap<String, Need>, String> {
+        let mut wanted: Vec<(String, Dep, String)> = roots.iter().map(|(n, d)| (n.clone(), d.clone(), PROJECT.to_string())).collect();
         for p in chosen.values() {
-            for (name, dep) in &self.contents[&p.commit].deps {
-                add(name, dep, &p.name)?;
+            wanted.extend(self.contents[&p.commit].deps.iter().map(|(n, d)| (n.clone(), d.clone(), p.name.clone())));
+        }
+        let mut needs: BTreeMap<String, Need> = BTreeMap::new();
+        for (name, dep, by) in wanted {
+            let url = self.locate(&name, &dep)?;
+            let need = needs.entry(name.clone()).or_insert_with(|| Need { url: url.clone(), reqs: Vec::new(), by: Vec::new() });
+            if need.url != url {
+                return Err(format!("'{}' is required from two sources: {} (by {}) and {} (by {})", name, need.url, need.by.join(", "), url, by));
             }
+            need.reqs.push(dep.req);
+            need.by.push(by);
         }
         Ok(needs)
     }
@@ -120,8 +136,12 @@ impl Resolver {
         let missing: Vec<(String, String)> = next.values().filter(|p| !self.contents.contains_key(&p.commit)).map(|p| (p.source.clone(), p.commit.clone())).collect();
         let store = self.store.clone();
         let loaded = parallel(&missing, |(url, commit)| read_contents(&store, url, commit));
-        for ((_, commit), result) in missing.iter().zip(loaded) {
+        for ((url, commit), result) in missing.iter().zip(loaded) {
             let (contents, downloaded) = result?;
+            if let Some(expected) = self.expected.get(commit).filter(|h| **h != contents.hash) {
+                global::evict(&self.store, commit);
+                return Err(format!("{} at {} does not match the registry ({} expected, {} found)", url, commit, expected, contents.hash));
+            }
             self.downloaded += downloaded as usize;
             self.contents.insert(commit.clone(), contents);
         }

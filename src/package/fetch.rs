@@ -32,7 +32,7 @@ fn fetch_archive(url: &str, dest: &Path) -> Result<(), String> {
     })
 }
 
-fn unpack(gzip: &[u8], dest: &Path) -> Result<(), String> {
+pub fn unpack(gzip: &[u8], dest: &Path) -> Result<(), String> {
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(gzip));
     let entries = archive.entries().map_err(|e| format!("unreadable archive: {}", e))?;
     let mut unpacked = 0u64;
