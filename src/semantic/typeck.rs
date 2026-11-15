@@ -43,6 +43,9 @@ fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
             types_compatible(er, ar) && types_compatible(ei, ai)
         }
         (TypeExpr::Complex(_, _), TypeExpr::Int(_) | TypeExpr::Rint(_) | TypeExpr::Real(_)) => true,
+        (TypeExpr::Fn(e_params, e_ret), TypeExpr::Fn(a_params, a_ret)) => {
+            types_compatible_params(e_params, a_params) && types_compatible(e_ret, a_ret)
+        }
         (TypeExpr::Union(elems), _) => elems.iter().any(|e| types_compatible(e, actual)),
         (_, TypeExpr::Union(elems)) => elems.iter().all(|a| types_compatible(expected, a)),
         _ => false,
@@ -537,7 +540,7 @@ impl<'a> TypeChecker<'a> {
                     }
                     None => {
                         if let Some(sig) = self.env.get_fn(name).or_else(|| self.local_fns.get(name)) {
-                            Ok(sig.ret_type.clone())
+                            Ok(TypeExpr::Fn(sig.params.clone(), Box::new(sig.ret_type.clone())))
                         } else {
                             self.fail(ErrorKind::NameError, expr.span,
                                 format!("Variable '{}' not found", name))
@@ -1064,5 +1067,41 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         | ItemKind::Class { name, .. } | ItemKind::Interface { name, .. }
         | ItemKind::Union { name, .. } | ItemKind::Enum { name, .. } | ItemKind::Object { name, .. } | ItemKind::TypeAlias { name, .. }
         | ItemKind::Const { name, .. } => Some(name.clone()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fn_type(params: Vec<TypeExpr>, ret: TypeExpr) -> TypeExpr {
+        TypeExpr::Fn(params, Box::new(ret))
+    }
+
+    #[test]
+    fn lambda_with_inferred_types_matches_a_fn_type() {
+        let expected = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Int(0));
+        let lambda = fn_type(vec![TypeExpr::Named("auto".into())], TypeExpr::Named("auto".into()));
+        assert!(types_compatible(&expected, &lambda));
+    }
+
+    #[test]
+    fn fn_types_with_different_arity_do_not_match() {
+        let expected = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Int(0));
+        let actual = fn_type(vec![TypeExpr::Int(0), TypeExpr::Int(0)], TypeExpr::Int(0));
+        assert!(!types_compatible(&expected, &actual));
+    }
+
+    #[test]
+    fn fn_types_with_different_return_types_do_not_match() {
+        let expected = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Int(0));
+        let actual = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Str);
+        assert!(!types_compatible(&expected, &actual));
+    }
+
+    #[test]
+    fn a_number_is_not_a_function() {
+        let expected = fn_type(vec![TypeExpr::Int(0)], TypeExpr::Int(0));
+        assert!(!types_compatible(&expected, &TypeExpr::Int(0)));
     }
 }
