@@ -24,6 +24,7 @@ pub enum Command {
     Init(Option<String>),
     Add(String),
     Remove(String),
+    Update(Option<String>),
     Sync,
     Info,
     Version,
@@ -48,7 +49,8 @@ pub fn parse_from(args: &[String]) -> Command {
         eprintln!("  yidi init [name]         Create a project (here, or in a new directory)");
         eprintln!("  yidi add <package>       Add a dependency (github:user/repo or a git URL)");
         eprintln!("  yidi remove <package>    Remove a dependency");
-        eprintln!("  yidi sync                Install or update all dependencies");
+        eprintln!("  yidi sync                Install exactly what yidi.lock records");
+        eprintln!("  yidi update [package]    Move dependencies to the newest allowed versions");
         eprintln!("  yidi upgrade             Install the latest release");
         eprintln!("  yidi upgrade --check     Only report whether a newer release exists");
         eprintln!("  yidi --version           Show version");
@@ -79,6 +81,7 @@ pub fn parse_from(args: &[String]) -> Command {
             Command::Remove(args[2].clone())
         }
         "sync" => Command::Sync,
+        "update" => Command::Update(args.get(2).cloned()),
         "upgrade" => Command::Upgrade(has_flag(args, "--check")),
         _ => {
             // backward compatibility: treat bare path as "run"
@@ -105,6 +108,7 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Add(pkg) => crate::package::add(&pkg),
         Command::Remove(pkg) => crate::package::remove(&pkg),
         Command::Sync => crate::package::sync(),
+        Command::Update(pkg) => crate::package::update(pkg.as_deref()),
         Command::Version => Ok(version_string()),
         Command::Upgrade(check_only) => upgrade::upgrade(check_only),
     }

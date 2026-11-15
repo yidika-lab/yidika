@@ -109,12 +109,16 @@ yidi build test.yk
 # Projects and packages
 yidi init my-app             # new project in ./my-app
 yidi init                    # asks for the name; "." means the current folder
-yidi add github:user/greet   # clone into @yidi/greet and record it in project.toml
-yidi sync                    # install missing packages and update the others
-yidi remove greet            # delete @yidi/greet and its project.toml entry
+yidi add github:user/greet   # newest release, recorded as ^x.y.z
+yidi add github:user/greet@^1.2
+yidi sync                    # install exactly what yidi.lock records
+yidi update [greet]          # move to the newest versions the ranges allow
+yidi remove greet            # also drops what only greet needed
 ```
 
-A package is a git repository cloned into `@yidi/<name>/` next to `project.toml`. `yidi init` adds `@yidi/` to `.gitignore`, so after a fresh checkout you run `yidi sync`.
+A package is a git repository whose releases are tags such as `v1.2.0` (a repository without tags follows its default branch). Its own `project.toml` lists its dependencies, which are installed too.
+
+`yidi.lock` records the exact commit and a SHA-256 of every package; commit it. Downloads go to one cache shared by all projects (`~/.cache/yidi/packages` on Linux), checked against the lock, and `@yidi/<name>/` is made of hard links into it, so a second project or a fresh checkout installs without the network. GitHub packages come as one HTTPS archive instead of a `git clone`. On Linux, with the cache warm, reinstalling from scratch took 1 ms and a `yidi sync` with nothing to do 0 ms. `yidi init` adds `@yidi/` to `.gitignore`.
 
 Import by package name, as with Node or Python:
 
