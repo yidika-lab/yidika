@@ -198,9 +198,9 @@ mod tests {
             dir.join(format!("main{}", std::env::consts::EXE_SUFFIX))
         };
         let output = Command::new(&exe).output().expect("AOT run failed");
-        let aot = String::from_utf8_lossy(&output.stdout).to_string();
+        let aot = normalize(&String::from_utf8_lossy(&output.stdout));
         let _ = std::fs::remove_dir_all(&dir);
-        assert_eq!(interp.trim_end(), aot.trim_end(), "{}: interpreter vs AOT output mismatch", test_name);
+        assert_eq!(normalize(&interp), aot, "{}: interpreter vs AOT output mismatch", test_name);
         aot
     }
 
@@ -650,7 +650,7 @@ mod tests {
             ("src/util.yk", "use twice from \"count\";\nexport fn four() -> int { return twice(2); }\n"),
             ("main.yk", "use {hello} from \"greet\";\nuse {four} from \"./src/util.yk\";\nfn main() { print(hello(\"bob\")); print(four()); }\n"),
         ], "package_by_name");
-        assert_eq!(out.trim_end(), "hello bob!\n4");
+        assert_eq!(out, "hello bob!\n4");
     }
 
     #[test]
