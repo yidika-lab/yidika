@@ -7,12 +7,19 @@ use crate::netlib::{
     ServerInstance, sub_interpreter_pool,
     parse_request_line, extract_header_value, write_response_async,
     extract_all_headers, parse_query_params, parse_cookies,
-    cors_headers, ProcessedResponse, try_serve_static, execute_handler, run_logger
+    cors_headers, ProcessedResponse, try_serve_static, execute_handler, run_logger,
+    MAX_HEADER_BYTES, MAX_BODY_BYTES, find_head_end, decode_head, decode_bytes, content_length
 };
 
 pub async fn run_server(server: ServerInstance, addr: String) {
     let server = Arc::new(server);
-    let listener = TcpListener::bind(addr.as_str()).await.unwrap();
+    let listener = match TcpListener::bind(addr.as_str()).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Cannot bind {}: {}", addr, e);
+            return;
+        }
+    };
     
     println!("Server listening on: {}", addr);
     
@@ -47,25 +54,40 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
 
     loop {
         read_buf.clear();
+        let mut headers_too_large = false;
         loop {
             let mut chunk = [0u8; 4096];
             match stream.read(&mut chunk).await {
                 Ok(0) => return,
                 Ok(n) => {
                     read_buf.extend_from_slice(&chunk[..n]);
-                    if read_buf.windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                    if find_head_end(&read_buf).is_some() { break; }
+                    if read_buf.len() > MAX_HEADER_BYTES {
+                        headers_too_large = true;
+                        break;
+                    }
                 }
                 Err(_) => return,
             }
         }
 
-        let raw = unsafe { std::str::from_utf8_unchecked(&read_buf) };
+        let cors = cors_headers(server);
+
+        if headers_too_large {
+            let _ = write_response_async(&mut stream, &ProcessedResponse { status: "431 Request Header Fields Too Large".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+            return;
+        }
+
+        let head_end = match find_head_end(&read_buf) {
+            Some(i) => i,
+            None => return,
+        };
+        let raw_head = decode_head(&read_buf, head_end);
+        let raw = raw_head.as_str();
 
         let keep_alive = extract_header_value(raw, "Connection")
             .map(|v| v.eq_ignore_ascii_case("keep-alive"))
             .unwrap_or(false);
-
-        let cors = cors_headers(server);
 
         let (method_raw, path_raw) = match parse_request_line(raw) {
             Some(r) => (r.0.to_uppercase(), r.1.to_string()),
@@ -75,23 +97,25 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
             }
         };
 
-        let body = if let Some(cl) = extract_header_value(raw, "Content-Length")
-            .and_then(|v| v.parse::<usize>().ok())
-        {
-            let header_end = raw.find("\r\n\r\n").unwrap_or(raw.len());
-            let body_start = header_end + 4;
-            let already = read_buf.len().saturating_sub(body_start);
-            if cl > already {
-                let mut extra = vec![0u8; cl - already];
-                if stream.read_exact(&mut extra).await.is_err() { return; }
-                let mut b = read_buf[body_start..].to_vec();
-                b.extend_from_slice(&extra);
-                String::from_utf8_lossy(&b).to_string()
-            } else {
-                unsafe { String::from_utf8_unchecked(read_buf[body_start..body_start + cl].to_vec()) }
+        let body = match content_length(raw) {
+            Some(cl) if cl > MAX_BODY_BYTES => {
+                let _ = write_response_async(&mut stream, &ProcessedResponse { status: "413 Content Too Large".to_string(), body: String::new(), content_type: "text/plain".to_string(), headers: vec![] }, false, &cors).await;
+                return;
             }
-        } else {
-            String::new()
+            Some(cl) => {
+                let body_start = head_end + 4;
+                let already = read_buf.len().saturating_sub(body_start);
+                if cl > already {
+                    let mut extra = vec![0u8; cl - already];
+                    if stream.read_exact(&mut extra).await.is_err() { return; }
+                    let mut b = read_buf[body_start..].to_vec();
+                    b.extend_from_slice(&extra);
+                    decode_bytes(&b)
+                } else {
+                    decode_bytes(&read_buf[body_start..body_start + cl])
+                }
+            }
+            None => String::new(),
         };
 
         // Handle OPTIONS preflight
@@ -109,8 +133,7 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
 
         let response = match server.routes.match_route(&path_for_route, &method_raw) {
             Some((handler, route_params)) => {
-                // Run all middleware first
-                let mut final_response = None;
+                let mut short_circuit = None;
                 for middleware in &server.middleware {
                     let mw_resp = execute_handler(
                         middleware,
@@ -123,13 +146,15 @@ async fn handle_connection_fast(mut stream: TcpStream, server: &ServerInstance) 
                         None,
                         pool
                     );
-                    // If middleware returns a non-200 status (or we decide to short-circuit), use that response
-                    // For now, just run all middleware and proceed
-                    final_response = Some(mw_resp);
+                    let successful = mw_resp.status.starts_with("200")
+                        || mw_resp.status.starts_with("204");
+                    if !successful {
+                        short_circuit = Some(mw_resp);
+                        break;
+                    }
                 }
-                
-                // Then run the main handler
-                final_response.unwrap_or_else(|| {
+
+                short_circuit.unwrap_or_else(|| {
                     execute_handler(
                         handler,
                         &method_raw,

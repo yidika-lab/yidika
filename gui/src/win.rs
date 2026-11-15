@@ -116,7 +116,7 @@ fn draw_items(hdc: windows::Win32::Graphics::Gdi::HDC, items: &[Item]) {
                 (it.y + it.h) as i32,
             );
             if let Some(c) = it.st.bg {
-                if c != 0x01000000 {
+                if c != crate::style::TRANSPARENT {
                     let brush = CreateSolidBrush(colorref(c));
                     if it.st.radius > 0 {
                         let pen = CreatePen(PS_SOLID, 1, colorref(c));

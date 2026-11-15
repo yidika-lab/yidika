@@ -17,7 +17,7 @@ impl SubInterpreterPool {
         SubInterpreterPool { pool: Mutex::new(Vec::with_capacity(max_pool)), max_pool }
     }
 
-    pub fn take(&self, base: &Interpreter) -> Interpreter {
+    pub fn take(&self, base: &InterpBase) -> Interpreter {
         let mut guard = self.pool.lock().unwrap();
         if let Some(mut interp) = guard.pop() {
             interp.reset_with(base);
@@ -33,6 +33,44 @@ impl SubInterpreterPool {
         if guard.len() < self.max_pool {
             guard.push(interp);
         }
+    }
+}
+
+pub struct InterpBase {
+    pub json_files: HashMap<String, std::path::PathBuf>,
+    pub struct_defs: Arc<HashMap<String, Vec<String>>>,
+    pub classes: Arc<HashMap<String, ClassDef>>,
+    pub objects: Arc<HashMap<String, ObjectDef>>,
+    pub functions: Arc<HashMap<String, FnDef>>,
+    pub builtin_modules: Arc<HashMap<String, String>>,
+    pub builtin_funcs: Arc<HashMap<String, String>>,
+    pub std_imported: bool,
+    pub tui_mode: bool,
+    pub ffi_libs: HashMap<String, Arc<libloading::Library>>,
+    pub source_dir: std::path::PathBuf,
+}
+
+impl InterpBase {
+    pub fn from_interp(interp: &Interpreter) -> Self {
+        InterpBase {
+            json_files: interp.json_files.clone(),
+            struct_defs: interp.struct_defs.clone(),
+            classes: interp.classes.clone(),
+            objects: interp.objects.clone(),
+            functions: interp.functions.clone(),
+            builtin_modules: interp.builtin_modules.clone(),
+            builtin_funcs: interp.builtin_funcs.clone(),
+            std_imported: interp.std_imported,
+            tui_mode: interp.tui_mode,
+            ffi_libs: interp.ffi_libs.clone(),
+            source_dir: interp.source_dir.clone(),
+        }
+    }
+}
+
+impl Default for InterpBase {
+    fn default() -> Self {
+        InterpBase::from_interp(&Interpreter::new())
     }
 }
 
@@ -87,7 +125,7 @@ impl Interpreter {
         }
     }
 
-    pub fn sub_from(other: &Interpreter) -> Self {
+    pub fn sub_from(other: &InterpBase) -> Self {
         Self {
             globals: HashMap::new(),
             const_vars: HashSet::new(),
@@ -113,7 +151,7 @@ impl Interpreter {
         }
     }
 
-    pub fn reset_with(&mut self, base: &Interpreter) {
+    pub fn reset_with(&mut self, base: &InterpBase) {
         self.globals.clear();
         self.const_vars.clear();
         self.struct_defs = base.struct_defs.clone();

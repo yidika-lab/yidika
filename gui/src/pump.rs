@@ -17,12 +17,15 @@ pub fn expired(end: Option<Instant>) -> bool {
 }
 
 pub fn run_pump() -> i64 {
-    let end = deadline();
+    let end = match deadline() {
+        Some(end) => end,
+        None => return 0,
+    };
     loop {
         if QUIT.load(Ordering::SeqCst) != 0 {
             break;
         }
-        if expired(end) {
+        if expired(Some(end)) {
             break;
         }
         std::thread::sleep(Duration::from_millis(5));
