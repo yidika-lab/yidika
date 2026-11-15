@@ -559,6 +559,21 @@ mod tests {
     }
 
     #[test]
+    fn compat_call_results_concatenate_as_strings() {
+        check_compat("fn name() -> str { return \"yk\"; } fn main() { n: int = 3; print(str(2.5) + \"!\"); print(name() + \"-\" + str(n)); print(f`{n} items`); }", "call_concat");
+    }
+
+    #[test]
+    fn compat_real_prints_the_shortest_round_trip() {
+        check_compat("fn main() { print(32.2 + 2.71); print(0.1 + 0.2); print(1.5); print(3.0); print(-0.25); print(1.0 / 3.0); print(123456789.125); print(0.000001); print(1048576.5 * 1048576.0); s: str = str(2.5); print(s); }", "real_format");
+    }
+
+    #[test]
+    fn compat_complex_prints_like_the_interpreter() {
+        check_compat("fn main() { x = 5.4i; y = 0.5i + 4; z = 4 - 0.5i; print(x); print(y); print(z); print(f`{y} and {z}`); print(y.mod); }", "complex_format");
+    }
+
+    #[test]
     fn compat_range_ascending_includes_both_bounds() {
         check_compat("fn main() { s: str = \"\"; for (i in 1..5) { s = s + str(i) + \",\"; } print(s); }", "range_ascending");
     }

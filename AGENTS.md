@@ -72,9 +72,9 @@ Instead: start from a stated reference (a brand, a platform's guidelines such as
 ## Commands
 
 ```sh
-cargo run -- <file>.yk           # interpret (bare path == run)
-cargo run -- run <file>.yk       # interpret explicitly
-cargo run -- run <file>.yk --native  # compile once into ~/.cache/yidi/run, then run the binary
+cargo run -- <file>.yk           # run (bare path == run)
+cargo run -- run <file>.yk       # compile once into ~/.cache/yidi/run, run the binary; interpreter if the AOT cannot build it
+cargo run -- run <file>.yk --interp  # interpreter only
 cargo run -- build <file>.yk     # AOT compile -> <file>.exe next to the source
 cargo run -- <file>.yk --watch   # re-run on change (poller, 500ms)
 cargo run -- info                # detected hardware, printed to stdout

@@ -369,14 +369,74 @@ yk_string* yk_string_from_int(int64_t v) {
     return s;
 }
 
-yk_string* yk_string_from_real(double v) {
-    char buf[64];
-    int n = snprintf(buf, sizeof(buf), "%g", v);
+typedef struct { double real; double imag; } yk_complex;
+
+static int yk_shortest_digits(double v, char* digits, int* exponent) {
+    char sci[40];
+    for (int precision = 1; precision <= 17; precision++) {
+        snprintf(sci, sizeof(sci), "%.*e", precision - 1, v);
+        if (strtod(sci, NULL) == v) break;
+    }
+    int count = 0;
+    const char* c = sci[0] == '-' ? sci + 1 : sci;
+    for (; *c && *c != 'e' && count < 17; c++) {
+        if (*c != '.') digits[count++] = *c;
+    }
+    *exponent = *c == 'e' ? atoi(c + 1) : 0;
+    while (count > 1 && digits[count - 1] == '0') count--;
+    return count;
+}
+
+static int yk_format_real(double v, char* out, int cap) {
+    if (isnan(v)) return snprintf(out, cap, "NaN");
+    if (isinf(v)) return snprintf(out, cap, v < 0 ? "-inf" : "inf");
+    char digits[17];
+    int exponent = 0;
+    int count = yk_shortest_digits(v, digits, &exponent);
+    int point = exponent + 1;
+    int n = 0;
+#define YK_PUT(ch) do { if (n < cap - 1) out[n++] = (ch); } while (0)
+    if (signbit(v)) YK_PUT('-');
+    if (count == 1 && digits[0] == '0') {
+        YK_PUT('0');
+    } else if (point <= 0) {
+        YK_PUT('0');
+        YK_PUT('.');
+        for (int i = 0; i < -point; i++) YK_PUT('0');
+        for (int i = 0; i < count; i++) YK_PUT(digits[i]);
+    } else {
+        for (int i = 0; i < point; i++) YK_PUT(i < count ? digits[i] : '0');
+        if (count > point) {
+            YK_PUT('.');
+            for (int i = point; i < count; i++) YK_PUT(digits[i]);
+        }
+    }
+#undef YK_PUT
+    out[n] = 0;
+    return n;
+}
+
+static int yk_format_complex(const yk_complex* c, char* out, int cap) {
+    char re[400];
+    char im[400];
+    yk_format_real(c->real, re, sizeof(re));
+    yk_format_real(c->imag < 0 ? -c->imag : c->imag, im, sizeof(im));
+    return snprintf(out, cap, "%s %c %si", re, c->imag < 0 ? '-' : '+', im);
+}
+
+static yk_string* yk_string_from_buffer(const char* buf, int n) {
+    if (n < 0) n = 0;
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
     s->data = (char*)malloc(n + 1);
-    memcpy(s->data, buf, n + 1);
+    memcpy(s->data, buf, n);
+    s->data[n] = 0;
     s->len = n;
     return s;
+}
+
+yk_string* yk_string_from_real(double v) {
+    char buf[400];
+    return yk_string_from_buffer(buf, yk_format_real(v, buf, sizeof(buf)));
 }
 
 yk_string* yk_string_concat_ptr(yk_string* a, yk_string* b) {
@@ -400,11 +460,10 @@ yk_string* yk_string_from_cstr(const char* s) {
 }
 
 void yk_print_int(int64_t v) { printf("%lld\n", (long long)v); }
-void yk_print_real(double v) { printf("%g\n", v); }
+void yk_print_real(double v) { char buf[400]; yk_format_real(v, buf, sizeof(buf)); puts(buf); }
 void yk_print_bool(bool v) { printf("%s\n", v ? "true" : "false"); }
 void yk_print_str_ptr(yk_string* s) { printf("%.*s\n", (int)s->len, s->data); }
 
-typedef struct { double real; double imag; } yk_complex;
 
 void yk_complex_set(yk_complex* c, double r, double i) { c->real = r; c->imag = i; }
 double yk_complex_real(yk_complex* c) { return c->real; }
@@ -416,7 +475,7 @@ void yk_complex_add(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->
 void yk_complex_sub(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real - b->real; r->imag = a->imag - b->imag; }
 void yk_complex_mul(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real*b->real - a->imag*b->imag; r->imag = a->real*b->imag + a->imag*b->real; }
 void yk_complex_div(yk_complex* r, yk_complex* a, yk_complex* b) { double d = b->real*b->real + b->imag*b->imag; r->real = (a->real*b->real + a->imag*b->imag)/d; r->imag = (a->imag*b->real - a->real*b->imag)/d; }
-void yk_print_complex(yk_complex* c) { printf("%g + %gi\n", c->real, c->imag); }
+void yk_print_complex(yk_complex* c) { char buf[810]; yk_format_complex(c, buf, sizeof(buf)); puts(buf); }
 
 int64_t yk_pow_int(int64_t a, int64_t b) { int64_t r = 1; for (int64_t i = 0; i < b; i++) r *= a; return r; }
 double yk_pow_real(double a, double b) { return pow(a, b); }
@@ -465,17 +524,8 @@ yk_string* yk_json_string(yk_string* s) {
 }
 
 yk_string* yk_string_from_complex(yk_complex* c) {
-    char buf[128];
-    int n;
-    if (c->imag < 0)
-        n = snprintf(buf, sizeof(buf), "%g%gi", c->real, c->imag);
-    else
-        n = snprintf(buf, sizeof(buf), "%g+%gi", c->real, c->imag);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
-    s->data = (char*)malloc(n + 1);
-    memcpy(s->data, buf, n + 1);
-    s->len = n;
-    return s;
+    char buf[810];
+    return yk_string_from_buffer(buf, yk_format_complex(c, buf, sizeof(buf)));
 }
 
 typedef struct { void (*entry)(void*); void* ctx; yk_thread_t thread; int64_t result; } yk_task;

@@ -31,7 +31,7 @@ fn native_cpu_flag() -> &'static str {
     if cfg!(target_arch = "aarch64") { "-mcpu=native" } else { "-march=native" }
 }
 
-fn find_compiler() -> Result<PathBuf> {
+pub fn find_compiler() -> Result<PathBuf> {
     let path = std::env::var_os("PATH").unwrap_or_default();
     COMPILERS
         .iter()
