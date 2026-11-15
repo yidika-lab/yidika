@@ -83,9 +83,7 @@ pub fn detect() -> HardwareInfo {
         gpus: gpu::detect(),
         os: OsInfo {
             name: std::env::consts::OS.to_string(),
-            triple: format!("{}-pc-{}",
-                std::env::consts::ARCH,
-                std::env::consts::FAMILY),
+            triple: crate::codegen::target::host_triple().to_string(),
         },
     }
 }

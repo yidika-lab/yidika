@@ -28,7 +28,7 @@ mod tests {
             crate::cli::build_program(&file_path, false, &crate::codegen::backend::LlvmBackend, false)
                 .expect("AOT build failed");
             let log = std::fs::File::create(dir.join("server.log")).expect("create server log");
-            let child = Command::new(dir.join("main.exe"))
+            let child = Command::new(dir.join(format!("main{}", std::env::consts::EXE_SUFFIX)))
                 .env("YK_DEBUG", "1")
                 .stdout(Stdio::null())
                 .stderr(log)
@@ -138,7 +138,7 @@ mod tests {
         crate::cli::build_program(&file_path, false, &backend, false)
             .map_err(|e| format!("AOT build: {}", e))?;
 
-        let exe_path = dir.join("main.exe");
+        let exe_path = dir.join(format!("main{}", std::env::consts::EXE_SUFFIX));
         if !exe_path.exists() {
             return Err("AOT exe not produced".into());
         }
@@ -454,6 +454,7 @@ mod tests {
     // ── HTTP fetch ─────────────────────────────────────
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "HTTP client is WinHTTP only, issue #65")]
     fn compat_fetch_get() {
         let url = "https://example.com";
         let interp_out = run_interp(&format!("fn main() {{ print(fetch(\"{}\")); }}", url))
@@ -677,7 +678,7 @@ fn main() {{
                 panic!("AOT build failed: {}", e);
             }
         }
-        let exe_path = dir.join("main.exe");
+        let exe_path = dir.join(format!("main{}", std::env::consts::EXE_SUFFIX));
         assert!(exe_path.exists(), "AOT exe not produced");
 
         let output = Command::new(&exe_path)
@@ -695,6 +696,7 @@ fn main() {{
     // ── HTTP class ────────────────────────────────────────
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "HTTP client is WinHTTP only, issue #65")]
     fn compat_http_class_get() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1212,6 +1214,7 @@ fn main() {{
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "the GUI engine is Windows only")]
     fn compat_gui_dump_static() {
         run_gui_compat(r#"use { gui } from "std";
 
@@ -1228,6 +1231,7 @@ fn main() {
     }
 
     #[test]
+    #[cfg_attr(not(windows), ignore = "the GUI engine is Windows only")]
     fn compat_gui_event_state() {
         run_gui_compat(r#"use { gui } from "std";
 

@@ -120,7 +120,7 @@ impl McJit {
             // it is acceptable.
 
             // Set target triple on the module
-            let triple_c = CString::new("x86_64-pc-windows-msvc").unwrap();
+            let triple_c = CString::new(crate::codegen::target::host_triple()).unwrap();
             (self.api.LLVMSetTarget)(module, triple_c.as_ptr());
 
             let inner = self.inner.lock().unwrap();

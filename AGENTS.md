@@ -13,7 +13,7 @@ Every language and stdlib feature must work in **both** backends. They are separ
 
 ## Design rules (mandatory for every change)
 
-- **Cross-platform source, one target per build.** Every language feature, std module, runtime piece and the GUI engine must be designed to work on Windows, Linux and macOS (Android/iOS later). Each build produces a binary for one chosen target, like `cargo build --target`. OS differences live in the runtime/engine behind `#[cfg]` / `#ifdef`, never in user `.yk` code. Do not add single-OS code without the abstraction that lets the other targets plug in. Existing Windows-only parts (AOT toolchain shell-out, `gui/src/win.rs`) are debt to remove, not a pattern to copy.
+- **Cross-platform source, one target per build.** Every language feature, std module, runtime piece and the GUI engine must be designed to work on Windows, Linux and macOS (Android/iOS later). Each build produces a binary for one chosen target, like `cargo build --target`. OS differences live in the runtime/engine behind `#[cfg]` / `#ifdef`, never in user `.yk` code. Do not add single-OS code without the abstraction that lets the other targets plug in. Existing Windows-only parts (the WinHTTP client, `gui/src/win.rs`) are debt to remove, not a pattern to copy.
 - **TDD.** Write the failing test first, then the minimal code that passes it, then refactor. Unit tests sit next to the code (`#[cfg(test)] mod tests`); any language or std feature also gets a `compat_*` test.
 - **SOLID**, applied to Rust: single responsibility per function/type/module; extend through traits and new modules instead of growing `match` blocks in existing ones; depend on traits at module boundaries, not on concrete backends.
 - **KISS.** The simplest design that satisfies the tests. No speculative abstraction or configuration.
@@ -58,15 +58,16 @@ Before finishing, search your output: `grep -nP '[\x{2013}\x{2014}\x{2018}\x{201
 
 Instead: start from a stated reference (a brand, a platform's guidelines such as Apple HIG or Material, or a product the user names), choose the palette, type scale and spacing scale on purpose, and keep them in one shared token table (see "No duplicated logic").
 
-## Prerequisites (Windows only for AOT)
+## Prerequisites for AOT
 
 | Need | Used by | Failure mode |
 |---|---|---|
+| Linux / macOS: `clang++` on `PATH` (`apt install clang`, `xcode-select --install`) | AOT IR + runtime compile and link (`codegen/posix_toolchain.rs`) | `"clang++ not found on PATH"` |
 | LLVM (`clang.exe`, default `C:\Program Files\LLVM\bin`) | AOT IR -> obj | `"clang.exe not found"` |
 | MSVC Build Tools (`vcvars64.bat`, `cl.exe`, `link.exe`) | AOT runtime compile + link | `"Visual Studio 2019/2022/2025 not found"` |
 | `LLVM-C.dll` on `PATH` | interp `net` MCJIT handlers | handler JIT result is discarded (`let _ = compile_*_handler(...)` in `netlib/mod.rs`) - server runs un-JITed; `netlib` tests print `SKIP:` and pass |
 
-`detect_vcvars()` / `detect_clang()` (`llvm.rs`, `llvm_api.rs::find_llvm_lib`) probe fixed paths then `PATH`.
+`detect_vcvars()` / `detect_clang()` (`llvm.rs`, `llvm_api.rs::find_llvm_lib`) probe fixed paths then `PATH` on Windows. On Linux and macOS the runtime is compiled once per runtime version and compiler, then cached in `$XDG_CACHE_HOME/yidi` (`~/.cache/yidi`, `~/Library/Caches/yidi` on macOS): the first `yidi build` takes about 8 s, later ones about 0.2 s.
 
 ## Commands
 
@@ -87,7 +88,7 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 
 `.github/workflows/ci.yml` runs: clippy `-D warnings` (blocking for the `gui` crate; non-blocking for the workspace until the 116-lint backlog in issue #14 is cleared), `cargo test --workspace --lib --bins -- --skip compat` on Linux, macOS and Windows, the `compat` suite on a Windows runner (its LLVM + Visual Studio install is enough for the AOT toolchain), and `cargo audit`.
 
-- The AOT backend is still **Windows-only** (it hardcodes `cmd.exe`, `vcvars64.bat`, `link.exe`, `.exe`), so `compat_*` runs only in the Windows job.
+- `compat_*` runs on Windows (MSVC toolchain) and on Linux and macOS (`clang++`). On Linux it takes about 15 s once the runtime is cached, against about 5 min on the Windows runner. Tests that need WinHTTP or the GUI engine are ignored outside Windows (#65).
 - `cargo fmt --check` **fails on `main`**, so the `format` job is `continue-on-error`. Running `cargo fmt` reformats the whole tree into a huge diff; do it in its own commit, never inside a feature change (issue #2).
 - Zero Rust warnings is a hard project rule (`CONTRIBUTING.md` + clippy `-D warnings`). Keep it.
 - `.github/workflows/release.yml`: pushing a tag `vX.Y.Z` equal to the `Cargo.toml` version builds and publishes `yidi-<target>.tar.gz|zip` + `.sha256` for Linux, macOS and Windows. `install.sh` / `install.ps1` download from `releases/latest/download/`, so asset names must stay version-less.
@@ -99,7 +100,7 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 
 ## Layout notes a filename won't tell you
 
-- **`src/codegen/runtime/yk_rt.c` (~150 KB, ~3 900 lines)** is the C/C++ runtime compiled into every AOT binary (HTTP/1.1 + HPACK/HTTP-2, WebSocket, radix route trie, TLS memory pool, Winsock-IOCP on Windows / io_uring on Linux). `llvm.rs` embeds it with `include_str!` and prepends the status table from `runtime_status.rs`. It `#define WIN32_LEAN_AND_MEAN` before including `winsock2.h` - do not remove that. It still calls the Win32 API directly in many places, so it only compiles on Windows today (124 errors on Linux with clang 21).
+- **`src/codegen/runtime/yk_rt.c` (~150 KB, ~3 900 lines)** is the C/C++ runtime compiled into every AOT binary (HTTP/1.1 + HPACK/HTTP-2, WebSocket, radix route trie, TLS memory pool; Winsock-IOCP server on Windows, a blocking worker-pool server on POSIX, and an io_uring server behind `-DYK_USE_URING` that does not compile yet, #66). `llvm.rs` embeds it with `include_str!` and prepends the status table from `runtime_status.rs`. It `#define WIN32_LEAN_AND_MEAN` before including `winsock2.h` - do not remove that. OS calls go through the small platform layer at the top of the file (`yk_thread_spawn`, `yk_mutex_lock`, `yk_sleep_ms`, `yk_path_kind`, `yk_send_all`, ...). Add to it instead of calling Win32 or POSIX directly.
 - **`src/codegen/llvm.rs` (~280 KB)** is the IR emitter (`LlvmCodegen` + its `HashMap` side-tables) and the Windows toolchain shell-out.
 - **`src/codegen/llvm_api.rs`** loads `LLVM-C.dll` at runtime via `libloading`. Used by `src/jit/` and `netlib`. `llvm.rs::compile_to_exe_fast` / `cache_runtime_obj` are `#[allow(dead_code)]` dead paths kept for reference - don't assume they run.
 - **`src/netlib/hyper_server.rs`** calls many `pub(crate)` helpers from `netlib/mod.rs` (`parse_request_line`, `execute_handler`, `write_response_async`, ...). Editing any of those signatures breaks the server.
