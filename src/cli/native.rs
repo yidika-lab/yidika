@@ -11,21 +11,19 @@ pub(super) struct Source<'a> {
     pub module: &'a Module,
 }
 
-pub(super) fn run(sources: &[Source], backend: &dyn CodegenBackend) -> Option<i32> {
+pub(super) fn executable(sources: &[Source], backend: &dyn CodegenBackend) -> Option<PathBuf> {
     if !crate::codegen::llvm::toolchain_available() {
         return None;
     }
-    run_in(&crate::cache::cache_dir().join("run"), sources, backend)
+    executable_under(&crate::cache::cache_dir().join("run"), sources, backend)
 }
 
-fn run_in(root: &Path, sources: &[Source], backend: &dyn CodegenBackend) -> Option<i32> {
+fn executable_under(root: &Path, sources: &[Source], backend: &dyn CodegenBackend) -> Option<PathBuf> {
     let modules: Vec<&Module> = sources.iter().map(|s| s.module).collect();
     if crate::codegen::backend::needs_side_artifacts(&modules) {
         return None;
     }
-    let exe = cached_executable(root, sources, &modules, backend)?;
-    let status = std::process::Command::new(&exe).status().ok()?;
-    Some(status.code().unwrap_or(1))
+    cached_executable(root, sources, &modules, backend)
 }
 
 fn cached_executable(root: &Path, sources: &[Source], modules: &[&Module], backend: &dyn CodegenBackend) -> Option<PathBuf> {
@@ -106,7 +104,7 @@ mod tests {
         let sources = [Source { path: Path::new("mock.yk"), text: &text, module: &m }];
         let backend = MockBackend::new();
         let root = test_root("fallback");
-        assert_eq!(run_in(&root, &sources, &backend), None);
+        assert_eq!(executable_under(&root, &sources, &backend), None);
         assert_eq!(backend.output_paths.lock().unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -118,8 +116,8 @@ mod tests {
         let sources = [Source { path: Path::new("retry.yk"), text: &text, module: &m }];
         let backend = MockBackend::new();
         let root = test_root("retry");
-        assert_eq!(run_in(&root, &sources, &backend), None);
-        assert_eq!(run_in(&root, &sources, &backend), None);
+        assert_eq!(executable_under(&root, &sources, &backend), None);
+        assert_eq!(executable_under(&root, &sources, &backend), None);
         assert_eq!(backend.output_paths.lock().unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -129,7 +127,7 @@ mod tests {
         let m = module("use { add } from \"c++:math.h\"; fn main() {}");
         let sources = [Source { path: Path::new("ffi.yk"), text: "x", module: &m }];
         let backend = MockBackend::new();
-        assert_eq!(run_in(&test_root("ffi"), &sources, &backend), None);
+        assert_eq!(executable_under(&test_root("ffi"), &sources, &backend), None);
         assert_eq!(backend.output_paths.lock().unwrap().len(), 0);
     }
 }

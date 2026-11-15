@@ -19,6 +19,8 @@ path = "src/main.rs"
 [dependencies]
 fastrand = "2"
 rustc-hash = "2"
+notify = "8.2"
+ctrlc = { version = "3.5", features = ["termination"] }
 indexmap = "2"
 serde_json = { version = "1", features = ["preserve_order"] }
 chrono = "0.4"

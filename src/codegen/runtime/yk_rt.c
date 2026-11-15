@@ -478,6 +478,14 @@ yk_string* yk_string_from_cstr(const char* s) {
     return result;
 }
 
+void yk_runtime_init(void) {
+#ifdef _WIN32
+    setvbuf(stdout, NULL, _IONBF, 0);
+#else
+    setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+#endif
+}
+
 void yk_print_int(int64_t v) { printf("%lld\n", (long long)v); }
 void yk_print_real(double v) { char buf[400]; yk_format_real(v, buf, sizeof(buf)); puts(buf); }
 void yk_print_bool(bool v) { printf("%s\n", v ? "true" : "false"); }
