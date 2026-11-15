@@ -27,16 +27,24 @@ typedef SOCKET yk_socket_t;
 #define yk_closesocket(fd) closesocket(fd)
 #define YK_TLS __declspec(thread)
 #define YK_GET_ERR() WSAGetLastError()
-#elif __linux__
+#else
 #include <sys/socket.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/uio.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
-#include <liburing.h>
+#include <sched.h>
 #include <errno.h>
+#if defined(__linux__) && defined(YK_USE_URING)
+#include <liburing.h>
+#define YK_HAVE_URING 1
+#endif
 typedef int yk_socket_t;
 typedef int SOCKET;
 #define YK_INVALID_SOCKET (-1)
@@ -73,6 +81,80 @@ typedef void* LPOVERLAPPED;
 #define WAIT_FAILED ((unsigned int)-1)
 #define WSAGetLastError() errno
 #endif
+
+// ── Threads, sleep, process ─────────────────────────────────
+#ifdef _WIN32
+typedef HANDLE yk_thread_t;
+typedef unsigned int yk_thread_ret;
+#define YK_THREAD_CALL __stdcall
+#define YK_THREAD_DONE 0
+static int yk_thread_spawn(yk_thread_t* out, yk_thread_ret (YK_THREAD_CALL *fn)(void*), void* arg) {
+    *out = (HANDLE)_beginthreadex(NULL, 0, fn, arg, 0, NULL);
+    return *out != NULL;
+}
+static void yk_thread_join(yk_thread_t t) { WaitForSingleObject(t, INFINITE); CloseHandle(t); }
+static void yk_sleep_ms(unsigned int ms) { Sleep(ms); }
+static int64_t yk_process_id(void) { return (int64_t)GetCurrentProcessId(); }
+#define yk_getcwd _getcwd
+typedef SRWLOCK yk_mutex_t;
+#define YK_MUTEX_INIT SRWLOCK_INIT
+static void yk_mutex_lock(yk_mutex_t* m) { AcquireSRWLockExclusive(m); }
+static void yk_mutex_unlock(yk_mutex_t* m) { ReleaseSRWLockExclusive(m); }
+static void yk_localtime(const time_t* t, struct tm* out) { localtime_s(out, t); }
+static void yk_gmtime(const time_t* t, struct tm* out) { gmtime_s(out, t); }
+enum { YK_PATH_NONE = 0, YK_PATH_FILE = 1, YK_PATH_DIR = 2 };
+static int yk_path_kind(const char* path) {
+    DWORD attr = GetFileAttributesA(path);
+    if (attr == INVALID_FILE_ATTRIBUTES) return YK_PATH_NONE;
+    return (attr & FILE_ATTRIBUTE_DIRECTORY) ? YK_PATH_DIR : YK_PATH_FILE;
+}
+#else
+typedef pthread_t yk_thread_t;
+typedef void* yk_thread_ret;
+#define YK_THREAD_CALL
+#define YK_THREAD_DONE NULL
+static int yk_thread_spawn(yk_thread_t* out, yk_thread_ret (*fn)(void*), void* arg) {
+    return pthread_create(out, NULL, fn, arg) == 0;
+}
+static void yk_thread_join(yk_thread_t t) { pthread_join(t, NULL); }
+static void yk_sleep_ms(unsigned int ms) {
+    struct timespec ts;
+    ts.tv_sec = ms / 1000;
+    ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+    nanosleep(&ts, NULL);
+}
+static int64_t yk_process_id(void) { return (int64_t)getpid(); }
+#define yk_getcwd getcwd
+typedef pthread_mutex_t yk_mutex_t;
+#define YK_MUTEX_INIT PTHREAD_MUTEX_INITIALIZER
+static void yk_mutex_lock(yk_mutex_t* m) { pthread_mutex_lock(m); }
+static void yk_mutex_unlock(yk_mutex_t* m) { pthread_mutex_unlock(m); }
+static void yk_localtime(const time_t* t, struct tm* out) { localtime_r(t, out); }
+static void yk_gmtime(const time_t* t, struct tm* out) { gmtime_r(t, out); }
+enum { YK_PATH_NONE = 0, YK_PATH_FILE = 1, YK_PATH_DIR = 2 };
+static int yk_path_kind(const char* path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return YK_PATH_NONE;
+    return S_ISDIR(st.st_mode) ? YK_PATH_DIR : YK_PATH_FILE;
+}
+#endif
+
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+static int yk_send_all(yk_socket_t fd, const char* data, int64_t len) {
+    while (len > 0) {
+        int chunk = len > (1 << 30) ? (1 << 30) : (int)len;
+        int n = (int)send(fd, data, chunk, MSG_NOSIGNAL);
+#ifndef _WIN32
+        if (n < 0 && errno == EINTR) continue;
+#endif
+        if (n <= 0) return -1;
+        data += n;
+        len -= n;
+    }
+    return 0;
+}
 
 // ── Debug Logger (env YK_DEBUG=1 active) ─────────────────────
 // Zéro overhead en production : un seul check + sprintf évité.
@@ -176,6 +258,7 @@ typedef struct {
 #define YK_CONN_POOL_SIZE (512ULL * 1024 * 1024)  // 512 MB -> ~2M conns
 
 static yk_vmem_pool yk_conn_pool = {0};
+static yk_mutex_t yk_conn_pool_lock = YK_MUTEX_INIT;
 
 static int yk_vmem_pool_init(size_t total_size, int slot_size) {
     yk_vmem_pool* pool = &yk_conn_pool;
@@ -201,18 +284,13 @@ static int yk_vmem_pool_init(size_t total_size, int slot_size) {
     return 0;
 }
 
-static void* yk_vmem_pool_alloc(void) {
-    yk_vmem_pool* pool = &yk_conn_pool;
+static void* yk_vmem_pool_alloc_locked(yk_vmem_pool* pool) {
     int slot_size = pool->slot_size;
-
-    // Try lock-free free list first
-    for (;;) {
-        yk_vmem_slot* head = pool->free_head;
-        if (!head) break;
-        if (YK_CAS_PTR(&pool->free_head, head, head->next) == head) {
-            memset(head, 0, slot_size);
-            return head;
-        }
+    yk_vmem_slot* head = pool->free_head;
+    if (head) {
+        pool->free_head = head->next;
+        memset(head, 0, slot_size);
+        return head;
     }
 
     // Commit enough pages to hold at least one slot
@@ -234,11 +312,8 @@ static void* yk_vmem_pool_alloc(void) {
         int slots = commit_size / slot_size;
         for (int i = 1; i < slots; i++) {
             yk_vmem_slot* s = (yk_vmem_slot*)(page + i * slot_size);
-            for (;;) {
-                yk_vmem_slot* head = pool->free_head;
-                s->next = head;
-                if (YK_CAS_PTR(&pool->free_head, head, s) == head) break;
-            }
+            s->next = pool->free_head;
+            pool->free_head = s;
         }
     }
 
@@ -246,15 +321,20 @@ static void* yk_vmem_pool_alloc(void) {
     return page;
 }
 
+static void* yk_vmem_pool_alloc(void) {
+    yk_mutex_lock(&yk_conn_pool_lock);
+    void* slot = yk_vmem_pool_alloc_locked(&yk_conn_pool);
+    yk_mutex_unlock(&yk_conn_pool_lock);
+    return slot;
+}
+
 static void yk_vmem_pool_free(void* ptr) {
     if (!ptr) return;
-    yk_vmem_pool* pool = &yk_conn_pool;
     yk_vmem_slot* s = (yk_vmem_slot*)ptr;
-    for (;;) {
-        yk_vmem_slot* head = pool->free_head;
-        s->next = head;
-        if (YK_CAS_PTR(&pool->free_head, head, s) == head) return;
-    }
+    yk_mutex_lock(&yk_conn_pool_lock);
+    s->next = yk_conn_pool.free_head;
+    yk_conn_pool.free_head = s;
+    yk_mutex_unlock(&yk_conn_pool_lock);
 }
 
 static void yk_vmem_pool_destroy(void) {
@@ -398,9 +478,7 @@ yk_string* yk_string_from_complex(yk_complex* c) {
     return s;
 }
 
-#include <process.h>
-
-typedef struct { void (*entry)(void*); void* ctx; HANDLE thread; int64_t result; } yk_task;
+typedef struct { void (*entry)(void*); void* ctx; yk_thread_t thread; int64_t result; } yk_task;
 
 typedef struct { int64_t* data; int64_t len; int64_t cap; } yk_list;
 
@@ -523,10 +601,10 @@ void yk_print_result_val(int64_t val, int8_t ok) {
     }
 }
 
-static unsigned int __stdcall yk_task_start(void* arg) {
+static yk_thread_ret YK_THREAD_CALL yk_task_start(void* arg) {
     yk_task* t = (yk_task*)arg;
     t->entry(t->ctx);
-    return 0;
+    return YK_THREAD_DONE;
 }
 
 uint64_t yk_run_thread(void (*entry)(void*), void* ctx) {
@@ -534,15 +612,13 @@ uint64_t yk_run_thread(void (*entry)(void*), void* ctx) {
     t->entry = entry;
     t->ctx = ctx;
     t->result = 0;
-    t->thread = (HANDLE)_beginthreadex(NULL, 0, yk_task_start, t, 0, NULL);
-    if (!t->thread) { free(t); return 0; }
+    if (!yk_thread_spawn(&t->thread, yk_task_start, t)) { free(t); return 0; }
     return (uint64_t)(intptr_t)t;
 }
 
 int64_t yk_join_thread(uint64_t handle) {
     yk_task* t = (yk_task*)(intptr_t)handle;
-    WaitForSingleObject(t->thread, INFINITE);
-    CloseHandle(t->thread);
+    yk_thread_join(t->thread);
     int64_t r = t->result;
     free(t);
     return r;
@@ -577,14 +653,15 @@ yk_string* yk_time_now(void) {
     return s;
 }
 
-void yk_time_sleep(int64_t ms) { Sleep((DWORD)ms); }
+void yk_time_sleep(int64_t ms) { if (ms > 0) yk_sleep_ms((unsigned int)ms); }
 
 int64_t yk_time_timestamp(void) { return (int64_t)time(NULL); }
 
-int64_t yk_sys_pid(void) { return (int64_t)GetCurrentProcessId(); }
+int64_t yk_sys_pid(void) { return yk_process_id(); }
 void yk_sys_exit(int64_t code) { exit((int)code); }
 yk_string* yk_sys_cwd(void) {
-    char* cwd = _getcwd(NULL, 0);
+    char* cwd = yk_getcwd(NULL, 0);
+    if (!cwd) return yk_string_from_cstr("");
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
     s->data = cwd;
     s->len = (int64_t)strlen(cwd);
@@ -685,52 +762,45 @@ int64_t yk_path_is_absolute(yk_string* s) {
 #endif
 }
 
-yk_string* yk_fs_read(yk_string* path) {
-    HANDLE h = CreateFileA(path->data, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) { return yk_string_from_cstr(""); }
-    DWORD size = GetFileSize(h, NULL);
-    char* buf = (char*)malloc(size + 1);
-    DWORD read = 0;
-    ReadFile(h, buf, size, &read, NULL);
-    CloseHandle(h);
-    buf[read] = '\0';
+static yk_string* yk_string_take(char* buf, int64_t len) {
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
-    s->data = buf; s->len = read;
+    s->data = buf;
+    s->len = len;
     return s;
 }
 
-void yk_fs_write(yk_string* path, yk_string* content) {
-    HANDLE h = CreateFileA(path->data, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) return;
-    DWORD written = 0;
-    WriteFile(h, content->data, (DWORD)content->len, &written, NULL);
-    CloseHandle(h);
+yk_string* yk_fs_read(yk_string* path) {
+    FILE* f = fopen(path->data, "rb");
+    if (!f) return yk_string_from_cstr("");
+    if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return yk_string_from_cstr(""); }
+    long size = ftell(f);
+    if (size < 0 || fseek(f, 0, SEEK_SET) != 0) { fclose(f); return yk_string_from_cstr(""); }
+    char* buf = (char*)malloc((size_t)size + 1);
+    if (!buf) { fclose(f); return yk_string_from_cstr(""); }
+    size_t got = fread(buf, 1, (size_t)size, f);
+    fclose(f);
+    buf[got] = '\0';
+    return yk_string_take(buf, (int64_t)got);
 }
 
-void yk_fs_append(yk_string* path, yk_string* content) {
-    HANDLE h = CreateFileA(path->data, FILE_APPEND_DATA, 0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE) return;
-    DWORD written = 0;
-    WriteFile(h, content->data, (DWORD)content->len, &written, NULL);
-    CloseHandle(h);
+static void yk_fs_put(yk_string* path, yk_string* content, const char* mode) {
+    FILE* f = fopen(path->data, mode);
+    if (!f) return;
+    fwrite(content->data, 1, (size_t)content->len, f);
+    fclose(f);
 }
 
-void yk_fs_remove(yk_string* path) { DeleteFileA(path->data); }
+void yk_fs_write(yk_string* path, yk_string* content) { yk_fs_put(path, content, "wb"); }
 
-int64_t yk_fs_exists(yk_string* path) {
-    DWORD attr = GetFileAttributesA(path->data);
-    return (attr != INVALID_FILE_ATTRIBUTES) ? 1 : 0;
-}
+void yk_fs_append(yk_string* path, yk_string* content) { yk_fs_put(path, content, "ab"); }
 
-int64_t yk_fs_is_dir(yk_string* path) {
-    DWORD attr = GetFileAttributesA(path->data);
-    return (attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY)) ? 1 : 0;
-}
+void yk_fs_remove(yk_string* path) { remove(path->data); }
 
-int64_t yk_fs_is_file(yk_string* path) {
-    DWORD attr = GetFileAttributesA(path->data);
-    return (attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY)) ? 1 : 0;
-}
+int64_t yk_fs_exists(yk_string* path) { return yk_path_kind(path->data) != YK_PATH_NONE; }
+
+int64_t yk_fs_is_dir(yk_string* path) { return yk_path_kind(path->data) == YK_PATH_DIR; }
+
+int64_t yk_fs_is_file(yk_string* path) { return yk_path_kind(path->data) == YK_PATH_FILE; }
 
 static const char b64_enc[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -795,7 +865,7 @@ yk_string* yk_base64_decode(yk_string* input) {
 yk_string* yk_datetime_now(void) {
     time_t t = time(NULL);
     struct tm lt;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     char buf[64];
     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &lt);
     return yk_string_from_cstr(buf);
@@ -804,7 +874,7 @@ yk_string* yk_datetime_now(void) {
 yk_string* yk_datetime_utc(void) {
     time_t t = time(NULL);
     struct tm gt;
-    gmtime_s(&gt, &t);
+    yk_gmtime(&t, &gt);
     char buf[64];
     strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &gt);
     return yk_string_from_cstr(buf);
@@ -812,43 +882,43 @@ yk_string* yk_datetime_utc(void) {
 
 int64_t yk_datetime_year(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_year + 1900;
 }
 
 int64_t yk_datetime_month(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_mon + 1;
 }
 
 int64_t yk_datetime_day(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_mday;
 }
 
 int64_t yk_datetime_hour(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_hour;
 }
 
 int64_t yk_datetime_minute(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_min;
 }
 
 int64_t yk_datetime_second(int64_t ts) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     return (int64_t)lt.tm_sec;
 }
 
 yk_string* yk_datetime_format(int64_t ts, yk_string* fmt) {
     struct tm lt; time_t t = (time_t)ts;
-    localtime_s(&lt, &t);
+    yk_localtime(&t, &lt);
     size_t sz = fmt->len * 2 + 64;
     char* buf = (char*)malloc(sz);
     strftime(buf, sz, fmt->data, &lt);
@@ -879,6 +949,7 @@ extern "C" yk_string* yk_re_replace(yk_string* pattern, yk_string* text, yk_stri
 
 extern "C" yk_string* yk_fetch(yk_string* url, yk_string* method, yk_string* body) {
     if (!url || url->len == 0) return yk_string_from_cstr("");
+#ifdef _WIN32
     HINTERNET hSession = WinHttpOpen(L"Yidika/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, NULL, NULL, 0);
     if (!hSession) return yk_string_from_cstr("");
     URL_COMPONENTSW uc = {0};
@@ -935,6 +1006,11 @@ extern "C" yk_string* yk_fetch(yk_string* url, yk_string* method, yk_string* bod
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
     s->data = buf; s->len = total;
     return s;
+#else
+    (void)method; (void)body;
+    yk_log("fetch: no HTTP client on this platform yet");
+    return yk_string_from_cstr("");
+#endif
 }
 
 // ── Radix Tree Route Trie ──────────────────────────────────────
@@ -1138,8 +1214,8 @@ typedef struct yk_conn {
     OVERLAPPED ov;     // 32 bytes
 #endif
     // 4-byte ints packed at end (no alignment gaps)
-#ifdef __linux__
-    SOCKET socket;     // int, 4 bytes on Linux
+#ifndef _WIN32
+    SOCKET socket;
 #endif
     int buf_cap;
     int buf_used;
@@ -1230,11 +1306,17 @@ typedef struct {
 #ifdef _WIN32
     HANDLE iocp;
     lpfn_AcceptEx accept_fn;
-#elif __linux__
+#elif defined(YK_HAVE_URING)
     struct io_uring ring;
 #endif
     void* handler_pool; // yk_handler_pool* for offloading handler execution
 } yk_server;
+
+#ifdef YK_HAVE_URING
+static pthread_mutex_t yk_ring_mutex = PTHREAD_MUTEX_INITIALIZER;
+#elif !defined(_WIN32)
+static void yk_posix_finish_response(yk_conn* c);
+#endif
 
 // Forward declarations (struct yk_handler_pool defined later)
 struct yk_handler_pool;
@@ -1730,7 +1812,7 @@ typedef struct yk_handler_pool {
     CRITICAL_SECTION wake_lock;  // only for condition variable signaling
     CONDITION_VARIABLE wake_cv;
     HANDLE* threads;
-#elif __linux__
+#else
     pthread_mutex_t wake_mutex;
     pthread_cond_t wake_cond;
     pthread_t* threads;
@@ -1878,7 +1960,7 @@ static void* yk_hw_worker(void* arg) {
             WSAGetLastError() != WSA_IO_PENDING) {
             closesocket(c->socket); yk_conn_free(c);
         }
-#else
+#elif defined(YK_HAVE_URING)
         pthread_mutex_lock(&yk_ring_mutex);
         struct io_uring_sqe* sqe = io_uring_get_sqe(&s->ring);
         if (sqe) {
@@ -1896,6 +1978,8 @@ static void* yk_hw_worker(void* arg) {
         }
         pthread_mutex_unlock(&yk_ring_mutex);
         io_uring_submit(&s->ring);
+#else
+        yk_posix_finish_response(c);
 #endif
     }
 #ifdef _WIN32
@@ -2239,6 +2323,18 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
     return 1;
 }
 
+static int yk_parse_listen_addr(yk_string* addr, char* host, int host_cap, int* port) {
+    int len = (int)(addr->len < host_cap - 1 ? addr->len : host_cap - 1);
+    memcpy(host, addr->data, len);
+    host[len] = '\0';
+    char* colon = strrchr(host, ':');
+    if (!colon) return 0;
+    *colon = '\0';
+    int p = atoi(colon + 1);
+    *port = (p > 0 && p < 65536) ? p : 8080;
+    return 1;
+}
+
 // ── Windows IOCP Implementation ────────────────────────────────
 #ifdef _WIN32
 
@@ -2556,14 +2652,11 @@ void yk_server_serve(int64_t handle, yk_string* addr) {
 }
 
 // ── Linux io_uring Implementation ──────────────────────────────
-#elif __linux__
+#elif defined(YK_HAVE_URING)
 
 #include <sys/epoll.h>
 
 // io_uring worker thread
-#ifdef __linux__
-static pthread_mutex_t yk_ring_mutex = PTHREAD_MUTEX_INITIALIZER;
-#endif
 
 static void* yk_io_uring_worker(void* arg) {
     yk_server* s = (yk_server*)arg;
@@ -2937,6 +3030,160 @@ void yk_server_serve(int64_t handle, yk_string* addr) {
     free(s);
 }
 
+#else
+
+// ── Portable POSIX server (Linux without liburing, macOS, BSD) ──
+// A fixed pool of blocking workers: the thread count bounds concurrency,
+// and an idle timeout stops slow clients from holding a worker forever.
+#include <signal.h>
+
+#define YK_POSIX_QUEUE_CAP 1024
+#define YK_POSIX_IDLE_TIMEOUT_SEC 10
+
+typedef struct {
+    yk_socket_t fds[YK_POSIX_QUEUE_CAP];
+    int head;
+    int len;
+    pthread_mutex_t lock;
+    pthread_cond_t ready;
+    yk_server* server;
+} yk_posix_queue;
+
+static int yk_posix_queue_push(yk_posix_queue* q, yk_socket_t fd) {
+    pthread_mutex_lock(&q->lock);
+    int ok = q->len < YK_POSIX_QUEUE_CAP;
+    if (ok) {
+        q->fds[(q->head + q->len) % YK_POSIX_QUEUE_CAP] = fd;
+        q->len++;
+        pthread_cond_signal(&q->ready);
+    }
+    pthread_mutex_unlock(&q->lock);
+    return ok;
+}
+
+static yk_socket_t yk_posix_queue_pop(yk_posix_queue* q) {
+    pthread_mutex_lock(&q->lock);
+    while (q->len == 0) pthread_cond_wait(&q->ready, &q->lock);
+    yk_socket_t fd = q->fds[q->head];
+    q->head = (q->head + 1) % YK_POSIX_QUEUE_CAP;
+    q->len--;
+    pthread_mutex_unlock(&q->lock);
+    return fd;
+}
+
+static int yk_posix_send_response(yk_conn* c) {
+    if (yk_send_all(c->socket, c->resp_buf, c->header_len) != 0) return -1;
+    if (c->body_ptr && c->body_len > 0) return yk_send_all(c->socket, c->body_ptr, c->body_len);
+    return 0;
+}
+
+static void yk_posix_close(yk_conn* c) {
+    if (c->ws) { yk_ws_cleanup(c); return; }
+    if (c->h2) { yk_h2_cleanup(c); return; }
+    yk_closesocket(c->socket);
+    yk_conn_free(c);
+}
+
+static void yk_posix_finish_response(yk_conn* c) {
+    yk_posix_send_response(c);
+    yk_posix_close(c);
+}
+
+static void yk_posix_serve_conn(yk_conn* c, yk_server* s) {
+    for (;;) {
+        if (yk_conn_grow_buf(c, c->buf_used + 4096) != 0) break;
+        ssize_t n = recv(c->socket, c->buf + c->buf_used, (size_t)(c->buf_cap - c->buf_used - 1), 0);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        c->buf_used += (int)n;
+        c->buf[c->buf_used] = '\0';
+        int ret = yk_process_request(c, s);
+        if (c->ws || c->h2) { yk_log("posix server: WebSocket and HTTP/2 need the io_uring or IOCP server"); break; }
+        if (ret < 0 || ret == 2) break;
+        if (ret == 0) continue;
+        if (yk_posix_send_response(c) != 0 || !c->keep_alive || !s->running) break;
+        c->buf_used = 0;
+    }
+    yk_posix_close(c);
+}
+
+static void yk_posix_tune_socket(yk_socket_t fd) {
+    struct timeval tv;
+    tv.tv_sec = YK_POSIX_IDLE_TIMEOUT_SEC;
+    tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    int one = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+#ifdef SO_NOSIGPIPE
+    setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+}
+
+static yk_thread_ret YK_THREAD_CALL yk_posix_worker(void* arg) {
+    yk_posix_queue* q = (yk_posix_queue*)arg;
+    for (;;) {
+        yk_socket_t fd = yk_posix_queue_pop(q);
+        yk_conn* c = yk_conn_alloc();
+        if (!c) { yk_closesocket(fd); continue; }
+        c->socket = fd;
+        yk_posix_serve_conn(c, q->server);
+    }
+    return YK_THREAD_DONE;
+}
+
+static yk_socket_t yk_posix_listen(const char* host, int port) {
+    yk_socket_t fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return YK_INVALID_SOCKET;
+    int opt = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((unsigned short)port);
+    if (strcmp(host, "*") == 0 || strcmp(host, "0.0.0.0") == 0) sa.sin_addr.s_addr = INADDR_ANY;
+    else if (inet_pton(AF_INET, host, &sa.sin_addr) != 1) { close(fd); return YK_INVALID_SOCKET; }
+    if (bind(fd, (struct sockaddr*)&sa, sizeof(sa)) != 0 || listen(fd, SOMAXCONN) != 0) {
+        close(fd);
+        return YK_INVALID_SOCKET;
+    }
+    return fd;
+}
+
+void yk_server_serve(int64_t handle, yk_string* addr) {
+    yk_server* s = (yk_server*)(intptr_t)handle;
+    if (!s || s->count == 0) { printf("No routes registered\n"); return; }
+    char host[256];
+    int port = 0;
+    if (!yk_parse_listen_addr(addr, host, sizeof(host), &port)) { printf("Invalid address format\n"); return; }
+    signal(SIGPIPE, SIG_IGN);
+    s->listen_fd = yk_posix_listen(host, port);
+    if (s->listen_fd == YK_INVALID_SOCKET) { printf("bind failed\n"); return; }
+
+    static yk_posix_queue queue;
+    memset(&queue, 0, sizeof(queue));
+    pthread_mutex_init(&queue.lock, NULL);
+    pthread_cond_init(&queue.ready, NULL);
+    queue.server = s;
+    s->running = 1;
+    int workers = s->thread_count > 0 ? s->thread_count : 8;
+    for (int i = 0; i < workers; i++) {
+        yk_thread_t t;
+        if (yk_thread_spawn(&t, yk_posix_worker, &queue)) pthread_detach(t);
+    }
+    printf("Server listening on %s:%d (posix, %d threads)\n", host, port, workers);
+    fflush(stdout);
+    yk_log("serve start %s:%d (posix, %d routes, %d threads)", host, port, s->count, workers);
+
+    while (s->running) {
+        yk_socket_t fd = accept(s->listen_fd, NULL, NULL);
+        if (fd < 0) { if (errno == EINTR) continue; break; }
+        yk_posix_tune_socket(fd);
+        if (!yk_posix_queue_push(&queue, fd)) { yk_log("posix server: queue full, dropping connection"); close(fd); }
+    }
+    close(s->listen_fd);
+}
+
 #endif // _WIN32 / __linux__
 
 // ── WebSocket helpers ───
@@ -3204,9 +3451,9 @@ static void yk_ws_handle(yk_conn* c, yk_server* s) {
     // Upgrade: 101 Switching Protocols
     char key_buf[256]; char* key_start = strstr(c->buf, "Sec-WebSocket-Key:");
     if (!key_start) key_start = strstr(c->buf, "sec-websocket-key:");
-    if (!key_start) { closesocket(c->socket); yk_conn_free(c); return; }
+    if (!key_start) { yk_closesocket(c->socket); yk_conn_free(c); return; }
     key_start += 18; while (*key_start == ' ') key_start++;
-    char* key_end = strstr(key_start, "\r\n"); if (!key_end) { closesocket(c->socket); yk_conn_free(c); return; }
+    char* key_end = strstr(key_start, "\r\n"); if (!key_end) { yk_closesocket(c->socket); yk_conn_free(c); return; }
     int key_len = (int)(key_end - key_start); if (key_len > 255) key_len = 255;
     memcpy(key_buf, key_start, key_len); key_buf[key_len] = '\0';
     char accept_buf[64]; yk_ws_accept_key(key_buf, accept_buf, sizeof(accept_buf));
@@ -3240,7 +3487,7 @@ static void yk_ws_handle(yk_conn* c, yk_server* s) {
         free(payload);
     }
     done:
-    closesocket(c->socket);
+    yk_closesocket(c->socket);
     yk_conn_free(c);
 }
 

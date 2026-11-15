@@ -136,6 +136,20 @@ jobs:
       - run: cargo build -p yk_ffi_gui --release
       - run: cargo test --lib compat -- --test-threads=1
 
+  aot-compat-posix:
+    name: Interpreter/AOT parity (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: clang++ --version
+      - run: cargo test --lib compat -- --test-threads=1
+
   audit:
     name: Security audit (RustSec)
     runs-on: ubuntu-latest
