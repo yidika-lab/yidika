@@ -1,5 +1,18 @@
+use super::{name, version};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Dep {
+    pub url: String,
+    pub req: String,
+}
+
+impl Dep {
+    pub fn any(url: &str) -> Self {
+        Self { url: url.to_string(), req: "*".to_string() }
+    }
+}
 
 pub const FILE: &str = "project.toml";
 const DEPENDENCIES: &str = "dependencies";
@@ -33,25 +46,28 @@ impl Manifest {
         Self { table }
     }
 
-    pub fn dependencies(&self) -> Result<Vec<(String, String)>, String> {
+    pub fn dependencies(&self) -> Result<Vec<(String, Dep)>, String> {
         let Some(deps) = self.table.get(DEPENDENCIES) else { return Ok(Vec::new()) };
         let deps = deps.as_table().ok_or_else(|| format!("[{}] in {} must be a table", DEPENDENCIES, FILE))?;
-        deps.iter()
-            .map(|(name, url)| match url.as_str() {
-                Some(url) => Ok((name.clone(), url.to_string())),
-                None => Err(format!("dependency '{}' in {} must be a git URL string", name, FILE)),
-            })
-            .collect()
+        deps.iter().map(|(n, value)| Ok((name::validate(n)?.to_string(), dep_of(n, value)?))).collect()
     }
 
     pub fn contains(&self, name: &str) -> bool {
         self.deps().is_some_and(|d| d.contains_key(name))
     }
 
-    pub fn insert(&mut self, name: &str, url: &str) {
+    pub fn insert(&mut self, name: &str, dep: &Dep) {
+        let value: toml::Value = if dep.req == "*" {
+            dep.url.clone().into()
+        } else {
+            let mut t = toml::Table::new();
+            t.insert("git".into(), dep.url.clone().into());
+            t.insert("version".into(), dep.req.clone().into());
+            t.into()
+        };
         let deps = self.table.entry(DEPENDENCIES).or_insert_with(|| toml::Table::new().into());
         if let Some(deps) = deps.as_table_mut() {
-            deps.insert(name.into(), url.into());
+            deps.insert(name.into(), value);
         }
     }
 
@@ -70,6 +86,23 @@ impl Manifest {
     }
 }
 
+fn dep_of(name: &str, value: &toml::Value) -> Result<Dep, String> {
+    let bad = || format!("dependency '{}' in {} must be a git URL or {{ git = \"...\", version = \"...\" }}", name, FILE);
+    let dep = match value {
+        toml::Value::String(url) => Dep::any(url),
+        toml::Value::Table(t) => Dep {
+            url: t.get("git").and_then(|v| v.as_str()).ok_or_else(bad)?.to_string(),
+            req: match t.get("version") {
+                None => "*".to_string(),
+                Some(v) => v.as_str().ok_or_else(bad)?.to_string(),
+            },
+        },
+        _ => return Err(bad()),
+    };
+    version::parse_req(&dep.req)?;
+    Ok(dep)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,21 +119,39 @@ mod tests {
         let dir = TempDir::new();
         write_file(dir.path(), FILE, "[package]\nname = \"app\"\n\n[tools]\nfmt = true\n");
         let mut m = Manifest::load(dir.path()).unwrap();
-        m.insert("greet", "https://x/greet.git");
+        m.insert("greet", &Dep { url: "https://x/greet.git".into(), req: "^1.2".into() });
         m.save(dir.path()).unwrap();
         let saved = fs::read_to_string(Manifest::path(dir.path())).unwrap();
-        assert!(saved.contains("name = \"app\"") && saved.contains("fmt = true") && saved.contains("greet = \"https://x/greet.git\""), "{}", saved);
-        assert!(saved.find("[package]").unwrap() < saved.find("[dependencies]").unwrap(), "{}", saved);
+        assert!(saved.contains("name = \"app\"") && saved.contains("fmt = true"), "{}", saved);
+        let deps = Manifest::load(dir.path()).unwrap().dependencies().unwrap();
+        assert_eq!(deps, vec![("greet".to_string(), Dep { url: "https://x/greet.git".into(), req: "^1.2".into() })]);
+        assert!(saved.find("[package]").unwrap() < saved.find("[dependencies").unwrap(), "{}", saved);
     }
 
     #[test]
     fn removing_reports_whether_the_dependency_existed() {
         let mut m = Manifest::for_new_project("app");
-        m.insert("greet", "u");
+        m.insert("greet", &Dep::any("u"));
         assert!(m.contains("greet"));
         assert!(m.remove("greet"));
         assert!(!m.remove("greet"));
         assert!(!m.contains("greet"));
+    }
+
+    #[test]
+    fn a_plain_url_means_any_version() {
+        let dir = TempDir::new();
+        write_file(dir.path(), FILE, "[dependencies]\ngreet = \"https://x/greet.git\"\n");
+        assert_eq!(Manifest::load(dir.path()).unwrap().dependencies().unwrap()[0].1, Dep::any("https://x/greet.git"));
+    }
+
+    #[test]
+    fn bad_names_and_ranges_are_errors() {
+        let dir = TempDir::new();
+        write_file(dir.path(), FILE, "[dependencies]\n\"..\" = \"u\"\n");
+        assert!(Manifest::load(dir.path()).unwrap().dependencies().is_err());
+        write_file(dir.path(), FILE, "[dependencies]\ngreet = { git = \"u\", version = \"one\" }\n");
+        assert!(Manifest::load(dir.path()).unwrap().dependencies().is_err());
     }
 
     #[test]
