@@ -11,16 +11,95 @@ mod tests {
         AOT_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn read_http_response(stream: &mut std::net::TcpStream) -> String {
+    struct AotServer {
+        child: std::process::Child,
+        dir: std::path::PathBuf,
+        port: u16,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl AotServer {
+        fn start(test_name: &str, source: &str, port: u16) -> Self {
+            let lock = aot_lock();
+            let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
+            let _ = std::fs::create_dir_all(&dir);
+            let file_path = dir.join("main.yk");
+            std::fs::write(&file_path, source).expect("write source");
+            crate::cli::build_program(&file_path, false, &crate::codegen::backend::LlvmBackend, false)
+                .expect("AOT build failed");
+            let child = Command::new(dir.join("main.exe"))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("failed to start server");
+            let server = AotServer { child, dir, port, _lock: lock };
+            server.wait_until_listening();
+            server
+        }
+
+        fn address(&self) -> String {
+            format!("127.0.0.1:{}", self.port)
+        }
+
+        fn wait_until_listening(&self) {
+            let addr = self.address().parse().unwrap();
+            for _ in 0..50 {
+                if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            panic!("server on {} did not start in time", self.address());
+        }
+
+        fn connect(&self, read_timeout: Duration) -> std::net::TcpStream {
+            let stream = std::net::TcpStream::connect(self.address()).expect("connect to server");
+            stream.set_read_timeout(Some(read_timeout)).ok();
+            stream
+        }
+
+        fn exchange(&self, request: &str) -> HttpExchange {
+            let mut stream = self.connect(Duration::from_secs(5));
+            stream.write_all(request.as_bytes()).expect("write request");
+            read_until_close(&mut stream)
+        }
+    }
+
+    impl Drop for AotServer {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    struct HttpExchange {
+        response: String,
+        closed_by_server: bool,
+    }
+
+    fn read_until_close(stream: &mut std::net::TcpStream) -> HttpExchange {
         let mut received = Vec::new();
         let mut chunk = [0u8; 4096];
-        while let Ok(n) = stream.read(&mut chunk) {
-            if n == 0 {
-                break;
+        let closed_by_server = loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break true,
+                Ok(n) => received.extend_from_slice(&chunk[..n]),
+                Err(_) => break false,
             }
-            received.extend_from_slice(&chunk[..n]);
-        }
-        String::from_utf8_lossy(&received).into_owned()
+        };
+        HttpExchange { response: String::from_utf8_lossy(&received).into_owned(), closed_by_server }
+    }
+
+    fn get_request(path: &str) -> String {
+        format!("GET {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n", path)
+    }
+
+    fn route_server(route: &str, body: &str, port: u16) -> String {
+        format!(
+            "use {{ Server }} from \"net\";\nfn handler(req: auto) -> str {{\n    return {};\n}}\nfn main() {{\n    app: Server = Server();\n    app.get(\"{}\", handler);\n    app.serve(\"127.0.0.1:{}\");\n}}",
+            body, route, port
+        )
     }
 
     fn run_interp(source: &str) -> Result<String, String> {
@@ -470,242 +549,48 @@ mod tests {
 
     #[test]
     fn compat_net_server_real_request() {
-        let server_source = r#"use { Server } from "net";
-fn hello(req: auto) -> str {
-    return "Hello, world!";
-}
-fn main() {
-    app: Server = Server();
-    app.get("/hello", hello);
-    app.serve("127.0.0.1:19876");
-}"#;
-        let test_name = "net_server_real_request";
-        let _lock = aot_lock();
-        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("main.yk");
-        std::fs::write(&file_path, server_source).expect("write source");
-        let backend = crate::codegen::backend::LlvmBackend;
-        crate::cli::build_program(&file_path, false, &backend, false)
-            .expect("AOT build failed");
-        let exe_path = dir.join("main.exe");
-        assert!(exe_path.exists(), "AOT exe not produced");
-
-        let mut child = Command::new(&exe_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start server");
-
-        // Wait for server port to be ready (up to 5s)
-        let mut started = false;
-        for _ in 0..50 {
-            if std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:19876".parse().unwrap(),
-                Duration::from_millis(100)
-            ).is_ok() {
-                started = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(started, "Server did not start in time");
-
-        // Make HTTP request via raw TCP
-        let mut stream = std::net::TcpStream::connect("127.0.0.1:19876")
-            .expect("connect to server");
-        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        let request = "GET /hello HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-        stream.write_all(request.as_bytes()).expect("write request");
-
-        let response = read_http_response(&mut stream);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-        drop(_lock);
-
-        assert!(response.contains("Hello, world!"),
-            "net_server_real_request: response should contain handler output, got: {:?}", response);
+        let server = AotServer::start("net_server_real_request", &route_server("/hello", "\"Hello, world!\"", 19876), 19876);
+        let exchange = server.exchange(&get_request("/hello"));
+        assert!(exchange.response.contains("Hello, world!"), "got: {:?}", exchange.response);
     }
 
     #[test]
     #[ignore = "AOT runtime sends no response for untyped route params, issue #15"]
     fn compat_net_server_wildcard_route() {
-        let server_source = r#"use { Server } from "net";
-fn hello(req: auto) -> str {
-    return "Hello, " + req.path;
-}
-fn main() {
-    app: Server = Server();
-    app.get("/hello/{name}", hello);
-    app.serve("127.0.0.1:19877");
-}"#;
-        let test_name = "net_server_wildcard_route";
-        let _lock = aot_lock();
-        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("main.yk");
-        std::fs::write(&file_path, server_source).expect("write source");
-        let backend = crate::codegen::backend::LlvmBackend;
-        crate::cli::build_program(&file_path, false, &backend, false)
-            .expect("AOT build failed");
-        let exe_path = dir.join("main.exe");
-        assert!(exe_path.exists(), "AOT exe not produced");
-
-        let mut child = Command::new(&exe_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start server");
-
-        // Wait for server port to be ready (up to 5s)
-        let mut started = false;
-        for _ in 0..50 {
-            if std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:19877".parse().unwrap(),
-                Duration::from_millis(100)
-            ).is_ok() {
-                started = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(started, "Server did not start in time");
-
-        // Make HTTP request to wildcard route
-        let mut stream = std::net::TcpStream::connect("127.0.0.1:19877")
-            .expect("connect to server");
-        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        let request = "GET /hello/world HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-        stream.write_all(request.as_bytes()).expect("write request");
-
-        let response = read_http_response(&mut stream);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-        drop(_lock);
-
-        // The handler echoes back req.path, which should be the URL path
-        assert!(response.contains("Hello, /hello/world"),
-            "net_server_wildcard_route: response should contain the path, got: {:?}", response);
+        let server = AotServer::start("net_server_wildcard_route", &route_server("/hello/{name}", "\"Hello, \" + req.path", 19877), 19877);
+        let exchange = server.exchange(&get_request("/hello/world"));
+        assert!(exchange.response.contains("Hello, /hello/world"), "got: {:?}", exchange.response);
     }
 
     #[test]
     fn compat_net_server_int_param() {
-        let server_source = r#"use { Server } from "net";
-fn hello(req: auto) -> str {
-    return "User " + req.path;
-}
-fn main() {
-    app: Server = Server();
-    app.get("/user/{id:int}", hello);
-    app.serve("127.0.0.1:19878");
-}"#;
-        let test_name = "net_server_int_param";
-        let _lock = aot_lock();
-        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("main.yk");
-        std::fs::write(&file_path, server_source).expect("write source");
-        let backend = crate::codegen::backend::LlvmBackend;
-        crate::cli::build_program(&file_path, false, &backend, false)
-            .expect("AOT build failed");
-        let exe_path = dir.join("main.exe");
-        assert!(exe_path.exists(), "AOT exe not produced");
-
-        let mut child = Command::new(&exe_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start server");
-
-        let mut started = false;
-        for _ in 0..50 {
-            if std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:19878".parse().unwrap(),
-                Duration::from_millis(100)
-            ).is_ok() {
-                started = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(started, "Server did not start in time");
-
-        // Request with valid int param should match
-        let mut stream = std::net::TcpStream::connect("127.0.0.1:19878")
-            .expect("connect to server");
-        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        let request = "GET /user/42 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-        stream.write_all(request.as_bytes()).expect("write request");
-
-        let response = read_http_response(&mut stream);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-        drop(_lock); // release lock before assertion to avoid poisoning
-
-        assert!(response.contains("User /user/42"),
-            "int_param: should match /user/42, got: {:?}", response);
+        let server = AotServer::start("net_server_int_param", &route_server("/user/{id:int}", "\"User \" + req.path", 19878), 19878);
+        let exchange = server.exchange(&get_request("/user/42"));
+        assert!(exchange.response.contains("User /user/42"), "got: {:?}", exchange.response);
     }
 
     #[test]
     fn compat_net_server_int_param_reject() {
-        let server_source = r#"use { Server } from "net";
-fn hello(req: auto) -> str {
-    return "User " + req.path;
-}
-fn main() {
-    app: Server = Server();
-    app.get("/user/{id:int}", hello);
-    app.serve("127.0.0.1:19879");
-}"#;
-        let test_name = "net_server_int_param_reject";
-        let _lock = aot_lock();
-        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("main.yk");
-        std::fs::write(&file_path, server_source).expect("write source");
-        let backend = crate::codegen::backend::LlvmBackend;
-        crate::cli::build_program(&file_path, false, &backend, false)
-            .expect("AOT build failed");
-        let exe_path = dir.join("main.exe");
-        assert!(exe_path.exists(), "AOT exe not produced");
+        let server = AotServer::start("net_server_int_param_reject", &route_server("/user/{id:int}", "\"User \" + req.path", 19879), 19879);
+        let exchange = server.exchange(&get_request("/user/abc"));
+        assert!(exchange.response.contains("404"), "got: {:?}", exchange.response);
+    }
 
-        let mut child = Command::new(&exe_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start server");
+    #[test]
+    fn compat_net_server_status_line_has_reason_phrase() {
+        let server = AotServer::start("net_server_status_reason", &route_server("/hello", "\"hi\"", 19880), 19880);
+        let found = server.exchange(&get_request("/hello"));
+        let missing = server.exchange(&get_request("/missing"));
+        assert!(found.response.starts_with("HTTP/1.1 200 OK\r\n"), "got: {:?}", found.response);
+        assert!(missing.response.starts_with("HTTP/1.1 404 Not Found\r\n"), "got: {:?}", missing.response);
+    }
 
-        let mut started = false;
-        for _ in 0..50 {
-            if std::net::TcpStream::connect_timeout(
-                &"127.0.0.1:19879".parse().unwrap(),
-                Duration::from_millis(100)
-            ).is_ok() {
-                started = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(started, "Server did not start in time");
-
-        // Request with non-int param should get 404
-        let mut stream = std::net::TcpStream::connect("127.0.0.1:19879")
-            .expect("connect to server");
-        stream.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        let request = "GET /user/abc HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-        stream.write_all(request.as_bytes()).expect("write request");
-
-        let response = read_http_response(&mut stream);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-        drop(_lock);
-
-        assert!(response.contains("404"),
-            "int_param_reject: /user/abc should get 404, got: {:?}", response);
+    #[test]
+    fn compat_net_server_honours_connection_close() {
+        let server = AotServer::start("net_server_connection_close", &route_server("/hello", "\"hi\"", 19881), 19881);
+        let exchange = server.exchange(&get_request("/hello"));
+        assert!(exchange.response.contains("Connection: close"), "got: {:?}", exchange.response);
+        assert!(exchange.closed_by_server, "server kept the connection open after Connection: close");
     }
 
     // ── TcpStream ────────────────────────────────────────
@@ -1228,42 +1113,8 @@ fn main() {{
     app.get("/", hello);
     app.serve("127.0.0.1:{port}");
 }}"#);
-        let test_name = "h2_basic_get";
-        let _lock = aot_lock();
-        let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
-        let _ = std::fs::create_dir_all(&dir);
-        let file_path = dir.join("main.yk");
-        std::fs::write(&file_path, server_source).expect("write source");
-        let backend = crate::codegen::backend::LlvmBackend;
-        crate::cli::build_program(&file_path, false, &backend, false)
-            .expect("AOT build failed");
-        let exe_path = dir.join("main.exe");
-        assert!(exe_path.exists(), "AOT exe not produced");
-
-        let mut child = Command::new(&exe_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("failed to start server");
-
-        // Wait for server port
-        let mut started = false;
-        for _ in 0..50 {
-            if std::net::TcpStream::connect_timeout(
-                &format!("127.0.0.1:{port}").parse().unwrap(),
-                Duration::from_millis(100)
-            ).is_ok() {
-                started = true;
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        assert!(started, "Server did not start in time");
-
-        // Connect with raw TCP and send H2 frames
-        let mut stream = std::net::TcpStream::connect(format!("127.0.0.1:{port}"))
-            .expect("connect");
-        stream.set_read_timeout(Some(Duration::from_secs(3))).ok();
+        let server = AotServer::start("h2_basic_get", &server_source, port);
+        let mut stream = server.connect(Duration::from_secs(3));
 
         // H2 connection preface
         let mut send_buf = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".to_vec();
@@ -1290,10 +1141,7 @@ fn main() {{
             }
         }
         resp.truncate(total);
-        let _ = child.kill();
-        let _ = child.wait();
-        let _ = std::fs::remove_dir_all(&dir);
-        drop(_lock);
+        drop(server);
 
         // Validate: should get SETTINGS + HEADERS + DATA
         assert!(resp.len() >= 27, "response too short: {} bytes", resp.len());
