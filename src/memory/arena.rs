@@ -1,5 +1,4 @@
 use std::alloc::{alloc, dealloc, Layout};
-use std::collections::HashMap;
 use std::ptr::NonNull;
 use std::sync::{Mutex, OnceLock};
 
@@ -141,7 +140,7 @@ unsafe impl Sync for Arena {}
 
 pub struct ValuePool {
     lists: Vec<Vec<Value>>,
-    maps: Vec<HashMap<String, Value>>,
+    maps: Vec<crate::interpret::ValueMap>,
 }
 
 impl ValuePool {
@@ -164,11 +163,11 @@ impl ValuePool {
         }
     }
 
-    pub fn take_map(&mut self) -> HashMap<String, Value> {
+    pub fn take_map(&mut self) -> crate::interpret::ValueMap {
         self.maps.pop().unwrap_or_default()
     }
 
-    pub fn return_map(&mut self, mut map: HashMap<String, Value>) {
+    pub fn return_map(&mut self, mut map: crate::interpret::ValueMap) {
         map.clear();
         if self.maps.len() < POOL_MAX_MAPS {
             self.maps.push(map);

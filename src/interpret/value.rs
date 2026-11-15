@@ -1,6 +1,8 @@
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 
+pub type ValueMap = indexmap::IndexMap<String, Value>;
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Int(i64),
@@ -10,11 +12,11 @@ pub enum Value {
     Char(char),
     Range(i64, i64, bool), // start, end, is_char
     List(Vec<Value>),
-    Struct(String, HashMap<String, Value>),
+    Struct(String, ValueMap),
     Tuple(Vec<Value>),
     Dict(Vec<(Value, Value)>),
     Set(Vec<Value>),
-    Map(HashMap<String, Value>),
+    Map(ValueMap),
     Complex(f64, f64),
     Instance(String, Vec<Value>),
     Variant(String, Vec<Value>),
@@ -51,7 +53,6 @@ impl PartialEq for Value {
     }
 }
 
-use std::collections::HashMap;
 
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
