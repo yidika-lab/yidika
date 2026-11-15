@@ -102,7 +102,12 @@ pub fn reparent(child: i64, parent: i64) -> i64 {
         Some(n) => n.parent,
         None => return 0,
     };
-    if guard.iter().find(|n| n.id == child).is_none() || guard.iter().find(|n| n.id == parent).is_none() {
+    if guard.iter().find(|n| n.id == parent).is_none() {
+        return 0;
+    }
+    let mut descendants = Vec::new();
+    subtree_ids(&guard, child, &mut descendants);
+    if descendants.contains(&parent) {
         return 0;
     }
     if let Some(o) = old {
@@ -121,11 +126,18 @@ pub fn reparent(child: i64, parent: i64) -> i64 {
     1
 }
 
-fn subtree_ids(guard: &Vec<Node>, root: i64, out: &mut Vec<i64>) {
-    out.push(root);
-    if let Some(n) = guard.iter().find(|n| n.id == root) {
-        for c in n.children.clone() {
-            subtree_ids(guard, c, out);
+fn subtree_ids(guard: &[Node], root: i64, out: &mut Vec<i64>) {
+    let mut visited = std::collections::HashSet::new();
+    let mut stack = vec![root];
+    while let Some(id) = stack.pop() {
+        if !visited.insert(id) {
+            continue;
+        }
+        out.push(id);
+        if let Some(n) = guard.iter().find(|n| n.id == id) {
+            for c in n.children.iter().rev() {
+                stack.push(*c);
+            }
         }
     }
 }
@@ -155,8 +167,12 @@ pub fn remove(id: i64) -> i64 {
 }
 
 pub fn window_of(id: i64) -> Option<Node> {
+    let mut seen = std::collections::HashSet::new();
     let mut cur = find(id);
     while let Some(n) = cur {
+        if !seen.insert(n.id) {
+            return None;
+        }
         if n.kind == Kind::Window {
             return Some(n);
         }

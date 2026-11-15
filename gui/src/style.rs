@@ -77,6 +77,8 @@ pub fn button_defaults() -> Style {
     }
 }
 
+pub const TRANSPARENT: u32 = u32::MAX;
+
 pub fn parse_color(v: &str) -> Option<u32> {
     let v = v.trim();
     let named = match v.to_ascii_lowercase().as_str() {
@@ -89,7 +91,7 @@ pub fn parse_color(v: &str) -> Option<u32> {
         "orange" => Some(0xffa500),
         "purple" => Some(0x800080),
         "gray" | "grey" => Some(0x808080),
-        "transparent" => Some(0x01000000),
+        "transparent" => Some(TRANSPARENT),
         _ => None,
     };
     if named.is_some() {
@@ -114,9 +116,10 @@ pub fn parse_color(v: &str) -> Option<u32> {
     if let Some(inner) = v.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
         let parts: Vec<i64> = inner.split(',').filter_map(|p| p.trim().parse().ok()).collect();
         if parts.len() == 3 {
-            return Some(
-                ((parts[0] as u32) << 16) | ((parts[1] as u32) << 8) | (parts[2] as u32),
-            );
+            let r = parts[0].clamp(0, 255) as u32;
+            let g = parts[1].clamp(0, 255) as u32;
+            let b = parts[2].clamp(0, 255) as u32;
+            return Some((r << 16) | (g << 8) | b);
         }
     }
     None

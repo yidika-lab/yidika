@@ -199,6 +199,11 @@ Detailed specs are in [`docs/dev/`](docs/dev/):
 - [Execution Model](docs/dev/EXECUTION_MODEL.md)
 - [Syntax Tree](docs/dev/SYNTAX_TREE.md)
 
+Comparisons with other languages:
+- [Yidika vs Rust, TypeScript/TSX, Python and Kotlin](docs/COMPARISON.md)
+- [Python syntax comparison](docs/comparison-python.md)
+- [TypeScript syntax comparison](docs/comparison-ts.md)
+
 ---
 
 ## Testing

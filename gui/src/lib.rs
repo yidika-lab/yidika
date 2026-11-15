@@ -120,7 +120,7 @@ fn dump_line(it: &Item) -> String {
     };
     let mut line = format!("#{} {} x={} y={} w={} h={}", it.id, tag, it.x, it.y, it.w, it.h);
     if let Some(bg) = it.st.bg {
-        if bg != 0x01000000 {
+        if bg != crate::style::TRANSPARENT {
             line.push_str(&format!(" bg=#{:06x}", bg));
         }
     }
@@ -210,6 +210,25 @@ mod tests {
         assert!(d1.contains("bg=#00ff66"));
         assert!(d1.contains("#4 button"));
         assert!(d1.contains("bg=#dddddd border=#999999:1 r=4"));
+    }
+
+    #[test]
+    fn reparent_rejects_cycles() {
+        let _g = lock();
+        tree::reset_state();
+        let w = window("T", 10, 10);
+        let a = div(w);
+        let b = div(a);
+        assert_eq!(tree::reparent(w, b), 0);
+        assert_eq!(tree::reparent(a, a), 0);
+        assert_eq!(tree::reparent(b, w), 1);
+    }
+
+    #[test]
+    fn transparent_does_not_collide_with_real_colors() {
+        assert_eq!(style::parse_color("transparent"), Some(style::TRANSPARENT));
+        assert_ne!(style::parse_color("#010000"), Some(style::TRANSPARENT));
+        assert_eq!(style::parse_color("rgb(300,-5,10)"), Some(0xff000a));
     }
 
     #[test]

@@ -289,16 +289,26 @@ pub fn call_ffi(name: &str, field: &str, args: Vec<Value>, span: Span, ffi_path:
     };
     let fp = *func;
 
-    let raw_args: Vec<i64> = args.iter().map(|v| match v {
-        Value::Int(i) => *i,
-        Value::Real(f) => f.to_bits() as i64,
-        Value::Bool(b) => if *b { 1 } else { 0 },
-        Value::Str(s) => std::ffi::CString::new(s.as_str())
-            .map(|cs| cs.into_raw() as i64)
-            .unwrap_or(0),
-        Value::None_ => 0,
-        _ => 0,
-    }).collect();
+    let mut raw_args: Vec<i64> = Vec::with_capacity(args.len());
+    let mut keep_alive: Vec<std::ffi::CString> = Vec::new();
+    for v in &args {
+        let raw = match v {
+            Value::Int(i) => *i,
+            Value::Real(f) => f.to_bits() as i64,
+            Value::Bool(b) => if *b { 1 } else { 0 },
+            Value::Str(s) => match std::ffi::CString::new(s.as_str()) {
+                Ok(cs) => {
+                    let ptr = cs.as_ptr() as i64;
+                    keep_alive.push(cs);
+                    ptr
+                }
+                Err(_) => 0,
+            },
+            Value::None_ => 0,
+            _ => 0,
+        };
+        raw_args.push(raw);
+    }
 
     let result: i64 = match raw_args.len() {
         0 => unsafe {

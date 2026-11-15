@@ -107,12 +107,34 @@ pub(crate) fn compile_fn_handler(name: &str, fndef: &FnDef) -> Option<JitFnHandl
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(0);
 
-pub(crate) fn base_interp() -> &'static Interpreter {
-    static PTR: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-    let p = PTR.get_or_init(|| {
-        Box::into_raw(Box::new(Interpreter::new())) as usize
-    });
-    unsafe { &*(*p as *const Interpreter) }
+type SharedBase = std::sync::Arc<crate::interpret::InterpBase>;
+
+struct BaseSlot(std::sync::RwLock<Option<SharedBase>>);
+
+impl BaseSlot {
+    const fn new() -> Self {
+        BaseSlot(std::sync::RwLock::new(None))
+    }
+
+    fn get(&self) -> SharedBase {
+        let current = self.0.read().unwrap_or_else(|p| p.into_inner()).clone();
+        current.unwrap_or_else(|| std::sync::Arc::new(crate::interpret::InterpBase::default()))
+    }
+
+    fn replace(&self, interp: &Interpreter) {
+        let snapshot = std::sync::Arc::new(crate::interpret::InterpBase::from_interp(interp));
+        *self.0.write().unwrap_or_else(|p| p.into_inner()) = Some(snapshot);
+    }
+}
+
+static BASE_INTERP: BaseSlot = BaseSlot::new();
+
+pub(crate) fn base_interp() -> SharedBase {
+    BASE_INTERP.get()
+}
+
+pub(crate) fn install_base_interp(interp: &Interpreter) {
+    BASE_INTERP.replace(interp);
 }
 
 #[derive(Clone)]
@@ -418,6 +440,32 @@ fn ensure_server_class(interp: &mut Interpreter) {
     ensure_body_class(interp);
 }
 
+pub(crate) const MAX_HEADER_BYTES: usize = 64 * 1024;
+pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+
+pub(crate) fn find_head_end(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(4).position(|w| w == b"\r\n\r\n")
+}
+
+pub(crate) fn decode_head(bytes: &[u8], head_end: usize) -> String {
+    String::from_utf8_lossy(&bytes[..head_end]).into_owned()
+}
+
+pub(crate) fn decode_bytes(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+pub(crate) fn header_safe(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| if c == '\r' || c == '\n' { ' ' } else { c })
+        .collect()
+}
+
+pub(crate) fn content_length(raw: &str) -> Option<usize> {
+    extract_header_value(raw, "Content-Length").and_then(|v| v.parse::<usize>().ok())
+}
+
 pub(crate) fn parse_request_line(raw: &str) -> Option<(&str, &str)> {
     let first_line = raw.lines().next()?;
     let mut parts = first_line.splitn(3, ' ');
@@ -483,9 +531,60 @@ pub(crate) fn parse_cookies(headers: &HashMap<String, String>) -> HashMap<String
 
 pub(crate) struct ProcessedResponse {
     pub status: String,
-    pub body: String,
+    pub body: Vec<u8>,
     pub content_type: String,
     pub headers: Vec<String>,
+}
+
+const INVALID_STATUS: &str = "500 Internal Server Error";
+
+fn response_status(value: &crate::interpret::Value) -> Option<String> {
+    match value {
+        crate::interpret::Value::Int(i) => Some(status_line_for_code(*i)),
+        crate::interpret::Value::Str(s) => Some(validated_status_text(s)),
+        _ => None,
+    }
+}
+
+fn status_line_for_code(code: i64) -> String {
+    if (100..=599).contains(&code) {
+        format!("{} {}", code, status_reason(code))
+    } else {
+        INVALID_STATUS.to_string()
+    }
+}
+
+fn validated_status_text(text: &str) -> String {
+    let code_is_valid = text
+        .get(..3)
+        .and_then(|digits| digits.parse::<i64>().ok())
+        .is_some_and(|code| (100..=599).contains(&code));
+    let rest_is_valid = text.len() == 3 || text.as_bytes().get(3) == Some(&b' ');
+    let has_control = text.chars().any(|c| c.is_control());
+    if code_is_valid && rest_is_valid && !has_control {
+        text.to_string()
+    } else {
+        INVALID_STATUS.to_string()
+    }
+}
+
+fn inferred_content_type(body: &str) -> String {
+    if body.as_bytes().first().is_some_and(|b| *b == b'{' || *b == b'[') {
+        "application/json".to_string()
+    } else {
+        "text/plain".to_string()
+    }
+}
+
+fn collect_response_headers(value: &crate::interpret::Value, out: &mut Vec<String>) {
+    match value {
+        crate::interpret::Value::Struct(_, fields) | crate::interpret::Value::Map(fields) => {
+            for (k, v) in fields {
+                out.push(format!("{}: {}", k, v));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn guess_content_type(path: &str) -> &'static str {
@@ -519,26 +618,26 @@ fn guess_content_type(path: &str) -> &'static str {
 }
 
 pub(crate) fn try_serve_static(static_dir: &str, path: &str) -> Option<ProcessedResponse> {
-    let path = path.trim_start_matches('/');
-    let file_path = std::path::Path::new(static_dir).join(path);
-    
-    if !file_path.exists() {
+    let base = std::fs::canonicalize(static_dir).ok()?;
+    let relative = path.trim_start_matches('/');
+    let candidate = base.join(relative);
+    let resolved = std::fs::canonicalize(&candidate).ok()?;
+
+    if !resolved.starts_with(&base) {
         return None;
     }
-    
-    match std::fs::read(&file_path) {
-        Ok(content) => {
-            let content_type = guess_content_type(file_path.to_str().unwrap_or(""));
-            let body = String::from_utf8_lossy(&content).to_string();
-            Some(ProcessedResponse {
-                status: "200 OK".to_string(),
-                body,
-                content_type: content_type.to_string(),
-                headers: vec![],
-            })
-        }
-        Err(_) => None
+    if !resolved.is_file() {
+        return None;
     }
+
+    let body = std::fs::read(&resolved).ok()?;
+    let content_type = guess_content_type(resolved.to_str().unwrap_or(""));
+    Some(ProcessedResponse {
+        status: "200 OK".to_string(),
+        body,
+        content_type: content_type.to_string(),
+        headers: vec![],
+    })
 }
 
 fn run_logger(
@@ -581,7 +680,7 @@ fn run_logger(
     match logger {
         Handler::Literal(_text) => {},
         Handler::Fn(_name, fndef) => {
-            let mut interp = pool.take(base_interp());
+            let mut interp = pool.take(&base_interp());
             ensure_log_entry_class(&mut interp);
             ensure_response_class(&mut interp);
             interp.push_frame();
@@ -615,7 +714,7 @@ fn execute_handler(
     match handler {
         Handler::Literal(text) => ProcessedResponse::from_string(text.clone()),
         Handler::Fn(_name, fndef) => {
-            let mut interp = pool.take(base_interp());
+            let mut interp = pool.take(&base_interp());
             interp.push_frame();
 
             let mut fields = HashMap::with_capacity(8);
@@ -688,7 +787,16 @@ fn execute_handler(
 
             let result = match interp.run_fn_body(fndef) {
                 Ok(Some(val)) => ProcessedResponse::from_value(&val),
-                _ => ProcessedResponse::from_string("Handler returned no value".into()),
+                Ok(None) => ProcessedResponse::from_string("Handler returned no value".into()),
+                Err(e) => {
+                    eprintln!("handler error: {}", e.msg);
+                    ProcessedResponse {
+                        status: "500 Internal Server Error".to_string(),
+                        body: b"Internal Server Error".to_vec(),
+                        content_type: "text/plain".to_string(),
+                        headers: Vec::new(),
+                    }
+                }
             };
             // Print everything that was printed in the handler!
             if !interp.output.is_empty() {
@@ -772,7 +880,7 @@ impl ProcessedResponse {
     pub fn new() -> Self {
         ProcessedResponse {
             status: "200 OK".to_string(),
-            body: String::new(),
+            body: Vec::new(),
             content_type: "text/plain".to_string(),
             headers: Vec::new(),
         }
@@ -786,7 +894,7 @@ impl ProcessedResponse {
         };
         ProcessedResponse {
             status: "200 OK".to_string(),
-            body,
+            body: body.into_bytes(),
             content_type,
             headers: Vec::new(),
         }
@@ -796,38 +904,45 @@ impl ProcessedResponse {
         match value {
             crate::interpret::Value::Struct(class_name, fields) if class_name == "Response" => {
                 let status = fields.get("status")
-                    .and_then(|v| match v {
-                        crate::interpret::Value::Int(i) => Some(format!("{} {}", i, status_reason(*i))),
-                        crate::interpret::Value::Str(s) => Some(s.clone()),
-                        _ => None
-                    })
-                    .unwrap_or("200 OK".to_string());
-                
+                    .and_then(response_status)
+                    .unwrap_or_else(|| "200 OK".to_string());
+
                 let body = fields.get("body")
                     .map(|v| v.to_string())
-                    .unwrap_or(String::new());
-                
+                    .unwrap_or_default();
+
                 let content_type = fields.get("content_type")
                     .and_then(|v| match v {
                         crate::interpret::Value::Str(s) => Some(s.clone()),
                         _ => None
                     })
-                    .unwrap_or(if body.as_bytes().first().map_or(false, |b| *b == b'{' || *b == b'[') {
-                        "application/json".to_string()
-                    } else {
-                        "text/plain".to_string()
-                    });
-                
+                    .unwrap_or_else(|| inferred_content_type(&body));
+
                 let mut headers = Vec::new();
-                if let Some(crate::interpret::Value::Struct(_, header_fields)) = fields.get("headers") {
-                    for (k, v) in header_fields {
-                        headers.push(format!("{}: {}", k, v.to_string()));
-                    }
+                if let Some(header_fields) = fields.get("headers") {
+                    collect_response_headers(header_fields, &mut headers);
                 }
-                
+
                 ProcessedResponse {
                     status,
-                    body,
+                    body: body.into_bytes(),
+                    content_type,
+                    headers,
+                }
+            }
+            crate::interpret::Value::Instance(class_name, fields) if class_name == "Response" => {
+                let status = fields.first()
+                    .and_then(response_status)
+                    .unwrap_or_else(|| "200 OK".to_string());
+                let body = fields.get(1).map(|v| v.to_string()).unwrap_or_default();
+                let content_type = inferred_content_type(&body);
+                let mut headers = Vec::new();
+                if let Some(header_fields) = fields.get(2) {
+                    collect_response_headers(header_fields, &mut headers);
+                }
+                ProcessedResponse {
+                    status,
+                    body: body.into_bytes(),
                     content_type,
                     headers,
                 }
@@ -846,7 +961,7 @@ pub(crate) fn cors_headers(server: &ServerInstance) -> String {
     // Access-Control-Allow-Origin
     if let Some(ref origins) = server.cors_origins {
         if origins.len() == 1 {
-            headers.push_str(&format!("Access-Control-Allow-Origin: {}\r\n", origins[0]));
+            headers.push_str(&format!("Access-Control-Allow-Origin: {}\r\n", header_safe(&origins[0])));
         } else {
             headers.push_str("Access-Control-Allow-Origin: *\r\n");
         }
@@ -856,14 +971,14 @@ pub(crate) fn cors_headers(server: &ServerInstance) -> String {
 
     // Access-Control-Allow-Headers
     if let Some(ref hds) = server.cors_headers {
-        headers.push_str(&format!("Access-Control-Allow-Headers: {}\r\n", hds.join(", ")));
+        headers.push_str(&format!("Access-Control-Allow-Headers: {}\r\n", header_safe(&hds.join(", "))));
     } else {
         headers.push_str("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With\r\n");
     }
 
     // Access-Control-Allow-Methods
     if let Some(ref meths) = server.cors_methods {
-        headers.push_str(&format!("Access-Control-Allow-Methods: {}\r\n", meths.join(", ")));
+        headers.push_str(&format!("Access-Control-Allow-Methods: {}\r\n", header_safe(&meths.join(", "))));
     } else {
         headers.push_str("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS\r\n");
     }
@@ -884,15 +999,19 @@ pub(crate) async fn write_response_async(
     use tokio::io::AsyncWriteExt;
     let mut http_response = format!(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}",
-        response.status, response.content_type, response.body.len(), conn, cors_headers
+        header_safe(&response.status),
+        header_safe(&response.content_type),
+        response.body.len(),
+        conn,
+        cors_headers
     );
     for header in &response.headers {
-        http_response.push_str(header);
+        http_response.push_str(&header_safe(header));
         http_response.push_str("\r\n");
     }
     http_response.push_str("\r\n");
     stream.write_all(http_response.as_bytes()).await?;
-    stream.write_all(response.body.as_bytes()).await?;
+    stream.write_all(&response.body).await?;
     stream.flush().await
 }
 
@@ -909,7 +1028,11 @@ pub(crate) async fn write_status_line_async(
     stream.write_all(
         format!(
             "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}\r\n",
-            status, content_type, body_len, conn, cors_headers
+            header_safe(status),
+            header_safe(content_type),
+            body_len,
+            conn,
+            cors_headers
         )
         .as_bytes(),
     )
@@ -925,15 +1048,19 @@ fn write_response(
     let conn = if keep_alive { "keep-alive" } else { "close" };
     let mut http_response = format!(
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}",
-        response.status, response.content_type, response.body.len(), conn, cors_headers
+        header_safe(&response.status),
+        header_safe(&response.content_type),
+        response.body.len(),
+        conn,
+        cors_headers
     );
     for header in &response.headers {
-        http_response.push_str(header);
+        http_response.push_str(&header_safe(header));
         http_response.push_str("\r\n");
     }
     http_response.push_str("\r\n");
     write!(stream, "{}", http_response)?;
-    stream.write_all(response.body.as_bytes())?;
+    stream.write_all(&response.body)?;
     stream.flush()
 }
 
@@ -949,7 +1076,11 @@ fn write_status_line(
     write!(
         stream,
         "HTTP/1.1 {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: {}\r\n{}\r\n",
-        status, content_type, body_len, conn, cors_headers
+        header_safe(status),
+        header_safe(content_type),
+        body_len,
+        conn,
+        cors_headers
     )
 }
 
@@ -964,25 +1095,40 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
 
     loop {
         read_buf.clear();
-    loop {
+        let mut headers_too_large = false;
+        loop {
             let mut chunk = [0u8; 4096];
             match stream.read(&mut chunk) {
                 Ok(0) => return,
                 Ok(n) => {
                     read_buf.extend_from_slice(&chunk[..n]);
-                    if read_buf.windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                    if find_head_end(&read_buf).is_some() { break; }
+                    if read_buf.len() > MAX_HEADER_BYTES {
+                        headers_too_large = true;
+                        break;
+                    }
                 }
                 Err(_) => return,
             }
         }
 
-        let raw = unsafe { std::str::from_utf8_unchecked(&read_buf) };
+        let cors = cors_headers(server);
+
+        if headers_too_large {
+            let _ = write_status_line(&mut stream, "431 Request Header Fields Too Large", "text/plain", 0, false, &cors);
+            return;
+        }
+
+        let head_end = match find_head_end(&read_buf) {
+            Some(i) => i,
+            None => return,
+        };
+        let raw_head = decode_head(&read_buf, head_end);
+        let raw = raw_head.as_str();
 
         let keep_alive = extract_header_value(raw, "Connection")
             .map(|v| v.eq_ignore_ascii_case("keep-alive"))
             .unwrap_or(false);
-
-        let cors = cors_headers(server);
 
         let (method_raw, path_raw) = match parse_request_line(raw) {
             Some(r) => (r.0.to_uppercase(), r.1.to_string()),
@@ -1000,23 +1146,25 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
             if !keep_alive { return; } else { continue; }
         }
 
-        let body = if let Some(cl) = extract_header_value(raw, "Content-Length")
-            .and_then(|v| v.parse::<usize>().ok())
-        {
-            let header_end = raw.find("\r\n\r\n").unwrap_or(raw.len());
-            let body_start = header_end + 4;
-            let already = read_buf.len().saturating_sub(body_start);
-            if cl > already {
-                let mut extra = vec![0u8; cl - already];
-                if stream.read_exact(&mut extra).is_err() { return; }
-                let mut b = read_buf[body_start..].to_vec();
-                b.extend_from_slice(&extra);
-                String::from_utf8_lossy(&b).to_string()
-            } else {
-                unsafe { String::from_utf8_unchecked(read_buf[body_start..body_start + cl].to_vec()) }
+        let body = match content_length(raw) {
+            Some(cl) if cl > MAX_BODY_BYTES => {
+                let _ = write_status_line(&mut stream, "413 Content Too Large", "text/plain", 0, false, &cors);
+                return;
             }
-        } else {
-            String::new()
+            Some(cl) => {
+                let body_start = head_end + 4;
+                let already = read_buf.len().saturating_sub(body_start);
+                if cl > already {
+                    let mut extra = vec![0u8; cl - already];
+                    if stream.read_exact(&mut extra).is_err() { return; }
+                    let mut b = read_buf[body_start..].to_vec();
+                    b.extend_from_slice(&extra);
+                    decode_bytes(&b)
+                } else {
+                    decode_bytes(&read_buf[body_start..body_start + cl])
+                }
+            }
+            None => String::new(),
         };
 
         // Parse all headers, query params, and cookies for the legacy sync server too
@@ -1028,8 +1176,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
 
         let response = match server.routes.match_route(&path_for_route, &method_raw) {
             Some((handler, route_params)) => {
-                // Run all middleware first
-                let mut final_response = None;
+                let mut short_circuit = None;
                 for middleware in &server.middleware {
                     let mw_resp = execute_handler(
                         middleware,
@@ -1042,13 +1189,15 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                         None,
                         pool
                     );
-                    // If middleware returns a non-200 status (or we decide to short-circuit), use that response
-                    // For now, just run all middleware and proceed
-                    final_response = Some(mw_resp);
+                    let successful = mw_resp.status.starts_with("200")
+                        || mw_resp.status.starts_with("204");
+                    if !successful {
+                        short_circuit = Some(mw_resp);
+                        break;
+                    }
                 }
-                
-                // Then run the main handler
-                final_response.unwrap_or_else(|| {
+
+                short_circuit.unwrap_or_else(|| {
                     execute_handler(
                         handler,
                         &method_raw,
@@ -1071,7 +1220,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                         } else {
                             ProcessedResponse {
                                 status: "404 Not Found".to_string(),
-                                body: "Not Found".to_string(),
+                                body: b"Not Found".to_vec(),
                                 content_type: "text/plain".to_string(),
                                 headers: Vec::new(),
                             }
@@ -1079,7 +1228,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                     } else {
                         ProcessedResponse {
                             status: "404 Not Found".to_string(),
-                            body: "Not Found".to_string(),
+                            body: b"Not Found".to_vec(),
                             content_type: "text/plain".to_string(),
                             headers: Vec::new(),
                         }
@@ -1087,7 +1236,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                 } else {
                     ProcessedResponse {
                         status: "404 Not Found".to_string(),
-                        body: "Not Found".to_string(),
+                        body: b"Not Found".to_vec(),
                         content_type: "text/plain".to_string(),
                         headers: Vec::new(),
                     }
@@ -1105,7 +1254,7 @@ fn handle_connection(mut stream: TcpStream, server: &ServerInstance, pool: &SubI
                 &query_params,
                 &cookies,
                 &response.status,
-                &response.body,
+                &String::from_utf8_lossy(&response.body),
                 pool
             );
         }
@@ -1121,6 +1270,7 @@ pub fn call_net(func: &str, args: Vec<Value>, interp: &mut Interpreter, span: Sp
     match func {
         "Server" => {
             ensure_server_class(interp);
+            install_base_interp(interp);
             let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
             let server = ServerInstance::new(id);
             servers().lock().unwrap().insert(id, server);
@@ -1571,6 +1721,83 @@ mod tests {
         }
     }
 
+    #[test]
+    fn response_instance_drives_status() {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("X-Test".to_string(), crate::interpret::Value::Str("1".into()));
+        let value = crate::interpret::Value::Instance(
+            "Response".into(),
+            vec![
+                crate::interpret::Value::Int(401),
+                crate::interpret::Value::Str("denied".into()),
+                crate::interpret::Value::Map(headers),
+                crate::interpret::Value::Map(std::collections::HashMap::new()),
+            ],
+        );
+        let response = ProcessedResponse::from_value(&value);
+        assert_eq!(response.status, "401 Unauthorized");
+        assert_eq!(response.body, b"denied");
+        assert_eq!(response.headers, vec!["X-Test: 1".to_string()]);
+    }
+
+    #[test]
+    fn header_values_cannot_inject_lines() {
+        assert_eq!(header_safe("text/plain\r\nX-Evil: 1"), "text/plain  X-Evil: 1");
+        assert_eq!(header_safe("ok\n"), "ok ");
+    }
+
+    #[test]
+    fn head_end_is_detected_incrementally() {
+        assert_eq!(find_head_end(b"GET / HTTP/1.1\r\nHost: x\r\n\r\nbody"), Some(23));
+        assert_eq!(find_head_end(b"GET / HTTP/1.1\r\nHost: x\r\n"), None);
+    }
+
+    #[test]
+    fn content_length_reads_the_header() {
+        assert_eq!(content_length("POST / HTTP/1.1\r\nContent-Length: 42\r\n\r\n"), Some(42));
+        assert_eq!(content_length("POST / HTTP/1.1\r\n\r\n"), None);
+        assert_eq!(content_length("POST / HTTP/1.1\r\nContent-Length: nope\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn static_serving_keeps_binary_files_intact() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base = std::env::temp_dir().join(format!("yk_static_bin_{}_{}", std::process::id(), unique));
+        std::fs::create_dir_all(&base).unwrap();
+        let png_header = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0xFF, 0x00];
+        std::fs::write(base.join("logo.png"), &png_header).unwrap();
+
+        let served = try_serve_static(base.to_str().unwrap(), "/logo.png").expect("binary file should be served");
+        assert_eq!(served.body, png_header);
+        assert_eq!(served.content_type, "image/png");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn static_serving_rejects_traversal() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("yk_static_{}_{}", std::process::id(), unique));
+        let base = root.join("public");
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("index.html"), "hello").unwrap();
+        std::fs::write(root.join("secret.txt"), "secret").unwrap();
+
+        let base_str = base.to_str().unwrap();
+        let served = try_serve_static(base_str, "/index.html").expect("index should be served");
+        assert_eq!(served.body, b"hello");
+        assert!(try_serve_static(base_str, "/../secret.txt").is_none());
+        assert!(try_serve_static(base_str, "/%2e%2e/secret.txt").is_none());
+        assert!(try_serve_static(base_str, "/missing.html").is_none());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     fn make_req(path: &str, body: &str) -> YkRequest {
         YkRequest {
             method: "GET".as_ptr(), method_len: 3,
@@ -1845,6 +2072,51 @@ mod tests {
             let resp = ProcessedResponse::from_value(&Value::Struct("Response".into(), fields));
             assert_eq!(resp.status, expected, "status line for {code}");
         }
+    }
+
+    #[test]
+    fn base_slot_keeps_the_latest_program() {
+        let slot = BaseSlot::new();
+        let mut first = Interpreter::new();
+        first.source_dir = std::path::PathBuf::from("first");
+        slot.replace(&first);
+        let mut second = Interpreter::new();
+        second.source_dir = std::path::PathBuf::from("second");
+        slot.replace(&second);
+        assert_eq!(slot.get().source_dir, std::path::PathBuf::from("second"));
+    }
+
+    fn status_of(value: Value) -> String {
+        let mut fields = HashMap::new();
+        fields.insert("status".to_string(), value);
+        ProcessedResponse::from_value(&Value::Struct("Response".into(), fields)).status
+    }
+
+    #[test]
+    fn out_of_range_status_codes_become_500() {
+        for code in [0, -1, 99, 600, 99999] {
+            assert_eq!(status_of(Value::Int(code)), "500 Internal Server Error", "code {code}");
+        }
+    }
+
+    #[test]
+    fn string_status_with_crlf_is_rejected() {
+        let injected = "200 OK\r\nSet-Cookie: session=stolen";
+        assert_eq!(status_of(Value::Str(injected.into())), "500 Internal Server Error");
+    }
+
+    #[test]
+    fn malformed_string_status_is_rejected() {
+        for text in ["", "OK", "20", "2000 OK", "200OK", "abc Teapot", "700 Custom"] {
+            assert_eq!(status_of(Value::Str(text.into())), "500 Internal Server Error", "{text:?}");
+        }
+    }
+
+    #[test]
+    fn well_formed_string_status_is_kept() {
+        assert_eq!(status_of(Value::Str("201 Created".into())), "201 Created");
+        assert_eq!(status_of(Value::Str("299 Custom Reason".into())), "299 Custom Reason");
+        assert_eq!(status_of(Value::Str("204".into())), "204");
     }
 
     #[test]

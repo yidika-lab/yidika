@@ -5669,16 +5669,18 @@ impl LlvmCodegen {
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = load {}, ptr {}", tmp, obj_ty, global_name));
                     (self.ssa(&tmp), obj_ty)
-                } else {
-                    let ptr_opt = self.var_alloca.get(name).cloned();
+                } else if let Some(ptr) = self.var_alloca.get(name).cloned() {
                     let ty = self.val_ty(name);
-                    if let Some(ptr) = ptr_opt {
-                        let val_name = self.value_name(name);
-                        self.e(&format!("{} = load {}, ptr {}", val_name, ty, ptr));
-                        (val_name, ty)
-                    } else {
-                        (format!("%{}", name), ty)
-                    }
+                    let val_name = self.value_name(name);
+                    self.e(&format!("{} = load {}, ptr {}", val_name, ty, ptr));
+                    (val_name, ty)
+                } else if self.fn_ret_types.contains_key(&self.mangle_name(name)) {
+                    let mangled = self.mangle_name(name);
+                    let tmp = self.fresh_label();
+                    self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, mangled));
+                    (self.ssa(&tmp), "i64".into())
+                } else {
+                    (format!("%{}", name), self.val_ty(name))
                 }
             }
             Expr::BinOp(l, op, r) => self.compile_binop(l, op, r),
@@ -8093,6 +8095,7 @@ pub fn compile_to_llvm_modules(modules: &[&Module]) -> String {
 }
 
 pub fn validate_modules(modules: &[&Module], file_paths: &[String]) -> Vec<String> {
+    let gui_funcs = crate::stdlib::submodule_funcs("gui").unwrap_or(&[]);
     let unsupported_stds: [&str; 0] = [];
     let mut errors = Vec::new();
     for (mod_idx, module) in modules.iter().enumerate() {
@@ -8102,13 +8105,240 @@ pub fn validate_modules(modules: &[&Module], file_paths: &[String]) -> Vec<Strin
                 errors.push(format!("{}: std module '{}' not supported in AOT compilation (use `run` instead)", fname, import.source));
             }
         }
-        for item in &module.items {
-            match &item.value {
-                _ => {}
+
+        let mut gui_aliases: HashSet<String> = HashSet::new();
+        for import in &module.imports {
+            if import.lang.is_some() || import.source != "std" {
+                continue;
             }
+            for (local, orig) in &import.names {
+                if local == "gui" || orig.as_deref() == Some("gui") {
+                    gui_aliases.insert(local.clone());
+                }
+            }
+        }
+
+        if gui_aliases.is_empty() {
+            continue;
+        }
+
+        for item in &module.items {
+            validate_gui_item(item, &gui_aliases, gui_funcs, fname, &mut errors);
         }
     }
     errors
+}
+
+fn validate_gui_item(
+    item: &ItemNode,
+    gui_aliases: &HashSet<String>,
+    gui_funcs: &[&str],
+    fname: &str,
+    errors: &mut Vec<String>,
+) {
+    validate_gui_item_kind(&item.value, gui_aliases, gui_funcs, fname, errors);
+}
+
+fn validate_gui_item_kind(
+    kind: &ItemKind,
+    gui_aliases: &HashSet<String>,
+    gui_funcs: &[&str],
+    fname: &str,
+    errors: &mut Vec<String>,
+) {
+    match kind {
+        ItemKind::Fn { body, .. } => {
+            for stmt in body {
+                validate_gui_stmt(stmt, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        ItemKind::Class { methods, init_body, super_args, .. } => {
+            for arg in super_args {
+                validate_gui_expr(arg, gui_aliases, gui_funcs, fname, errors);
+            }
+            for stmt in init_body {
+                validate_gui_stmt(stmt, gui_aliases, gui_funcs, fname, errors);
+            }
+            for method in methods {
+                validate_gui_item_kind(method, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        ItemKind::Object { methods, init_body, .. } => {
+            for stmt in init_body {
+                validate_gui_stmt(stmt, gui_aliases, gui_funcs, fname, errors);
+            }
+            for method in methods {
+                validate_gui_item_kind(method, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        ItemKind::Const { value, .. } => {
+            validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors);
+        }
+        _ => {}
+    }
+}
+
+fn validate_gui_stmt(
+    stmt: &StmtNode,
+    gui_aliases: &HashSet<String>,
+    gui_funcs: &[&str],
+    fname: &str,
+    errors: &mut Vec<String>,
+) {
+    match &stmt.value {
+        Stmt::Decl { value, .. } => validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors),
+        Stmt::Expr(expr) => validate_gui_expr(expr, gui_aliases, gui_funcs, fname, errors),
+        Stmt::Return(Some(expr)) => validate_gui_expr(expr, gui_aliases, gui_funcs, fname, errors),
+        Stmt::Return(None) => {}
+        Stmt::For(_, iter, body, _) => {
+            validate_gui_expr(iter, gui_aliases, gui_funcs, fname, errors);
+            for s in body {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Stmt::While(cond, body) => {
+            validate_gui_expr(cond, gui_aliases, gui_funcs, fname, errors);
+            for s in body {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Stmt::Loop(body) => {
+            for s in body {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Stmt::If(cond, then_body, else_body) => {
+            validate_gui_expr(cond, gui_aliases, gui_funcs, fname, errors);
+            for s in then_body {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+            if let Some(body) = else_body {
+                for s in body {
+                    validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+                }
+            }
+        }
+        Stmt::Assign(_, value) => validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors),
+        Stmt::Destruct(_, value) => validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors),
+    }
+}
+
+fn validate_gui_expr(
+    expr: &ExprNode,
+    gui_aliases: &HashSet<String>,
+    gui_funcs: &[&str],
+    fname: &str,
+    errors: &mut Vec<String>,
+) {
+    match &expr.value {
+        Expr::Call(callee, args) => {
+            if let Expr::Field(obj, field) = &callee.value {
+                if let Expr::Ident(module) = &obj.value {
+                    if gui_aliases.contains(module.as_str()) {
+                        if !gui_funcs.contains(&field.as_str()) {
+                            errors.push(format!("{}: gui.{} is not part of the AOT gui surface", fname, field));
+                        } else if field == "on" {
+                            match args.get(2).map(|a| &a.value) {
+                                Some(Expr::FnLit(..)) | Some(Expr::Closure(..)) => {
+                                    errors.push(format!("{}: gui.on callback must be a named function in AOT compilation", fname));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+            validate_gui_expr(callee, gui_aliases, gui_funcs, fname, errors);
+            for arg in args {
+                validate_gui_expr(arg, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::BinOp(l, _, r) | Expr::Elvis(l, r) | Expr::Index(l, r) | Expr::Range(l, r) | Expr::LitComplex(l, r) => {
+            validate_gui_expr(l, gui_aliases, gui_funcs, fname, errors);
+            validate_gui_expr(r, gui_aliases, gui_funcs, fname, errors);
+        }
+        Expr::UnOp(_, inner)
+        | Expr::Field(inner, _)
+        | Expr::PostInc(inner)
+        | Expr::PostDec(inner)
+        | Expr::Await(inner)
+        | Expr::Spawn(inner)
+        | Expr::ResultOk(inner)
+        | Expr::ResultErr(inner)
+        | Expr::Try(inner)
+        | Expr::AsConst(inner)
+        | Expr::As(inner, _)
+        | Expr::SafeCall(inner, _) => validate_gui_expr(inner, gui_aliases, gui_funcs, fname, errors),
+        Expr::Block(stmts) => {
+            for s in stmts {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::TryCatch(try_stmts, _, catch_stmts) => {
+            for s in try_stmts.iter().chain(catch_stmts.iter()) {
+                validate_gui_stmt(s, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::If(cond, then_expr, else_expr) => {
+            validate_gui_expr(cond, gui_aliases, gui_funcs, fname, errors);
+            validate_gui_expr(then_expr, gui_aliases, gui_funcs, fname, errors);
+            if let Some(e) = else_expr {
+                validate_gui_expr(e, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::ForIn(_, iter, body) => {
+            validate_gui_expr(iter, gui_aliases, gui_funcs, fname, errors);
+            validate_gui_expr(body, gui_aliases, gui_funcs, fname, errors);
+        }
+        Expr::While(cond, body) => {
+            validate_gui_expr(cond, gui_aliases, gui_funcs, fname, errors);
+            validate_gui_expr(body, gui_aliases, gui_funcs, fname, errors);
+        }
+        Expr::Loop(body) => {
+            validate_gui_expr(body, gui_aliases, gui_funcs, fname, errors);
+        }
+        Expr::Match(scrut, arms) => {
+            validate_gui_expr(scrut, gui_aliases, gui_funcs, fname, errors);
+            for arm in arms {
+                if let Some(g) = &arm.guard {
+                    validate_gui_expr(g, gui_aliases, gui_funcs, fname, errors);
+                }
+                validate_gui_expr(&arm.body, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::StructLit(_, fields) => {
+            for (_, value) in fields {
+                validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::ListLit(items) | Expr::SetLit(items) | Expr::TupleLit(items) | Expr::VectorLit(items) => {
+            for item in items {
+                validate_gui_expr(item, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::MapLit(entries) => {
+            for (key, value) in entries {
+                validate_gui_expr(key, gui_aliases, gui_funcs, fname, errors);
+                validate_gui_expr(value, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        Expr::MatrixLit(rows) => {
+            for row in rows {
+                for item in row {
+                    validate_gui_expr(item, gui_aliases, gui_funcs, fname, errors);
+                }
+            }
+        }
+        Expr::FnLit(_, _, body) | Expr::Closure(_, body) => {
+            validate_gui_expr(body, gui_aliases, gui_funcs, fname, errors);
+        }
+        Expr::Variant(_, _, args) => {
+            for arg in args {
+                validate_gui_expr(arg, gui_aliases, gui_funcs, fname, errors);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn detect_clang() -> Option<String> {

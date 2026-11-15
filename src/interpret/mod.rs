@@ -8,7 +8,7 @@ mod stmt;
 
 pub use value::{Value, EvalResult, is_truthy, is_copy_value, cmp_binop};
 pub use class::{FnDef, ClassDef, ObjectDef, Frame, MethodCache, InlineCache};
-pub use env::{Interpreter, SubInterpreterPool, fast_hash};
+pub use env::{Interpreter, InterpBase, SubInterpreterPool, fast_hash};
 
 #[cfg(test)]
 mod tests {
@@ -30,6 +30,19 @@ mod tests {
         let mut interp = Interpreter::new();
         interp.load_module(&module);
         interp.run_main().unwrap_err().to_string()
+    }
+
+    #[test]
+    fn sub_interpreter_inherits_user_classes() {
+        ast::reset_ids();
+        let module = Parser::parse("class Greeter { word: str; } fn main() {}").unwrap();
+        let mut interp = Interpreter::new();
+        interp.load_module(&module);
+        let base = InterpBase::from_interp(&interp);
+        let pool = SubInterpreterPool::new(4);
+        let sub = pool.take(&base);
+        assert!(sub.classes.contains_key("Greeter"));
+        assert!(sub.functions.contains_key("main"));
     }
 
     #[test]
