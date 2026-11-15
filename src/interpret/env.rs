@@ -1,11 +1,11 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 use crate::syntax::ast::*;
 use super::value::{Value, EvalResult, is_copy_value};
-use super::class::{FnDef, ClassDef, ObjectDef, Frame, INLINE_CACHE_SIZE};
+use super::class::{FnDef, ClassDef, ObjectDef, Frame, NameMap, NameSet, INLINE_CACHE_SIZE};
 
 pub struct SubInterpreterPool {
     pool: Mutex<Vec<Interpreter>>,
@@ -41,9 +41,9 @@ pub struct InterpBase {
     pub struct_defs: Arc<HashMap<String, Vec<String>>>,
     pub classes: Arc<HashMap<String, ClassDef>>,
     pub objects: Arc<HashMap<String, ObjectDef>>,
-    pub functions: Arc<HashMap<String, FnDef>>,
-    pub builtin_modules: Arc<HashMap<String, String>>,
-    pub builtin_funcs: Arc<HashMap<String, String>>,
+    pub functions: Arc<NameMap<FnDef>>,
+    pub builtin_modules: Arc<NameMap<String>>,
+    pub builtin_funcs: Arc<NameMap<String>>,
     pub std_imported: bool,
     pub tui_mode: bool,
     pub ffi_libs: HashMap<String, Arc<libloading::Library>>,
@@ -75,20 +75,20 @@ impl Default for InterpBase {
 }
 
 pub struct Interpreter {
-    pub globals: HashMap<String, Value>,
-    pub const_vars: HashSet<String>,
+    pub globals: NameMap<Value>,
+    pub const_vars: NameSet,
     pub json_files: HashMap<String, std::path::PathBuf>,
     pub struct_defs: Arc<HashMap<String, Vec<String>>>,
     pub classes: Arc<HashMap<String, ClassDef>>,
     pub objects: Arc<HashMap<String, ObjectDef>>,
-    pub functions: Arc<HashMap<String, FnDef>>,
-    pub builtin_modules: Arc<HashMap<String, String>>,
-    pub builtin_funcs: Arc<HashMap<String, String>>,
+    pub functions: Arc<NameMap<FnDef>>,
+    pub builtin_modules: Arc<NameMap<String>>,
+    pub builtin_funcs: Arc<NameMap<String>>,
     pub std_imported: bool,
     pub frames: Vec<Frame>,
     pub frame_pool: Vec<Frame>,
-    pub moved_frames: Vec<HashSet<String>>,
-    pub global_moved: HashSet<String>,
+    pub moved_frames: Vec<NameSet>,
+    pub global_moved: NameSet,
     pub output: String,
     pub tui_mode: bool,
     pub ffi_libs: HashMap<String, Arc<libloading::Library>>,
@@ -101,20 +101,20 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         Self {
-            globals: HashMap::new(),
-            const_vars: HashSet::new(),
+            globals: NameMap::default(),
+            const_vars: NameSet::default(),
             json_files: HashMap::new(),
             struct_defs: Arc::new(HashMap::new()),
             classes: Arc::new(HashMap::new()),
             objects: Arc::new(HashMap::new()),
-            functions: Arc::new(HashMap::new()),
-            builtin_modules: Arc::new(HashMap::new()),
-            builtin_funcs: Arc::new(HashMap::new()),
+            functions: Arc::new(NameMap::default()),
+            builtin_modules: Arc::new(NameMap::default()),
+            builtin_funcs: Arc::new(NameMap::default()),
             std_imported: false,
             frames: vec![Frame::new()],
             frame_pool: Vec::new(),
-            moved_frames: vec![HashSet::new()],
-            global_moved: HashSet::new(),
+            moved_frames: vec![NameSet::default()],
+            global_moved: NameSet::default(),
             output: String::new(),
             tui_mode: false,
             ffi_libs: HashMap::new(),
@@ -127,8 +127,8 @@ impl Interpreter {
 
     pub fn sub_from(other: &InterpBase) -> Self {
         Self {
-            globals: HashMap::new(),
-            const_vars: HashSet::new(),
+            globals: NameMap::default(),
+            const_vars: NameSet::default(),
             json_files: other.json_files.clone(),
             struct_defs: other.struct_defs.clone(),
             classes: other.classes.clone(),
@@ -139,8 +139,8 @@ impl Interpreter {
             std_imported: other.std_imported,
             frames: vec![Frame::new()],
             frame_pool: Vec::new(),
-            moved_frames: vec![HashSet::new()],
-            global_moved: HashSet::new(),
+            moved_frames: vec![NameSet::default()],
+            global_moved: NameSet::default(),
             output: String::new(),
             tui_mode: other.tui_mode,
             ffi_libs: other.ffi_libs.clone(),
@@ -171,7 +171,7 @@ impl Interpreter {
         self.frames.push(Frame::new());
         self.frame_pool.clear();
         self.moved_frames.clear();
-        self.moved_frames.push(HashSet::new());
+        self.moved_frames.push(NameSet::default());
         self.global_moved.clear();
         self.output.clear();
         self.next_task_id = 0;
@@ -371,8 +371,8 @@ impl Interpreter {
                 tui_mode,
                 std_imported,
                 ffi_libs,
-                moved_frames: vec![HashSet::new()],
-                global_moved: HashSet::new(),
+                moved_frames: vec![NameSet::default()],
+                global_moved: NameSet::default(),
                 next_task_id: 0,
                 task_rxs: HashMap::new(),
                 value_pool: crate::memory::arena::ValuePool::new(),
@@ -485,12 +485,6 @@ impl Interpreter {
     }
 
     pub fn get_var(&self, name: &str) -> Result<Value> {
-        if name == "v" {
-            eprintln!("DEBUG get_var: name={}, frames={}", name, self.frames.len());
-            for (i, f) in self.frames.iter().enumerate() {
-                eprintln!("DEBUG get_var: frame[{}] keys: {:?}", i, f.vars.keys().collect::<Vec<_>>());
-            }
-        }
         for frame in self.frames.iter().rev() {
             if let Some(val) = frame.get(name) {
                 return Ok(val.clone());
@@ -505,20 +499,17 @@ impl Interpreter {
     }
 
     pub fn set_var(&mut self, name: &str, val: Value) -> Result<()> {
-        if name == "v" {
-            eprintln!("DEBUG set_var: name={}, val={:?}, frames={}, top_frame_keys={:?}", name, val, self.frames.len(), self.frames.last().map(|f| f.vars.keys().collect::<Vec<_>>()));
-        }
         if self.const_vars.contains(name) || self.global_moved.contains(name) {
             return Err(self.err(Span::new(0, 0), format!("Cannot assign to const or moved variable '{}'", name)));
         }
         for frame in self.frames.iter_mut().rev() {
-            if frame.contains_key(name) {
-                frame.insert(name.to_string(), val);
+            if let Some(slot) = frame.get_mut(name) {
+                *slot = val;
                 return Ok(());
             }
         }
-        if self.globals.contains_key(name) {
-            self.globals.insert(name.to_string(), val);
+        if let Some(slot) = self.globals.get_mut(name) {
+            *slot = val;
             return Ok(());
         }
         if let Some(current) = self.frames.last_mut() {
@@ -536,7 +527,7 @@ impl Interpreter {
         } else {
             self.frames.push(Frame::new());
         }
-        self.moved_frames.push(HashSet::new());
+        self.moved_frames.push(NameSet::default());
     }
 
     pub fn pop_frame(&mut self) {

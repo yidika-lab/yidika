@@ -194,7 +194,7 @@ impl Interpreter {
                 Ok(None)
             }
             Stmt::Assign(name, expr) => {
-                if self.const_vars.contains(name) || self.is_const_global(name) {
+                if self.const_vars.contains(name) {
                     return Err(self.err(stmt.span, format!("Cannot assign to const variable '{}'", name)));
                 }
                 let val = match self.eval_expr(expr)? {
