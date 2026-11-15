@@ -1988,48 +1988,32 @@ static void yk_post_accept(yk_server* s) {
 // SIMD-accelerated end-of-headers finder: locate \r\n\r\n in a buffer
 // Returns offset of the first \r in \r\n\r\n, or -1 if incomplete
 // Only uses AVX2 when available, otherwise scalar loop
+static int yk_is_header_end_at(const char* buf, int buf_used, int i) {
+    return i + 3 < buf_used && buf[i] == 0x0D && buf[i+1] == 0x0A && buf[i+2] == 0x0D && buf[i+3] == 0x0A;
+}
+
 static int yk_find_header_end(const char* buf, int buf_used) {
+    int pos = 0;
 #ifdef __AVX2__
     __m256i cr = _mm256_set1_epi8(0x0D);
-    __m256i lf = _mm256_set1_epi8(0x0A);
-    int pos = 0;
     while (pos + 32 <= buf_used) {
         __m256i chunk = _mm256_loadu_si256((const __m256i*)(buf + pos));
-        int cr_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, cr));
-        int lf_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, lf));
-        // Find \r\n sequences: shift cr_mask left 1, check lf_mask for overlap
-        int crlf_mask = (cr_mask >> 1) & lf_mask;
-        if (crlf_mask) {
-            // We have at least one \r\n in this chunk; check for \r\n\r\n
-            // The \r\n\r\n pattern means: a \r\n at position p, and another \r\n at p+2
-            int dbl_crlf = 0;
-            unsigned int m = (unsigned int)crlf_mask;
-            while (m) {
-                unsigned long bit;
+        unsigned int m = (unsigned int)_mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, cr));
+        while (m) {
+            unsigned long bit;
 #ifdef _MSC_VER
-                _BitScanForward(&bit, m);
+            _BitScanForward(&bit, m);
 #else
-                bit = (unsigned long)__builtin_ctz(m);
+            bit = (unsigned long)__builtin_ctz(m);
 #endif
-                int p = (int)bit;
-                m &= m - 1; // clear lowest bit
-                // Check if there's another \r\n two bytes later
-                int next_pos = pos + p + 2;
-                if (next_pos + 1 >= buf_used) return -1; // truncated
-                int byte0 = (unsigned char)buf[next_pos];
-                int byte1 = (unsigned char)buf[next_pos + 1];
-                if (byte0 == 0x0D && byte1 == 0x0A) {
-                    return pos + p; // found \r\n\r\n, return first \r
-                }
-            }
+            m &= m - 1;
+            if (yk_is_header_end_at(buf, buf_used, pos + (int)bit)) return pos + (int)bit;
         }
         pos += 32;
     }
 #endif
-    // Scalar fallback: find sequential \r\n\r\n
-    for (int i = 0; i + 3 < buf_used; i++) {
-        if (buf[i] == 0x0D && buf[i+1] == 0x0A && buf[i+2] == 0x0D && buf[i+3] == 0x0A)
-            return i;
+    for (int i = pos; i + 3 < buf_used; i++) {
+        if (yk_is_header_end_at(buf, buf_used, i)) return i;
     }
     return -1;
 }
