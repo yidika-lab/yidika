@@ -709,7 +709,7 @@ mod tests {
 
     #[test]
     fn json_value_roundtrip() {
-        let v = Value::Map(HashMap::from([
+        let v = Value::Map(crate::interpret::ValueMap::from([
             ("name".into(), Value::Str("test".into())),
             ("count".into(), Value::Int(42)),
         ]));

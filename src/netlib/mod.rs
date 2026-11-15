@@ -653,7 +653,7 @@ fn run_logger(
     pool: &SubInterpreterPool
 ) {
     // Create a log entry struct
-    let mut log_fields = HashMap::with_capacity(8);
+    let mut log_fields = crate::interpret::ValueMap::with_capacity(8);
     log_fields.insert("method".into(), Value::Str(method.into()));
     log_fields.insert("path".into(), Value::Str(path.into()));
     log_fields.insert("body".into(), Value::Str(body.into()));
@@ -668,7 +668,7 @@ fn run_logger(
     log_fields.insert("cookies".into(), cookies_val);
     
     // Create proper Response struct
-    let mut response_fields = HashMap::with_capacity(3);
+    let mut response_fields = crate::interpret::ValueMap::with_capacity(3);
     response_fields.insert("status".into(), Value::Str(response_status.into()));
     response_fields.insert("body".into(), Value::Str(response_body.into()));
     let response_val = Value::Struct("Response".into(), response_fields);
@@ -717,7 +717,7 @@ fn execute_handler(
             let mut interp = pool.take(&base_interp());
             interp.push_frame();
 
-            let mut fields = HashMap::with_capacity(8);
+            let mut fields = crate::interpret::ValueMap::with_capacity(8);
             fields.insert(String::from("method"), Value::Str(method_raw.to_string()));
             fields.insert(String::from("path"), Value::Str(path_raw.to_string()));
             fields.insert(String::from("body"), Value::Str(body.to_string()));
@@ -742,7 +742,7 @@ fn execute_handler(
 
             // Add route params if present
             if let Some(rp) = route_params {
-                let mut pmap = HashMap::with_capacity(rp.len());
+                let mut pmap = crate::interpret::ValueMap::with_capacity(rp.len());
                 for (k, v) in rp.iter() {
                     pmap.insert(k.clone(), Value::Str(v.clone()));
                 }
@@ -1523,7 +1523,7 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
                             buf.truncate(read);
                             let data = String::from_utf8_lossy(&buf).to_string();
                             let addr = src.to_string();
-                            let mut fields = HashMap::new();
+                            let mut fields = crate::interpret::ValueMap::new();
                             fields.insert("data".into(), Value::Str(data));
                             fields.insert("addr".into(), Value::Str(addr));
                             Ok(Value::Struct("recv_result".into(), fields))
@@ -1656,7 +1656,7 @@ mod tests {
 
     #[test]
     fn response_instance_drives_status() {
-        let mut headers = std::collections::HashMap::new();
+        let mut headers = crate::interpret::ValueMap::new();
         headers.insert("X-Test".to_string(), crate::interpret::Value::Str("1".into()));
         let value = crate::interpret::Value::Instance(
             "Response".into(),
@@ -1664,7 +1664,7 @@ mod tests {
                 crate::interpret::Value::Int(401),
                 crate::interpret::Value::Str("denied".into()),
                 crate::interpret::Value::Map(headers),
-                crate::interpret::Value::Map(std::collections::HashMap::new()),
+                crate::interpret::Value::Map(crate::interpret::ValueMap::new()),
             ],
         );
         let response = ProcessedResponse::from_value(&value);
@@ -2000,7 +2000,7 @@ mod tests {
             (451, "451 Unavailable For Legal Reasons"),
             (503, "503 Service Unavailable"),
         ] {
-            let mut fields = HashMap::new();
+            let mut fields = crate::interpret::ValueMap::new();
             fields.insert("status".to_string(), Value::Int(code));
             let resp = ProcessedResponse::from_value(&Value::Struct("Response".into(), fields));
             assert_eq!(resp.status, expected, "status line for {code}");
@@ -2020,7 +2020,7 @@ mod tests {
     }
 
     fn status_of(value: Value) -> String {
-        let mut fields = HashMap::new();
+        let mut fields = crate::interpret::ValueMap::new();
         fields.insert("status".to_string(), value);
         ProcessedResponse::from_value(&Value::Struct("Response".into(), fields)).status
     }
@@ -2054,7 +2054,7 @@ mod tests {
 
     #[test]
     fn unknown_status_codes_are_not_labelled_ok() {
-        let mut fields = HashMap::new();
+        let mut fields = crate::interpret::ValueMap::new();
         fields.insert("status".to_string(), Value::Int(599));
         let resp = ProcessedResponse::from_value(&Value::Struct("Response".into(), fields));
         assert_eq!(resp.status, "599 Unknown Status Code");
