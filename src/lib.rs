@@ -4,6 +4,7 @@ pub mod compat;
 pub mod diagnostics;
 pub mod guilib;
 pub mod hardware;
+pub mod http_status;
 pub mod interpret;
 pub mod jit;
 pub mod memory;

@@ -1854,7 +1854,7 @@ static void* yk_hw_worker(void* arg) {
         char* handler_buf = yk_get_handler_buf(16384);
         item.handler(&item.resp, &item.req, handler_buf, yk_tls_handler_buf_size);
 
-        int status = item.resp.status;
+        int status = yk_valid_status(item.resp.status);
         char* body_ptr = (char*)item.resp.body;
         int64_t body_len = item.resp.body_len;
         int keep_alive = (c->keep_alive && s->running);
@@ -1863,8 +1863,8 @@ static void* yk_hw_worker(void* arg) {
         const char* conn_hdr = keep_alive ? "keep-alive" : "close";
         if (yk_conn_grow_resp_buf(c, 4096) != 0) { yk_closesocket(c->socket); yk_conn_free(c); continue; }
         int n = snprintf(c->resp_buf, c->resp_buf_cap,
-            "HTTP/1.1 %d OK\r\nContent-Length: %lld\r\nContent-Type: text/plain\r\nConnection: %s\r\n\r\n",
-            status, (long long)(body_ptr ? body_len : 0), conn_hdr);
+            "HTTP/1.1 %d %s\r\nContent-Length: %lld\r\nContent-Type: text/plain\r\nConnection: %s\r\n\r\n",
+            status, yk_status_reason(status), (long long)(body_ptr ? body_len : 0), conn_hdr);
         c->header_len = n;
         c->body_ptr = body_ptr;
         c->body_len = (int)(body_ptr ? (body_len > 0 ? body_len : 0) : 0);
@@ -2094,11 +2094,12 @@ static int yk_scan_http(char* buf, int buf_used, int* out_method_len, int* out_p
     // Scan headers between request line and \r\n\r\n (hdr_end)
     int has_conn_close = 0;
     int has_conn_ka = 0;
+    int headers_end = hdr_end + 2;
     while (i < hdr_end) {
         int line_start = i;
-        // Find end of this header line
-        i = yk_find_char(buf, i, hdr_end, '\n');
-        if (i >= hdr_end) break;
+        // Find end of this header line (the last one ends inside the final CRLF CRLF)
+        i = yk_find_char(buf, i, headers_end, '\n');
+        if (i >= headers_end) break;
         i++; // skip \n
         int line_len = i - line_start;
         // Check for Connection header (case-insensitive via SWAR-like check)
@@ -2237,7 +2238,7 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
         char* handler_buf = yk_get_handler_buf(16384);
         matched->handler(&resp, &req, handler_buf, yk_tls_handler_buf_size);
 
-        status = resp.status;
+        status = yk_valid_status(resp.status);
         body_ptr = (char*)resp.body;
         body_len = resp.body_len;
     } else {
@@ -2250,8 +2251,8 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
     // Ensure resp_buf is large enough for the header
     if (yk_conn_grow_resp_buf(c, 4096) != 0) return -1;
     int n = snprintf(c->resp_buf, c->resp_buf_cap,
-        "HTTP/1.1 %d OK\r\nContent-Length: %lld\r\nContent-Type: text/plain\r\nConnection: %s\r\n\r\n",
-        status, (long long)(body_ptr ? body_len : 0), conn_hdr);
+        "HTTP/1.1 %d %s\r\nContent-Length: %lld\r\nContent-Type: text/plain\r\nConnection: %s\r\n\r\n",
+        status, yk_status_reason(status), (long long)(body_ptr ? body_len : 0), conn_hdr);
     yk_log("response: %s %s -> %d (%d+%d bytes, %s)", c->method, c->path, status, n, c->body_len, conn_hdr);
     
     // Zero-copy: header in resp_buf, body is wherever the handler put it (usually a global constant)
@@ -8523,6 +8524,10 @@ pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str
     }
 }
 
+fn runtime_c_source() -> String {
+    format!("{}{}", crate::codegen::runtime_status::c_definitions(), RUNTIME_C)
+}
+
 /// Cache the pre-compiled runtime C object file to avoid recompiling every time
 #[allow(dead_code)]
 fn cache_runtime_obj(_output_path: &Path) -> Result<std::path::PathBuf> {
@@ -8532,7 +8537,7 @@ fn cache_runtime_obj(_output_path: &Path) -> Result<std::path::PathBuf> {
 
     if !cached_obj.exists() {
         let runtime_c_path = cache_dir.join("yk_rt.c");
-        std::fs::write(&runtime_c_path, RUNTIME_C)
+        std::fs::write(&runtime_c_path, runtime_c_source())
             .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
                 format!("Failed to write runtime C: {}", e)))?;
 
@@ -8566,7 +8571,7 @@ fn compile_to_exe_batch(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo, ex
 
     let runtime_dir = output_path.parent().unwrap_or(Path::new("."));
     let runtime_c_path = runtime_dir.join("yk_rt.c");
-    std::fs::write(&runtime_c_path, RUNTIME_C)
+    std::fs::write(&runtime_c_path, runtime_c_source())
         .map_err(|e| error::err(ErrorKind::Io, Span::new(0, 0),
             format!("Failed to write {}: {}", runtime_c_path.display(), e)))?;
     let runtime_obj_path = runtime_dir.join("yk_rt.obj");
