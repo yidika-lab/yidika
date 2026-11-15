@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 use crate::codegen::llvm_api::{LlvmApi, LLVMOrcLLJITRef, LLVMOrcJITTargetAddress, LLVMModuleRef};
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
@@ -110,7 +110,7 @@ impl OrcJit {
             }
 
             let mut module: LLVMModuleRef = std::ptr::null_mut();
-            let mut parse_err: *mut i8 = std::ptr::null_mut();
+            let mut parse_err: *mut c_char = std::ptr::null_mut();
             let parse_rc = (self.api.LLVMParseIRInContext)(ctx, membuf, &mut module, &mut parse_err);
 
             if parse_rc != 0 || module.is_null() {

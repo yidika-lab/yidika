@@ -1,4 +1,4 @@
-use std::ffi::CStr;
+use std::ffi::{c_char, CStr};
 use std::path::Path;
 use std::sync::Arc;
 use libloading::Library;
@@ -31,11 +31,11 @@ pub struct LlvmApi {
     _lib: Arc<Library>,
     pub LLVMContextCreate: unsafe extern "C" fn() -> LLVMContextRef,
     pub LLVMContextDispose: unsafe extern "C" fn(LLVMContextRef),
-    pub LLVMModuleCreateWithNameInContext: unsafe extern "C" fn(*const i8, LLVMContextRef) -> LLVMModuleRef,
+    pub LLVMModuleCreateWithNameInContext: unsafe extern "C" fn(*const c_char, LLVMContextRef) -> LLVMModuleRef,
     pub LLVMDisposeModule: unsafe extern "C" fn(LLVMModuleRef),
-    pub LLVMCreateMemoryBufferWithMemoryRange: unsafe extern "C" fn(*const i8, usize, *const i8, i32) -> LLVMMemoryBufferRef,
+    pub LLVMCreateMemoryBufferWithMemoryRange: unsafe extern "C" fn(*const c_char, usize, *const c_char, i32) -> LLVMMemoryBufferRef,
     pub LLVMDisposeMemoryBuffer: unsafe extern "C" fn(LLVMMemoryBufferRef),
-    pub LLVMParseIRInContext: unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef, *mut *mut i8) -> i32,
+    pub LLVMParseIRInContext: unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef, *mut *mut c_char) -> i32,
     pub LLVMParseBitcodeInContext2: unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef) -> i32,
     pub LLVMLinkModules2: unsafe extern "C" fn(LLVMModuleRef, LLVMModuleRef) -> i32,
     pub LLVMCreatePassManager: unsafe extern "C" fn() -> LLVMPassManagerRef,
@@ -52,20 +52,20 @@ pub struct LlvmApi {
     pub LLVMInitializeX86TargetMC: Option<unsafe extern "C" fn()>,
     pub LLVMInitializeX86AsmPrinter: Option<unsafe extern "C" fn()>,
     pub LLVMInitializeX86AsmParser: Option<unsafe extern "C" fn()>,
-    pub LLVMGetDefaultTargetTriple: unsafe extern "C" fn() -> *mut i8,
-    pub LLVMGetHostCPUName: unsafe extern "C" fn() -> *mut i8,
-    pub LLVMGetHostCPUFeatures: unsafe extern "C" fn() -> *mut i8,
-    pub LLVMDisposeMessage: unsafe extern "C" fn(*mut i8),
+    pub LLVMGetDefaultTargetTriple: unsafe extern "C" fn() -> *mut c_char,
+    pub LLVMGetHostCPUName: unsafe extern "C" fn() -> *mut c_char,
+    pub LLVMGetHostCPUFeatures: unsafe extern "C" fn() -> *mut c_char,
+    pub LLVMDisposeMessage: unsafe extern "C" fn(*mut c_char),
     pub LLVMGetFirstTarget: unsafe extern "C" fn() -> LLVMTargetRef,
-    pub LLVMGetTargetFromTriple: unsafe extern "C" fn(*const i8, *mut LLVMTargetRef, *mut *mut i8) -> i32,
-    pub LLVMCreateTargetMachine: unsafe extern "C" fn(LLVMTargetRef, *const i8, *const i8, *const i8, i32, i32, i32) -> LLVMTargetMachineRef,
+    pub LLVMGetTargetFromTriple: unsafe extern "C" fn(*const c_char, *mut LLVMTargetRef, *mut *mut c_char) -> i32,
+    pub LLVMCreateTargetMachine: unsafe extern "C" fn(LLVMTargetRef, *const c_char, *const c_char, *const c_char, i32, i32, i32) -> LLVMTargetMachineRef,
     pub LLVMDisposeTargetMachine: unsafe extern "C" fn(LLVMTargetMachineRef),
     pub LLVMCreateTargetDataLayout: unsafe extern "C" fn(LLVMTargetMachineRef) -> LLVMTargetDataRef,
     pub LLVMSetModuleDataLayout: unsafe extern "C" fn(LLVMModuleRef, LLVMTargetDataRef),
-    pub LLVMSetTarget: unsafe extern "C" fn(LLVMModuleRef, *const i8),
-    pub LLVMTargetMachineEmitToFile: unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, *mut i8, i32, *mut *mut i8) -> i32,
-    pub LLVMTargetMachineEmitToMemoryBuffer: unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, i32, *mut *mut i8, *mut LLVMMemoryBufferRef) -> i32,
-    pub LLVMGetBufferStart: unsafe extern "C" fn(LLVMMemoryBufferRef) -> *const i8,
+    pub LLVMSetTarget: unsafe extern "C" fn(LLVMModuleRef, *const c_char),
+    pub LLVMTargetMachineEmitToFile: unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, *mut c_char, i32, *mut *mut c_char) -> i32,
+    pub LLVMTargetMachineEmitToMemoryBuffer: unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, i32, *mut *mut c_char, *mut LLVMMemoryBufferRef) -> i32,
+    pub LLVMGetBufferStart: unsafe extern "C" fn(LLVMMemoryBufferRef) -> *const c_char,
     pub LLVMGetBufferSize: unsafe extern "C" fn(LLVMMemoryBufferRef) -> usize,
     // ORC JIT functions (optional, LLVM 11+)
     pub LLVMOrcCreateLLJIT: Option<unsafe extern "C" fn(*mut LLVMOrcLLJITRef, LLVMOrcLLJITBuilderRef) -> LLVMErrorRef>,
@@ -78,16 +78,16 @@ pub struct LlvmApi {
     pub LLVMOrcCreateNewThreadSafeModule: Option<unsafe extern "C" fn(LLVMModuleRef, LLVMOrcThreadSafeContextRef) -> LLVMOrcThreadSafeModuleRef>,
     pub LLVMOrcDisposeThreadSafeModule: Option<unsafe extern "C" fn(LLVMOrcThreadSafeModuleRef)>,
     pub LLVMOrcLLJITAddLLVMIRModule: Option<unsafe extern "C" fn(LLVMOrcLLJITRef, LLVMOrcJITDylibRef, LLVMOrcThreadSafeModuleRef) -> LLVMErrorRef>,
-    pub LLVMOrcLLJITLookup: Option<unsafe extern "C" fn(LLVMOrcLLJITRef, *mut LLVMOrcJITTargetAddress, *const i8) -> LLVMErrorRef>,
+    pub LLVMOrcLLJITLookup: Option<unsafe extern "C" fn(LLVMOrcLLJITRef, *mut LLVMOrcJITTargetAddress, *const c_char) -> LLVMErrorRef>,
     pub LLVMConsumeError: Option<unsafe extern "C" fn(LLVMErrorRef)>,
-    pub LLVMGetErrorMessage: Option<unsafe extern "C" fn(LLVMErrorRef) -> *mut i8>,
-    pub LLVMDisposeErrorMessage: Option<unsafe extern "C" fn(*mut i8)>,
+    pub LLVMGetErrorMessage: Option<unsafe extern "C" fn(LLVMErrorRef) -> *mut c_char>,
+    pub LLVMDisposeErrorMessage: Option<unsafe extern "C" fn(*mut c_char)>,
     // Legacy MCJIT functions (optional)
-    pub LLVMCreateExecutionEngineForModule: Option<unsafe extern "C" fn(*mut LLVMExecutionEngineRef, LLVMModuleRef, *mut *mut i8) -> i32>,
+    pub LLVMCreateExecutionEngineForModule: Option<unsafe extern "C" fn(*mut LLVMExecutionEngineRef, LLVMModuleRef, *mut *mut c_char) -> i32>,
     pub LLVMDisposeExecutionEngine: Option<unsafe extern "C" fn(LLVMExecutionEngineRef)>,
-    pub LLVMGetFunctionAddress: Option<unsafe extern "C" fn(LLVMExecutionEngineRef, *const i8) -> u64>,
+    pub LLVMGetFunctionAddress: Option<unsafe extern "C" fn(LLVMExecutionEngineRef, *const c_char) -> u64>,
     pub LLVMAddModule: Option<unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef)>,
-    pub LLVMRemoveModule: Option<unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef, *mut LLVMModuleRef, *mut *mut i8) -> i32>,
+    pub LLVMRemoveModule: Option<unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef, *mut LLVMModuleRef, *mut *mut c_char) -> i32>,
 }
 
 pub fn find_llvm_lib() -> Option<String> {
@@ -163,11 +163,11 @@ impl LlvmApi {
             _lib: lib.clone(),
             LLVMContextCreate: sym!(lib, LLVMContextCreate, unsafe extern "C" fn() -> LLVMContextRef),
             LLVMContextDispose: sym!(lib, LLVMContextDispose, unsafe extern "C" fn(LLVMContextRef)),
-            LLVMModuleCreateWithNameInContext: sym!(lib, LLVMModuleCreateWithNameInContext, unsafe extern "C" fn(*const i8, LLVMContextRef) -> LLVMModuleRef),
+            LLVMModuleCreateWithNameInContext: sym!(lib, LLVMModuleCreateWithNameInContext, unsafe extern "C" fn(*const c_char, LLVMContextRef) -> LLVMModuleRef),
             LLVMDisposeModule: sym!(lib, LLVMDisposeModule, unsafe extern "C" fn(LLVMModuleRef)),
-            LLVMCreateMemoryBufferWithMemoryRange: sym!(lib, LLVMCreateMemoryBufferWithMemoryRange, unsafe extern "C" fn(*const i8, usize, *const i8, i32) -> LLVMMemoryBufferRef),
+            LLVMCreateMemoryBufferWithMemoryRange: sym!(lib, LLVMCreateMemoryBufferWithMemoryRange, unsafe extern "C" fn(*const c_char, usize, *const c_char, i32) -> LLVMMemoryBufferRef),
             LLVMDisposeMemoryBuffer: sym!(lib, LLVMDisposeMemoryBuffer, unsafe extern "C" fn(LLVMMemoryBufferRef)),
-            LLVMParseIRInContext: sym!(lib, LLVMParseIRInContext, unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef, *mut *mut i8) -> i32),
+            LLVMParseIRInContext: sym!(lib, LLVMParseIRInContext, unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef, *mut *mut c_char) -> i32),
             LLVMParseBitcodeInContext2: sym!(lib, LLVMParseBitcodeInContext2, unsafe extern "C" fn(LLVMContextRef, LLVMMemoryBufferRef, *mut LLVMModuleRef) -> i32),
             LLVMLinkModules2: sym!(lib, LLVMLinkModules2, unsafe extern "C" fn(LLVMModuleRef, LLVMModuleRef) -> i32),
             LLVMCreatePassManager: sym!(lib, LLVMCreatePassManager, unsafe extern "C" fn() -> LLVMPassManagerRef),
@@ -182,20 +182,20 @@ impl LlvmApi {
             LLVMInitializeX86TargetMC: opt_sym!(lib, LLVMInitializeX86TargetMC, unsafe extern "C" fn()),
             LLVMInitializeX86AsmPrinter: opt_sym!(lib, LLVMInitializeX86AsmPrinter, unsafe extern "C" fn()),
             LLVMInitializeX86AsmParser: opt_sym!(lib, LLVMInitializeX86AsmParser, unsafe extern "C" fn()),
-            LLVMGetDefaultTargetTriple: sym!(lib, LLVMGetDefaultTargetTriple, unsafe extern "C" fn() -> *mut i8),
-            LLVMGetHostCPUName: sym!(lib, LLVMGetHostCPUName, unsafe extern "C" fn() -> *mut i8),
-            LLVMGetHostCPUFeatures: sym!(lib, LLVMGetHostCPUFeatures, unsafe extern "C" fn() -> *mut i8),
-            LLVMDisposeMessage: sym!(lib, LLVMDisposeMessage, unsafe extern "C" fn(*mut i8)),
+            LLVMGetDefaultTargetTriple: sym!(lib, LLVMGetDefaultTargetTriple, unsafe extern "C" fn() -> *mut c_char),
+            LLVMGetHostCPUName: sym!(lib, LLVMGetHostCPUName, unsafe extern "C" fn() -> *mut c_char),
+            LLVMGetHostCPUFeatures: sym!(lib, LLVMGetHostCPUFeatures, unsafe extern "C" fn() -> *mut c_char),
+            LLVMDisposeMessage: sym!(lib, LLVMDisposeMessage, unsafe extern "C" fn(*mut c_char)),
             LLVMGetFirstTarget: sym!(lib, LLVMGetFirstTarget, unsafe extern "C" fn() -> LLVMTargetRef),
-            LLVMGetTargetFromTriple: sym!(lib, LLVMGetTargetFromTriple, unsafe extern "C" fn(*const i8, *mut LLVMTargetRef, *mut *mut i8) -> i32),
-            LLVMCreateTargetMachine: sym!(lib, LLVMCreateTargetMachine, unsafe extern "C" fn(LLVMTargetRef, *const i8, *const i8, *const i8, i32, i32, i32) -> LLVMTargetMachineRef),
+            LLVMGetTargetFromTriple: sym!(lib, LLVMGetTargetFromTriple, unsafe extern "C" fn(*const c_char, *mut LLVMTargetRef, *mut *mut c_char) -> i32),
+            LLVMCreateTargetMachine: sym!(lib, LLVMCreateTargetMachine, unsafe extern "C" fn(LLVMTargetRef, *const c_char, *const c_char, *const c_char, i32, i32, i32) -> LLVMTargetMachineRef),
             LLVMDisposeTargetMachine: sym!(lib, LLVMDisposeTargetMachine, unsafe extern "C" fn(LLVMTargetMachineRef)),
             LLVMCreateTargetDataLayout: sym!(lib, LLVMCreateTargetDataLayout, unsafe extern "C" fn(LLVMTargetMachineRef) -> LLVMTargetDataRef),
             LLVMSetModuleDataLayout: sym!(lib, LLVMSetModuleDataLayout, unsafe extern "C" fn(LLVMModuleRef, LLVMTargetDataRef)),
-            LLVMSetTarget: sym!(lib, LLVMSetTarget, unsafe extern "C" fn(LLVMModuleRef, *const i8)),
-            LLVMTargetMachineEmitToFile: sym!(lib, LLVMTargetMachineEmitToFile, unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, *mut i8, i32, *mut *mut i8) -> i32),
-            LLVMTargetMachineEmitToMemoryBuffer: sym!(lib, LLVMTargetMachineEmitToMemoryBuffer, unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, i32, *mut *mut i8, *mut LLVMMemoryBufferRef) -> i32),
-            LLVMGetBufferStart: sym!(lib, LLVMGetBufferStart, unsafe extern "C" fn(LLVMMemoryBufferRef) -> *const i8),
+            LLVMSetTarget: sym!(lib, LLVMSetTarget, unsafe extern "C" fn(LLVMModuleRef, *const c_char)),
+            LLVMTargetMachineEmitToFile: sym!(lib, LLVMTargetMachineEmitToFile, unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, *mut c_char, i32, *mut *mut c_char) -> i32),
+            LLVMTargetMachineEmitToMemoryBuffer: sym!(lib, LLVMTargetMachineEmitToMemoryBuffer, unsafe extern "C" fn(LLVMTargetMachineRef, LLVMModuleRef, i32, *mut *mut c_char, *mut LLVMMemoryBufferRef) -> i32),
+            LLVMGetBufferStart: sym!(lib, LLVMGetBufferStart, unsafe extern "C" fn(LLVMMemoryBufferRef) -> *const c_char),
             LLVMGetBufferSize: sym!(lib, LLVMGetBufferSize, unsafe extern "C" fn(LLVMMemoryBufferRef) -> usize),
             LLVMOrcCreateLLJIT: opt_sym!(lib, LLVMOrcCreateLLJIT, unsafe extern "C" fn(*mut LLVMOrcLLJITRef, LLVMOrcLLJITBuilderRef) -> LLVMErrorRef),
             LLVMOrcDisposeLLJIT: opt_sym!(lib, LLVMOrcDisposeLLJIT, unsafe extern "C" fn(LLVMOrcLLJITRef)),
@@ -207,19 +207,19 @@ impl LlvmApi {
             LLVMOrcCreateNewThreadSafeModule: opt_sym!(lib, LLVMOrcCreateNewThreadSafeModule, unsafe extern "C" fn(LLVMModuleRef, LLVMOrcThreadSafeContextRef) -> LLVMOrcThreadSafeModuleRef),
             LLVMOrcDisposeThreadSafeModule: opt_sym!(lib, LLVMOrcDisposeThreadSafeModule, unsafe extern "C" fn(LLVMOrcThreadSafeModuleRef)),
             LLVMOrcLLJITAddLLVMIRModule: opt_sym!(lib, LLVMOrcLLJITAddLLVMIRModule, unsafe extern "C" fn(LLVMOrcLLJITRef, LLVMOrcJITDylibRef, LLVMOrcThreadSafeModuleRef) -> LLVMErrorRef),
-            LLVMOrcLLJITLookup: opt_sym!(lib, LLVMOrcLLJITLookup, unsafe extern "C" fn(LLVMOrcLLJITRef, *mut LLVMOrcJITTargetAddress, *const i8) -> LLVMErrorRef),
+            LLVMOrcLLJITLookup: opt_sym!(lib, LLVMOrcLLJITLookup, unsafe extern "C" fn(LLVMOrcLLJITRef, *mut LLVMOrcJITTargetAddress, *const c_char) -> LLVMErrorRef),
             LLVMConsumeError: opt_sym!(lib, LLVMConsumeError, unsafe extern "C" fn(LLVMErrorRef)),
-            LLVMGetErrorMessage: opt_sym!(lib, LLVMGetErrorMessage, unsafe extern "C" fn(LLVMErrorRef) -> *mut i8),
-            LLVMDisposeErrorMessage: opt_sym!(lib, LLVMDisposeErrorMessage, unsafe extern "C" fn(*mut i8)),
-            LLVMCreateExecutionEngineForModule: opt_sym!(lib, LLVMCreateExecutionEngineForModule, unsafe extern "C" fn(*mut LLVMExecutionEngineRef, LLVMModuleRef, *mut *mut i8) -> i32),
+            LLVMGetErrorMessage: opt_sym!(lib, LLVMGetErrorMessage, unsafe extern "C" fn(LLVMErrorRef) -> *mut c_char),
+            LLVMDisposeErrorMessage: opt_sym!(lib, LLVMDisposeErrorMessage, unsafe extern "C" fn(*mut c_char)),
+            LLVMCreateExecutionEngineForModule: opt_sym!(lib, LLVMCreateExecutionEngineForModule, unsafe extern "C" fn(*mut LLVMExecutionEngineRef, LLVMModuleRef, *mut *mut c_char) -> i32),
             LLVMDisposeExecutionEngine: opt_sym!(lib, LLVMDisposeExecutionEngine, unsafe extern "C" fn(LLVMExecutionEngineRef)),
-            LLVMGetFunctionAddress: opt_sym!(lib, LLVMGetFunctionAddress, unsafe extern "C" fn(LLVMExecutionEngineRef, *const i8) -> u64),
+            LLVMGetFunctionAddress: opt_sym!(lib, LLVMGetFunctionAddress, unsafe extern "C" fn(LLVMExecutionEngineRef, *const c_char) -> u64),
             LLVMAddModule: opt_sym!(lib, LLVMAddModule, unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef)),
-            LLVMRemoveModule: opt_sym!(lib, LLVMRemoveModule, unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef, *mut LLVMModuleRef, *mut *mut i8) -> i32),
+            LLVMRemoveModule: opt_sym!(lib, LLVMRemoveModule, unsafe extern "C" fn(LLVMExecutionEngineRef, LLVMModuleRef, *mut LLVMModuleRef, *mut *mut c_char) -> i32),
         })
     }
 
-    pub fn get_error(&self, err_msg: *mut i8) -> String {
+    pub fn get_error(&self, err_msg: *mut c_char) -> String {
         if err_msg.is_null() {
             "unknown error".to_string()
         } else {
@@ -277,7 +277,7 @@ pub fn compile_ir(api: &LlvmApi, llvm_ir: &str, runtime_bc: &[u8], output_path: 
             return Err(error::err(ErrorKind::Internal, Span::new(0, 0), "LLVM: failed to create memory buffer"));
         }
         let mut module: LLVMModuleRef = std::ptr::null_mut();
-        let mut err: *mut i8 = std::ptr::null_mut();
+        let mut err: *mut c_char = std::ptr::null_mut();
         let parse_rc = (api.LLVMParseIRInContext)(ctx, membuf, &mut module, &mut err);
         if parse_rc != 0 {
             let err_str = api.get_error(err);
@@ -289,7 +289,7 @@ pub fn compile_ir(api: &LlvmApi, llvm_ir: &str, runtime_bc: &[u8], output_path: 
         // Link runtime bitcode
         if !runtime_bc.is_empty() {
             let rt_name = std::ffi::CString::new("yk_rt.bc").unwrap();
-            let rt_buf = (api.LLVMCreateMemoryBufferWithMemoryRange)(runtime_bc.as_ptr() as *const i8, runtime_bc.len(), rt_name.as_ptr(), 0);
+            let rt_buf = (api.LLVMCreateMemoryBufferWithMemoryRange)(runtime_bc.as_ptr() as *const c_char, runtime_bc.len(), rt_name.as_ptr(), 0);
             if !rt_buf.is_null() {
                 let mut rt_mod: LLVMModuleRef = std::ptr::null_mut();
                 if (api.LLVMParseBitcodeInContext2)(ctx, rt_buf, &mut rt_mod) == 0 && !rt_mod.is_null() {
@@ -325,7 +325,7 @@ pub fn compile_ir(api: &LlvmApi, llvm_ir: &str, runtime_bc: &[u8], output_path: 
 
         let mut target_ref = (api.LLVMGetFirstTarget)();
         if target_ref.is_null() {
-            let mut err_target: *mut i8 = std::ptr::null_mut();
+            let mut err_target: *mut c_char = std::ptr::null_mut();
             let rc = (api.LLVMGetTargetFromTriple)(triple_c.as_ptr(), &mut target_ref, &mut err_target);
             if rc != 0 || target_ref.is_null() {
                 let err_str = if !err_target.is_null() { api.get_error(err_target) } else { "unknown".into() };
@@ -350,8 +350,8 @@ pub fn compile_ir(api: &LlvmApi, llvm_ir: &str, runtime_bc: &[u8], output_path: 
 
         // Emit object file
         let out = std::ffi::CString::new(output_path.to_string_lossy().as_ref()).unwrap();
-        let mut err2: *mut i8 = std::ptr::null_mut();
-        let emit_result = (api.LLVMTargetMachineEmitToFile)(tm, module, out.into_raw() as *mut i8, 1, &mut err2);
+        let mut err2: *mut c_char = std::ptr::null_mut();
+        let emit_result = (api.LLVMTargetMachineEmitToFile)(tm, module, out.into_raw() as *mut c_char, 1, &mut err2);
 
         (api.LLVMDisposeTargetMachine)(tm);
         (api.LLVMDisposeModule)(module);
