@@ -619,6 +619,21 @@ mod tests {
     }
 
     #[test]
+    fn compat_named_function_passed_as_a_value() {
+        check_compat("fn twice(x: int) -> int { return x * 2; } fn apply(g: fn(int) -> int, v: int) -> int { return g(v); } fn main() { print(apply(twice, 21)); f: fn(int) -> int = twice; print(f(5)); }", "fn_value_named");
+    }
+
+    #[test]
+    fn compat_lambda_passed_as_an_argument() {
+        check_compat("fn apply(g: fn(int) -> int, v: int) -> int { return g(v); } fn main() { print(apply((x) => x * 10, 4)); print(apply(fn(y: int) -> int { return y + 1; }, 4)); }", "fn_value_lambda");
+    }
+
+    #[test]
+    fn compat_function_values_with_reals_and_strings() {
+        check_compat("fn greet(name: str) -> str { return \"hi \" + name; } fn half(x: real) -> real { return x / 2.0; } fn on_str(g: fn(str) -> str, s: str) -> str { return g(s); } fn on_real(g: fn(real) -> real, x: real) -> real { return g(x); } fn main() { print(on_str(greet, \"bob\")); print(on_real(half, 5.0)); }", "fn_value_types");
+    }
+
+    #[test]
     fn compat_range_ascending_includes_both_bounds() {
         check_compat("fn main() { s: str = \"\"; for (i in 1..5) { s = s + str(i) + \",\"; } print(s); }", "range_ascending");
     }
