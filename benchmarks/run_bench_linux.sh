@@ -1,5 +1,5 @@
 #!/bin/bash
-# Yidika HTTP Server — Linux Benchmark Script
+# Yidika HTTP Server - Linux Benchmark Script
 # Prerequisites: wrk2 (or wrk), h2load, perf
 #
 # Install:

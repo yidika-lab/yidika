@@ -183,7 +183,7 @@ typedef struct {
     yk_vmem_slot* volatile free_head;  // Treiber stack head
 } yk_vmem_pool;
 
-#define YK_CONN_POOL_SIZE (512ULL * 1024 * 1024)  // 512 MB → ~2M conns
+#define YK_CONN_POOL_SIZE (512ULL * 1024 * 1024)  // 512 MB -> ~2M conns
 
 static yk_vmem_pool yk_conn_pool = {0};
 
@@ -1711,7 +1711,7 @@ typedef struct yk_hw_node {
     struct yk_hw_node* next;
 } yk_hw_node;
 
-// TLS node cache — amortise malloc/free per-thread
+// TLS node cache - amortise malloc/free per-thread
 YK_TLS static yk_hw_node* yk_tls_hw_node_free = NULL;
 
 static yk_hw_node* yk_hw_node_alloc(yk_hw_item* item) {
@@ -1788,7 +1788,7 @@ static int yk_hw_dequeue(yk_handler_pool* pool, yk_hw_item* out, int timeout_ms)
         node = pool->head;
         if (node) {
             LeaveCriticalSection(&pool->wake_lock);
-            // Retry pop — another thread might have stolen it
+            // Retry pop - another thread might have stolen it
             for (;;) {
                 node = pool->head;
                 if (!node) break;
@@ -1836,7 +1836,7 @@ static int yk_hw_dequeue(yk_handler_pool* pool, yk_hw_item* out, int timeout_ms)
 }
 
 // Handler worker thread: executes handlers, builds response, posts async I/O
-// NO blocking I/O — all I/O goes through IOCP (Win) or io_uring (Linux)
+// NO blocking I/O - all I/O goes through IOCP (Win) or io_uring (Linux)
 #ifdef _WIN32
 static unsigned __stdcall yk_hw_worker(void* arg) {
 #else
@@ -1850,7 +1850,7 @@ static void* yk_hw_worker(void* arg) {
         yk_conn* c = item.c;
         yk_server* s = item.s;
 
-        // Execute handler (compute only — no I/O)
+        // Execute handler (compute only - no I/O)
         char* handler_buf = yk_get_handler_buf(16384);
         item.handler(&item.resp, &item.req, handler_buf, yk_tls_handler_buf_size);
 
@@ -1871,7 +1871,7 @@ static void* yk_hw_worker(void* arg) {
         c->resp_len = n + c->body_len;
         c->resp_sent = 0;
 
-        // Post async send — IOCP/io_uring worker handles completion & keep-alive
+        // Post async send - IOCP/io_uring worker handles completion & keep-alive
         c->op_type = 2;
 #ifdef _WIN32
         DWORD bytes, flags = 0;
@@ -2334,7 +2334,7 @@ static void yk_on_recv(yk_conn* c, yk_server* s, DWORD bytes) {
         return;
     }
     if (ret == 2) {
-        // Handler offloaded to dedicated thread pool — connection owned by handler worker
+        // Handler offloaded to dedicated thread pool - connection owned by handler worker
         return;
     }
     if (ret == 0) {
@@ -2719,7 +2719,7 @@ static void* yk_io_uring_worker(void* arg) {
                     continue;
                 }
                 if (ret2 == 2) {
-                    // Handler offloaded to dedicated thread pool — connection owned by handler worker
+                    // Handler offloaded to dedicated thread pool - connection owned by handler worker
                     continue;
                 }
                 if (ret2 == 0) {
@@ -3025,7 +3025,7 @@ static void yk_ws_base64_encode(const unsigned char* in, size_t in_len, char* ou
     *out = '\0';
 }
 
-// WebSocket accept key: SHA-1(key + magic GUID) → base64
+// WebSocket accept key: SHA-1(key + magic GUID) -> base64
 static void yk_ws_accept_key(const char* client_key, char* out, int out_len) {
     const char* magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
     yk_sha1_ctx ctx; yk_sha1_init(&ctx);
@@ -3035,7 +3035,7 @@ static void yk_ws_accept_key(const char* client_key, char* out, int out_len) {
     yk_ws_base64_encode(hash, 20, out);
 }
 
-// WebSocket frame send (unmasked server → client, cross-platform)
+// WebSocket frame send (unmasked server -> client, cross-platform)
 static int yk_ws_send(SOCKET fd, int opcode, const char* data, int64_t len) {
     char header[10]; int hdr_len;
     if (len < 126) { header[0] = 0x80 | (opcode & 0x0F); header[1] = (char)len; hdr_len = 2; }
@@ -3187,10 +3187,10 @@ static int yk_ws_process_data(yk_conn* c) {
                 case 8: // close
                     free(ws->payload); ws->payload = NULL;
                     return 1;
-                case 9: // ping → pong
+                case 9: // ping -> pong
                     yk_ws_send(c->socket, 10, ws->payload, ws->payload_len);
                     break;
-                case 1: // text frame → echo back
+                case 1: // text frame -> echo back
                     yk_ws_send(c->socket, 1, ws->payload, ws->payload_len);
                     break;
                 default:
@@ -3258,8 +3258,8 @@ static void yk_ws_handle(yk_conn* c, yk_server* s) {
         if (masked) for (int64_t i = 0; i < payload_len; i++) payload[i] ^= mask_key[i & 3];
         payload[payload_len] = '\0';
         if (opcode == 8) { free(payload); break; } // close
-        if (opcode == 9) { yk_ws_send(c->socket, 10, NULL, 0); free(payload); continue; } // ping → pong
-        if (opcode == 1) { // text frame → echo back
+        if (opcode == 9) { yk_ws_send(c->socket, 10, NULL, 0); free(payload); continue; } // ping -> pong
+        if (opcode == 1) { // text frame -> echo back
             yk_ws_send(c->socket, 1, payload, payload_len);
         }
         free(payload);
@@ -3270,7 +3270,7 @@ static void yk_ws_handle(yk_conn* c, yk_server* s) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// HTTP/2 — RFC 7540
+// HTTP/2 - RFC 7540
 // ═══════════════════════════════════════════════════════════════
 
 // ── Frame types ─────────────────────────────────────────────
@@ -3436,7 +3436,7 @@ static int yk_h2_decode_huff(uint8_t* buf, int* pos, int len, uint8_t* out, int 
             if (!found) break; // padding
         }
     }
-    // EOS symbol (0xFF) padding check — skip remaining bits
+    // EOS symbol (0xFF) padding check - skip remaining bits
     *pos = end;
     return out_pos;
 }
@@ -3493,7 +3493,7 @@ typedef struct {
     uint32_t settings_max_concurrent;
     uint32_t settings_initial_window;
     uint32_t settings_max_frame;
-    // HPACK decoder state (dynamic table — simplified: reuse static only)
+    // HPACK decoder state (dynamic table - simplified: reuse static only)
     uint8_t* decoder_buf;
     int decoder_len;
 } yk_h2_session;
@@ -3562,7 +3562,7 @@ static void yk_h2_send_frame(yk_conn* c, uint8_t type, uint8_t flags, uint32_t s
 
 // ── Send SETTINGS frame ─────────────────────────────────────
 static void yk_h2_send_settings(yk_conn* c) {
-    uint8_t payload[18]; // 3 settings × 6 bytes each
+    uint8_t payload[18]; // 3 settings x 6 bytes each
     int pos = 0;
     // SETTINGS_MAX_CONCURRENT_STREAMS = 128 (ID=0x0003)
     payload[pos++] = 0; payload[pos++] = 0x03;
@@ -3721,7 +3721,7 @@ static void yk_h2_handle_headers(yk_h2_session* sess, uint8_t* payload, uint32_t
                 }
             }
         } else if ((first & 0xC0) == 0x40) {
-            // Literal with indexing — name indexed or literal
+            // Literal with indexing - name indexed or literal
             uint64_t idx = 0;
             if ((first & 0x3F) > 0) {
                 idx = yk_h2_decode_int(payload, &pos, len, 6);
@@ -6499,7 +6499,7 @@ impl LlvmCodegen {
                 rt = lt.clone();
             }
         }
-        // Coerce int → double when mixed with float
+        // Coerce int -> double when mixed with float
         if lt == "double" && !rt.starts_with('%') && rt != "double" && rt != "float" {
             let ext = self.fresh_label();
             self.e(&format!("%{} = sitofp {} {} to double", ext, rt, rc));
@@ -7096,7 +7096,7 @@ impl LlvmCodegen {
                     (self.ssa(&tmp), "i64".into())
                 }
                 _ => {
-                    // Check if this is a class constructor (Foo(args) → create Foo instance)
+                    // Check if this is a class constructor (Foo(args) -> create Foo instance)
                     if self.class_defs.contains_key(name) {
                         let obj_ty = format!("%class.{}", name);
                         let alloca_ptr = self.fresh_label();

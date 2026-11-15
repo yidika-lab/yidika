@@ -1737,7 +1737,7 @@ mod tests {
         if !require_llvm() { return; }
         let span = Span::new(0, 0);
 
-        // if false { return "yes" }  (no else → empty)
+        // if false { return "yes" }  (no else -> empty)
         let cond = ExprNode::new(fresh_id(), span, Expr::LitBool(false));
         let then_expr = ExprNode::new(fresh_id(), span, Expr::LitStr("yes".into()));
         let if_expr = ExprNode::new(fresh_id(), span,

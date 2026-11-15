@@ -1,5 +1,5 @@
 @echo off
-REM Yidika HTTP Server — Windows Benchmark Script
+REM Yidika HTTP Server - Windows Benchmark Script
 REM Prerequisites: curl for testing
 REM
 REM For RPS measurement, install:

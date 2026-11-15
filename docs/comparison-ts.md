@@ -1,4 +1,4 @@
-# TypeScript vs Yidika — Syntax Comparison
+# TypeScript vs Yidika - Syntax Comparison
 
 ## Variables
 
@@ -16,19 +16,19 @@ y: const<str> = "hello"
 z: bool = true
 ```
 
-> Yidika n'a pas de `let`/`var` — la présence du `:` distingue déclaration d'assignation. `const` est un modificateur de type, pas un mot-clé de déclaration.
+> Yidika n'a pas de `let`/`var` - la présence du `:` distingue déclaration d'assignation. `const` est un modificateur de type, pas un mot-clé de déclaration.
 
 ## Types primitifs
 
 | Concept | TypeScript | Yidika |
 |---------|-----------|--------|
 | Entier | `number` | `int` (ou `int8`, `int16`, `int32`, `int64`) |
-| Entier rangeé | — | `rint`, `rint32` |
+| Entier rangeé | - | `rint`, `rint32` |
 | Flottant | `number` | `real` (ou `real16`, `real32`, `real64`) |
 | Booléen | `boolean` | `bool` |
 | Chaîne | `string` | `str` |
-| Symbole | — | `symbol` |
-| Complexe | — | `complex` |
+| Symbole | - | `symbol` |
+| Complexe | - | `complex` |
 
 ## Types composés
 
@@ -168,7 +168,7 @@ p = Point { x: 10, y: 20 }
 p = Point(10, 20)
 ```
 
-> En Yidika, les paramètres du constructeur principal deviennent automatiquement des champs. Pas de `new` — appel direct ou littéral structuré.
+> En Yidika, les paramètres du constructeur principal deviennent automatiquement des champs. Pas de `new` - appel direct ou littéral structuré.
 
 ## Héritage
 
@@ -267,7 +267,7 @@ function foo(): number { const x = risky(); if (x instanceof Error) throw x; ret
 ```
 
 ```yidika
-// Yidika — try operator
+// Yidika - try operator
 fn foo() -> int {
     x: int = risky()?  // propage Error automatiquement
     return x
@@ -294,7 +294,7 @@ task = spawn slow_function()
 result = await task
 ```
 
-> Yidika sépare `spawn` (lancer) de `await` (attendre) — deux opérateurs distincts.
+> Yidika sépare `spawn` (lancer) de `await` (attendre) - deux opérateurs distincts.
 
 ## Strings
 

@@ -20,7 +20,7 @@ We welcome contributions! Here's how to get started.
 
 - **Rust**: follow `cargo fmt` (we use standard Rust formatting)
 - **No unsafe code** unless absolutely necessary and documented
-- **No comments in code** — prefer self-documenting code with clear variable/function names
+- **No comments in code** - prefer self-documenting code with clear variable/function names
 - Keep functions small and focused (single responsibility)
 - Write tests for every new feature (see existing `#[test]` patterns)
 
@@ -28,7 +28,7 @@ We welcome contributions! Here's how to get started.
 
 - Use a clear, descriptive title
 - Reference any related issues
-- Keep PRs focused — one feature/fix per PR
+- Keep PRs focused - one feature/fix per PR
 - Add tests for new functionality
 - Update docs if the API changes
 
