@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use crate::diagnostics::error::{self, ErrorKind, Result};
@@ -7,6 +7,7 @@ use crate::syntax::ast::*;
 use crate::interpret::builtins;
 use super::value::{Value, EvalResult, is_truthy, cmp_binop};
 use super::env::Interpreter;
+use super::class::NameSet;
 
 impl Interpreter {
     pub(crate) fn call_fn_value(&mut self, fn_def: &crate::interpret::class::FnDef, arg_vals: &[Value]) -> Result<Value> {
@@ -1445,8 +1446,8 @@ impl Interpreter {
                 let builtin_modules = self.builtin_modules.clone();
                 let _task_rx = crate::runtime::virtual_task::global_virtual_scheduler().spawn(move || {
                     let mut mini = Interpreter {
-                        globals: HashMap::new(),
-                        const_vars: HashSet::new(),
+                        globals: Default::default(),
+                        const_vars: NameSet::default(),
                         json_files: HashMap::new(),
                         struct_defs: structs,
                         classes,
@@ -1457,8 +1458,8 @@ impl Interpreter {
                         std_imported: false,
                         frames: vec![super::class::Frame::new()],
                         frame_pool: Vec::new(),
-                        moved_frames: vec![HashSet::new()],
-                        global_moved: HashSet::new(),
+                        moved_frames: vec![NameSet::default()],
+                        global_moved: NameSet::default(),
                         output: String::new(),
                         tui_mode: false,
                         ffi_libs: HashMap::new(),

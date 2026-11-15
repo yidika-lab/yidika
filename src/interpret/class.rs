@@ -62,13 +62,16 @@ pub struct ObjectDef {
     pub init_body: Arc<Vec<StmtNode>>,
 }
 
+pub type NameSet = rustc_hash::FxHashSet<String>;
+pub type NameMap<V> = rustc_hash::FxHashMap<String, V>;
+
 pub struct Frame {
-    pub vars: HashMap<String, Value>,
+    pub vars: NameMap<Value>,
 }
 
 impl Frame {
     pub fn new() -> Self {
-        Frame { vars: HashMap::new() }
+        Frame { vars: Default::default() }
     }
 
     pub fn get(&self, name: &str) -> Option<&Value> {
@@ -81,5 +84,9 @@ impl Frame {
 
     pub fn contains_key(&self, name: &str) -> bool {
         self.vars.contains_key(name)
+    }
+
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut Value> {
+        self.vars.get_mut(name)
     }
 }
