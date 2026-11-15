@@ -107,13 +107,23 @@ yidi test.yk --watch
 yidi build test.yk
 
 # Projects and packages
-yidi init my-app             # new project in ./my-app (or `yidi init` in an empty folder)
-yidi add github:user/repo    # clone into lib/repo and record it in project.toml
+yidi init my-app             # new project in ./my-app
+yidi init                    # asks for the name; "." means the current folder
+yidi add github:user/greet   # clone into @yidi/greet and record it in project.toml
 yidi sync                    # install missing packages and update the others
-yidi remove repo             # delete lib/repo and its project.toml entry
+yidi remove greet            # delete @yidi/greet and its project.toml entry
 ```
 
-A package is a git repository cloned into `lib/<name>/` next to `project.toml`; `yidi init` adds `lib/` to `.gitignore`, so a fresh checkout runs `yidi sync`. Import what a package marks `export fn` by path, for example `use {hello} from "./lib/greet/main.yk";`.
+A package is a git repository cloned into `@yidi/<name>/` next to `project.toml`. `yidi init` adds `@yidi/` to `.gitignore`, so after a fresh checkout you run `yidi sync`.
+
+Import by package name, as with Node or Python:
+
+```rust
+use {hello} from "greet";        // @yidi/greet/greet.yk, or @yidi/greet/main.yk
+use upper from "greet/text";     // @yidi/greet/text.yk
+```
+
+The search starts in the importing file's folder and walks up to the first `@yidi/greet/`, so files in subfolders and inside packages resolve the same way. A package only exposes what it declares with `export fn`. Package names may not be std module names (`math`, `io`, ...).
 
 ### Hello World
 

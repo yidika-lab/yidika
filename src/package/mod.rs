@@ -1,24 +1,41 @@
 mod git;
 mod manifest;
-mod name;
-mod store;
+pub(crate) mod name;
+pub(crate) mod store;
 
 use manifest::Manifest;
 use std::fs;
-use std::path::Path;
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 
-const IGNORED: &str = "lib/";
 
 pub fn init(dir_name: Option<&str>) -> Result<String, String> {
-    let cwd = current_dir()?;
-    match dir_name {
-        Some(n) => init_in(&cwd.join(name::validate(n)?), n),
-        None => {
-            let n = cwd.file_name().and_then(|f| f.to_str()).unwrap_or("").to_string();
-            name::validate(&n).map_err(|e| format!("{}; run `yidi init <name>` to create a project in a new directory", e))?;
-            init_in(&cwd, &n)
-        }
+    let answer = match dir_name {
+        Some(n) => n.to_string(),
+        None => ask_project_name(&mut std::io::stdin().lock(), &mut std::io::stderr())?,
+    };
+    let (dir, package) = init_target(&current_dir()?, &answer)?;
+    init_in(&dir, &package)
+}
+
+fn ask_project_name(input: &mut dyn BufRead, output: &mut dyn Write) -> Result<String, String> {
+    let _ = write!(output, "Project name (. for the current folder) [.]: ");
+    let _ = output.flush();
+    let mut line = String::new();
+    let read = input.read_line(&mut line).map_err(|e| format!("cannot read the project name: {}", e))?;
+    if read == 0 {
+        return Err("no project name given: run `yidi init <name>`, or `yidi init .` for the current folder".into());
     }
+    Ok(line.trim().to_string())
+}
+
+fn init_target(cwd: &Path, answer: &str) -> Result<(PathBuf, String), String> {
+    if answer.is_empty() || answer == "." {
+        let folder = cwd.file_name().and_then(|f| f.to_str()).unwrap_or("").to_string();
+        name::validate(&folder).map_err(|e| format!("{}; give a name to create the project in a new folder", e))?;
+        return Ok((cwd.to_path_buf(), folder));
+    }
+    Ok((cwd.join(name::validate(answer)?), answer.to_string()))
 }
 
 pub fn add(spec: &str) -> Result<String, String> {
@@ -33,7 +50,7 @@ pub fn remove(package: &str) -> Result<String, String> {
     remove_in(&current_dir()?, package)
 }
 
-fn current_dir() -> Result<std::path::PathBuf, String> {
+fn current_dir() -> Result<PathBuf, String> {
     std::env::current_dir().map_err(|e| format!("cannot read the current directory: {}", e))
 }
 
@@ -58,15 +75,19 @@ fn write_if_missing(path: &Path, content: &str) -> Result<(), String> {
 fn ignore_lib(dir: &Path) -> Result<(), String> {
     let path = dir.join(".gitignore");
     let existing = fs::read_to_string(&path).unwrap_or_default();
-    if existing.lines().any(|l| l.trim() == IGNORED) {
+    let ignored = format!("{}/", store::PACKAGES_DIR);
+    if existing.lines().any(|l| l.trim() == ignored) {
         return Ok(());
     }
     let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
-    fs::write(&path, format!("{}{}{}\n", existing, separator, IGNORED)).map_err(|e| format!("cannot write {}: {}", path.display(), e))
+    fs::write(&path, format!("{}{}{}\n", existing, separator, ignored)).map_err(|e| format!("cannot write {}: {}", path.display(), e))
 }
 
 fn add_in(root: &Path, spec: &str) -> Result<String, String> {
     let (package, url) = name::from_spec(spec)?;
+    if crate::module::BUILTIN_MODULES.contains(&package.as_str()) {
+        return Err(format!("package name '{}' is a std module, so `use ... from \"{}\"` could never reach it", package, package));
+    }
     let mut manifest = Manifest::load(root)?;
     if manifest.contains(&package) {
         return Err(format!("package '{}' is already a dependency", package));
@@ -146,12 +167,32 @@ mod tests {
     }
 
     #[test]
+    fn init_asks_for_the_name_and_dot_means_here() {
+        let mut out = Vec::new();
+        assert_eq!(ask_project_name(&mut "demo\n".as_bytes(), &mut out).unwrap(), "demo");
+        assert!(String::from_utf8(out).unwrap().contains("Project name"));
+        assert!(ask_project_name(&mut "".as_bytes(), &mut Vec::new()).is_err());
+        let cwd = Path::new("/work/my-app");
+        assert_eq!(init_target(cwd, ".").unwrap(), (cwd.to_path_buf(), "my-app".to_string()));
+        assert_eq!(init_target(cwd, "").unwrap(), (cwd.to_path_buf(), "my-app".to_string()));
+        assert_eq!(init_target(cwd, "demo").unwrap(), (cwd.join("demo"), "demo".to_string()));
+        assert!(init_target(cwd, "../up").is_err());
+        assert!(init_target(Path::new("/work/My App"), ".").is_err());
+    }
+
+    #[test]
+    fn a_package_named_like_a_std_module_is_refused() {
+        let app = TempDir::new();
+        assert!(add_in(app.path(), "github:someone/math").unwrap_err().contains("std module"));
+    }
+
+    #[test]
     fn init_creates_a_runnable_project() {
         let dir = TempDir::new();
         init_in(dir.path(), "app").unwrap();
         assert!(read(dir.path(), "project.toml").contains("name = \"app\""));
         assert!(read(dir.path(), "main.yk").contains("fn main()"));
-        assert_eq!(read(dir.path(), ".gitignore"), "lib/\n");
+        assert_eq!(read(dir.path(), ".gitignore"), "@yidi/\n");
     }
 
     #[test]
@@ -161,7 +202,7 @@ mod tests {
         write_file(dir.path(), ".gitignore", "target");
         init_in(dir.path(), "app").unwrap();
         assert_eq!(read(dir.path(), "main.yk"), "mine");
-        assert_eq!(read(dir.path(), ".gitignore"), "target\nlib/\n");
+        assert_eq!(read(dir.path(), ".gitignore"), "target\n@yidi/\n");
         assert!(init_in(dir.path(), "app").is_err());
     }
 
@@ -171,7 +212,7 @@ mod tests {
         let app = TempDir::new();
         init_in(app.path(), "app").unwrap();
         add_in(app.path(), &url).unwrap();
-        assert!(read(app.path(), "lib/greet/main.yk").contains("v1"));
+        assert!(read(app.path(), "@yidi/greet/main.yk").contains("v1"));
         assert!(Manifest::load(app.path()).unwrap().contains("greet"));
         assert!(add_in(app.path(), &url).is_err());
 
@@ -179,14 +220,14 @@ mod tests {
         write_file(&upstream_dir, "main.yk", "export fn hello() -> str { return \"v2\"; }\n");
         git(&upstream_dir, &["commit", "-qam", "v2"]);
         sync_in(app.path()).unwrap();
-        assert!(read(app.path(), "lib/greet/main.yk").contains("v2"));
+        assert!(read(app.path(), "@yidi/greet/main.yk").contains("v2"));
 
-        fs::remove_dir_all(app.path().join("lib")).unwrap();
+        fs::remove_dir_all(app.path().join("@yidi")).unwrap();
         sync_in(app.path()).unwrap();
-        assert!(app.path().join("lib/greet/main.yk").exists());
+        assert!(app.path().join("@yidi/greet/main.yk").exists());
 
         remove_in(app.path(), "greet").unwrap();
-        assert!(!app.path().join("lib/greet").exists());
+        assert!(!app.path().join("@yidi/greet").exists());
         assert!(!Manifest::load(app.path()).unwrap().contains("greet"));
         assert!(read(app.path(), "project.toml").contains("name = \"app\""));
         assert!(remove_in(app.path(), "greet").is_err());

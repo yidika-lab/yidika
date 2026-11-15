@@ -171,17 +171,26 @@ fn run_program(path: &PathBuf, watch: bool, engine: Engine) -> Result<String, St
         }
     }
 
+    print!("{}", interpret_files(path, &files, true)?);
+    Ok(String::new())
+}
+
+fn interpret_files(path: &Path, files: &[LoadedFile], tui_mode: bool) -> Result<String, String> {
     let mut interp = Interpreter::new();
-    interp.tui_mode = true;
+    interp.tui_mode = tui_mode;
     interp.source_dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
-    for lf in &files {
+    for lf in files {
         interp.load_module(&lf.module);
     }
-    let output = interp.run_main()
-        .map_err(|e| format!("{}", e.with_source(&files[0].source).with_file(&files[0].path.to_string_lossy())))?;
+    interp.run_main()
+        .map_err(|e| format!("{}", e.with_source(&files[0].source).with_file(&files[0].path.to_string_lossy())))
+}
 
-    print!("{}", output);
-    Ok(String::new())
+#[cfg(test)]
+pub(crate) fn interpret_project(path: &Path) -> Result<String, String> {
+    let files = load(&path.to_path_buf())?;
+    typecheck_all(&files)?;
+    interpret_files(path, &files, false)
 }
 
 fn native_executable(files: &[LoadedFile]) -> Option<PathBuf> {
