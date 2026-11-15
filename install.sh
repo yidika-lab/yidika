@@ -5,6 +5,7 @@
 #   YIDI_VERSION  release tag to install (default: latest), e.g. v0.1.0
 #   YIDI_HOME     install prefix (default: $HOME/.yidi); the binary goes to $YIDI_HOME/bin
 #   YIDI_NO_MODIFY_PATH=1  do not add the bin directory to your shell profile
+#   YIDI_NO_SHELL=1        do not open a new shell with yidi on PATH at the end
 set -eu
 
 REPO="yidika-lab/yidika"
@@ -116,6 +117,36 @@ path_hint() {
     fi
 }
 
+self_test() {
+    printf 'fn main() {\n    print("Hello from Yidika!");\n}\n' > "$2/hello.yk"
+    output="$("$1" "$2/hello.yk" 2>&1)" || fail "the installed yidi failed to run a test program: ${output}"
+    case "$output" in
+        *"Hello from Yidika!"*) say "self-test passed: ${output}" ;;
+        *) fail "the installed yidi printed an unexpected result: ${output}" ;;
+    esac
+}
+
+print_get_started() {
+    say "done. Write a file hello.yk containing:"
+    printf '\n    fn main() {\n        print("Hello, Yidika!");\n    }\n\n'
+    say "then run it with:  yidi hello.yk"
+}
+
+can_open_shell() {
+    [ "${YIDI_NO_SHELL:-0}" != "1" ] || return 1
+    [ "${YIDI_NO_MODIFY_PATH:-0}" != "1" ] || return 1
+    [ -t 1 ] || return 1
+    (: < /dev/tty) 2> /dev/null || return 1
+}
+
+open_ready_shell() {
+    PATH="$1:${PATH}"
+    export PATH
+    rm -rf "$tmp"
+    say "opening a new $(basename "${SHELL:-sh}") where yidi is ready (type exit to go back)"
+    exec "${SHELL:-/bin/sh}" -i < /dev/tty
+}
+
 main() {
     need uname
     need tar
@@ -139,10 +170,17 @@ main() {
     install -m 755 "${tmp}/yidi-${target}/yidi" "${prefix}/bin/yidi"
 
     say "installed $("${prefix}/bin/yidi" --version) to ${prefix}/bin/yidi"
+    self_test "${prefix}/bin/yidi" "$tmp"
     configure_path "$prefix"
+    print_get_started
     case ":${PATH}:" in
         *":${prefix}/bin:"*) ;;
-        *) say "$(path_hint)  export PATH=\"${prefix}/bin:\$PATH\"" ;;
+        *)
+            if can_open_shell; then
+                open_ready_shell "${prefix}/bin"
+            fi
+            say "$(path_hint)  export PATH=\"${prefix}/bin:\$PATH\""
+            ;;
     esac
 }
 

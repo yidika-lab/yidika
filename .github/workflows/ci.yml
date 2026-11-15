@@ -107,10 +107,23 @@ jobs:
         shell: bash
         run: |
           home="$(mktemp -d)"
-          HOME="$home" SHELL=/bin/bash sh install.sh
+          HOME="$home" SHELL=/bin/bash sh install.sh | tee first.log
+          grep -q "self-test passed: Hello from Yidika!" first.log
           HOME="$home" SHELL=/bin/bash sh install.sh
           test "$(grep -c '.yidi/bin' "$home/.bashrc")" = 1
           HOME="$home" bash -c 'source "$HOME/.bashrc"; yidi --version'
+
+  installer-windows:
+    name: Installer (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install the latest release and use yidi in the same session
+        shell: pwsh
+        run: |
+          ./install.ps1 | Tee-Object -Variable log
+          if (-not ($log -match 'self-test passed: Hello from Yidika!')) { throw 'self-test line missing' }
+          yidi --version
 
   aot-compat:
     name: Interpreter/AOT parity (Windows)

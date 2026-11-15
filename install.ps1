@@ -31,8 +31,30 @@ function Add-ToUserPath([string]$dir) {
     $entries = if ($current) { $current -split ';' } else { @() }
     if ($entries -notcontains $dir) {
         [Environment]::SetEnvironmentVariable('Path', (($entries + $dir) -join ';').Trim(';'), 'User')
-        Write-Host "yidi-install: added $dir to your user PATH (open a new terminal)"
+        Write-Host "yidi-install: added $dir to your user PATH"
     }
+}
+
+function Test-Install([string]$exe, [string]$dir) {
+    $hello = Join-Path $dir 'hello.yk'
+    Set-Content -Path $hello -Value "fn main() {`n    print(`"Hello from Yidika!`");`n}" -Encoding ascii
+    $output = (& $exe $hello 2>&1 | Out-String).Trim()
+    if ($output -notlike '*Hello from Yidika!*') { throw "the installed yidi failed its self-test: $output" }
+    Write-Host "yidi-install: self-test passed: $output"
+}
+
+function Add-ToSessionPath([string]$dir) {
+    if (($env:Path -split ';') -notcontains $dir) { $env:Path = "$dir;$env:Path" }
+}
+
+function Write-GetStarted {
+    Write-Host "yidi-install: done, yidi works in this window now. Write a file hello.yk containing:"
+    Write-Host ""
+    Write-Host "    fn main() {"
+    Write-Host "        print(`"Hello, Yidika!`");"
+    Write-Host "    }"
+    Write-Host ""
+    Write-Host "yidi-install: then run it with:  yidi hello.yk"
 }
 
 $target = Get-Target
@@ -58,7 +80,10 @@ try {
 
     $version = & (Join-Path $bin 'yidi.exe') --version
     Write-Host "yidi-install: installed $version to $bin"
+    Test-Install (Join-Path $bin 'yidi.exe') $tmp
     Add-ToUserPath $bin
+    Add-ToSessionPath $bin
+    Write-GetStarted
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
