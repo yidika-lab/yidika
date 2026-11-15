@@ -1988,48 +1988,32 @@ static void yk_post_accept(yk_server* s) {
 // SIMD-accelerated end-of-headers finder: locate \r\n\r\n in a buffer
 // Returns offset of the first \r in \r\n\r\n, or -1 if incomplete
 // Only uses AVX2 when available, otherwise scalar loop
+static int yk_is_header_end_at(const char* buf, int buf_used, int i) {
+    return i + 3 < buf_used && buf[i] == 0x0D && buf[i+1] == 0x0A && buf[i+2] == 0x0D && buf[i+3] == 0x0A;
+}
+
 static int yk_find_header_end(const char* buf, int buf_used) {
+    int pos = 0;
 #ifdef __AVX2__
     __m256i cr = _mm256_set1_epi8(0x0D);
-    __m256i lf = _mm256_set1_epi8(0x0A);
-    int pos = 0;
     while (pos + 32 <= buf_used) {
         __m256i chunk = _mm256_loadu_si256((const __m256i*)(buf + pos));
-        int cr_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, cr));
-        int lf_mask = _mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, lf));
-        // Find \r\n sequences: shift cr_mask left 1, check lf_mask for overlap
-        int crlf_mask = (cr_mask >> 1) & lf_mask;
-        if (crlf_mask) {
-            // We have at least one \r\n in this chunk; check for \r\n\r\n
-            // The \r\n\r\n pattern means: a \r\n at position p, and another \r\n at p+2
-            int dbl_crlf = 0;
-            unsigned int m = (unsigned int)crlf_mask;
-            while (m) {
-                unsigned long bit;
+        unsigned int m = (unsigned int)_mm256_movemask_epi8(_mm256_cmpeq_epi8(chunk, cr));
+        while (m) {
+            unsigned long bit;
 #ifdef _MSC_VER
-                _BitScanForward(&bit, m);
+            _BitScanForward(&bit, m);
 #else
-                bit = (unsigned long)__builtin_ctz(m);
+            bit = (unsigned long)__builtin_ctz(m);
 #endif
-                int p = (int)bit;
-                m &= m - 1; // clear lowest bit
-                // Check if there's another \r\n two bytes later
-                int next_pos = pos + p + 2;
-                if (next_pos + 1 >= buf_used) return -1; // truncated
-                int byte0 = (unsigned char)buf[next_pos];
-                int byte1 = (unsigned char)buf[next_pos + 1];
-                if (byte0 == 0x0D && byte1 == 0x0A) {
-                    return pos + p; // found \r\n\r\n, return first \r
-                }
-            }
+            m &= m - 1;
+            if (yk_is_header_end_at(buf, buf_used, pos + (int)bit)) return pos + (int)bit;
         }
         pos += 32;
     }
 #endif
-    // Scalar fallback: find sequential \r\n\r\n
-    for (int i = 0; i + 3 < buf_used; i++) {
-        if (buf[i] == 0x0D && buf[i+1] == 0x0A && buf[i+2] == 0x0D && buf[i+3] == 0x0A)
-            return i;
+    for (int i = pos; i + 3 < buf_used; i++) {
+        if (yk_is_header_end_at(buf, buf_used, i)) return i;
     }
     return -1;
 }
@@ -4225,6 +4209,15 @@ impl LlvmCodegen {
         }
     }
 
+    fn declare_builtin_response_struct(&mut self) {
+        if self.struct_defs.contains_key("Response") || self.class_defs.contains_key("Response") {
+            return;
+        }
+        let fields = vec![("status".to_string(), "i64".to_string()), ("body".to_string(), "%yk_string".to_string())];
+        self.struct_defs.insert("Response".into(), fields);
+        self.e_raw("%struct.Response = type { i64, %yk_string }");
+    }
+
     fn get_variant_tag(&mut self, variant_name: &str) -> i64 {
         if let Some(&tag) = self.variant_tags.get(variant_name) {
             tag
@@ -4568,6 +4561,7 @@ impl LlvmCodegen {
                 }
             }
         }
+        self.declare_builtin_response_struct();
         self.e_raw("");
 
         // Pre-scan: collect interface methods and class implements
@@ -8738,6 +8732,38 @@ fn find_return_expr(body: &[StmtNode]) -> Option<&ExprNode> {
     None
 }
 
+struct HandlerResult<'a> {
+    body: Option<&'a ExprNode>,
+    status: i64,
+}
+
+impl<'a> HandlerResult<'a> {
+    const DEFAULT_STATUS: i64 = 200;
+
+    fn of(expr: &'a ExprNode) -> Self {
+        match &expr.value {
+            Expr::StructLit(name, fields) if name == "Response" => HandlerResult {
+                body: Self::field(fields, "body"),
+                status: Self::field(fields, "status")
+                    .and_then(Self::literal_int)
+                    .unwrap_or(Self::DEFAULT_STATUS),
+            },
+            _ => HandlerResult { body: Some(expr), status: Self::DEFAULT_STATUS },
+        }
+    }
+
+    fn field(fields: &'a [(String, ExprNode)], name: &str) -> Option<&'a ExprNode> {
+        fields.iter().find(|(field, _)| field == name).map(|(_, value)| value)
+    }
+
+    fn literal_int(expr: &ExprNode) -> Option<i64> {
+        match expr.value {
+            Expr::LitInt(n) => Some(n),
+            _ => None,
+        }
+    }
+}
+
 struct FnIrGen {
     label: usize,
     prefix: String,
@@ -8780,13 +8806,17 @@ impl FnIrGen {
         ));
         self.output.push_str("entry:\n");
 
-        let (ptr_val, len_val) = self.gen_expr(ret_expr);
+        let parts = HandlerResult::of(ret_expr);
+        let (ptr_val, len_val) = match parts.body {
+            Some(body) => self.gen_expr(body),
+            None => self.gen_str_constant(""),
+        };
 
         self.e(&format!("store ptr {}, ptr %resp", ptr_val));
         self.e(&format!("%lp = getelementptr i8, ptr %resp, i32 8"));
         self.e(&format!("store i64 {}, ptr %lp", len_val));
         self.e(&format!("%sp = getelementptr i8, ptr %resp, i32 16"));
-        self.e("store i32 200, ptr %sp");
+        self.e(&format!("store i32 {}, ptr %sp", parts.status));
         self.e("ret void");
         self.output.push_str("}\n");
 
@@ -9036,6 +9066,56 @@ mod tests {
         assert!(ir.contains("%YkResponse = type { ptr, i64, i32 }"));
         assert!(ir.contains("store i32 200"));
         assert!(ir.contains("Hello World"));
+    }
+
+    fn handler_returning(expr: Expr) -> crate::interpret::FnDef {
+        use crate::syntax::ast::{Param, TypeNode, Stmt};
+        let param = Param {
+            name: "req".into(),
+            type_expr: TypeNode::new(fresh_id(), Span::new(0, 0), TypeExpr::Infer),
+            is_ref: false,
+        };
+        let ret = ExprNode::new(fresh_id(), Span::new(0, 0), expr);
+        let body = vec![StmtNode::new(fresh_id(), Span::new(0, 0), Stmt::Return(Some(ret)))];
+        crate::interpret::FnDef::new(vec![param], body)
+    }
+
+    fn response_lit(fields: Vec<(&str, Expr)>) -> Expr {
+        Expr::StructLit(
+            "Response".into(),
+            fields
+                .into_iter()
+                .map(|(name, value)| (name.to_string(), ExprNode::new(fresh_id(), Span::new(0, 0), value)))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn handler_returning_response_uses_its_status_and_body() {
+        let fndef = handler_returning(response_lit(vec![
+            ("status", Expr::LitInt(401)),
+            ("body", Expr::LitStr("denied".into())),
+        ]));
+        let ir = generate_fn_handler_ir("deny", &fndef).expect("IR");
+        assert!(ir.contains("store i32 401, ptr %sp"), "{ir}");
+        assert!(ir.contains("c\"denied\\00\""), "{ir}");
+        assert!(!ir.contains("store i32 200"), "{ir}");
+    }
+
+    #[test]
+    fn handler_returning_response_without_status_defaults_to_200() {
+        let fndef = handler_returning(response_lit(vec![("body", Expr::LitStr("ok".into()))]));
+        let ir = generate_fn_handler_ir("ok_handler", &fndef).expect("IR");
+        assert!(ir.contains("store i32 200, ptr %sp"), "{ir}");
+        assert!(ir.contains("c\"ok\\00\""), "{ir}");
+    }
+
+    #[test]
+    fn handler_returning_response_without_body_sends_an_empty_body() {
+        let fndef = handler_returning(response_lit(vec![("status", Expr::LitInt(204))]));
+        let ir = generate_fn_handler_ir("empty", &fndef).expect("IR");
+        assert!(ir.contains("store i32 204, ptr %sp"), "{ir}");
+        assert!(ir.contains("store i64 0, ptr %lp"), "{ir}");
     }
 
     #[test]
