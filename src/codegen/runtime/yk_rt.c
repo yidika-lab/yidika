@@ -936,16 +936,17 @@ yk_string* yk_base64_encode(yk_string* input) {
     int64_t len = input->len;
     int64_t out_len = ((len + 2) / 3) * 4;
     char* out = (char*)malloc(out_len + 1);
-    int i, j;
-    for (i = 0, j = 0; i < len; ) {
-        unsigned char a = i < len ? (unsigned char)input->data[i++] : 0;
-        unsigned char b = i < len ? (unsigned char)input->data[i++] : 0;
-        unsigned char c = i < len ? (unsigned char)input->data[i++] : 0;
+    int64_t j = 0;
+    for (int64_t i = 0; i < len; i += 3) {
+        int64_t n = len - i;
+        unsigned int a = (unsigned char)input->data[i];
+        unsigned int b = n > 1 ? (unsigned char)input->data[i + 1] : 0;
+        unsigned int c = n > 2 ? (unsigned char)input->data[i + 2] : 0;
         unsigned int triple = (a << 16) | (b << 8) | c;
         out[j++] = b64_enc[(triple >> 18) & 0x3F];
         out[j++] = b64_enc[(triple >> 12) & 0x3F];
-        out[j++] = (i - 1 >= len) ? '=' : b64_enc[(triple >> 6) & 0x3F];
-        out[j++] = (i >= len) ? '=' : b64_enc[triple & 0x3F];
+        out[j++] = n > 1 ? b64_enc[(triple >> 6) & 0x3F] : '=';
+        out[j++] = n > 2 ? b64_enc[triple & 0x3F] : '=';
     }
     out[out_len] = '\0';
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
@@ -962,31 +963,40 @@ static int b64_dec_char(char c) {
     return -1;
 }
 
+static void yk_base64_invalid(void) {
+    fflush(stdout);
+    fprintf(stderr, "error: base64.decode: invalid input\n");
+    exit(1);
+}
+
+static int b64_dec_slot(const char* quad, int k, bool last) {
+    if (quad[k] == '=' && last && k >= 2) return -2;
+    int v = b64_dec_char(quad[k]);
+    if (v < 0) yk_base64_invalid();
+    return v;
+}
+
 yk_string* yk_base64_decode(yk_string* input) {
     int64_t len = input->len;
-    if (len == 0) return yk_string_from_cstr("");
-    int64_t out_len = (len / 4) * 3;
-    if (input->data[len-1] == '=') out_len--;
-    if (len > 1 && input->data[len-2] == '=') out_len--;
-    if (out_len < 0) out_len = 0;
-    char* out = (char*)malloc(out_len + 1);
-    int i, j;
-    for (i = 0, j = 0; i < len && j < out_len; ) {
-        int a = b64_dec_char(input->data[i++]);
-        int b = b64_dec_char(input->data[i++]);
-        int c = (i < len && input->data[i] != '=') ? b64_dec_char(input->data[i]) : 0; i++;
-        int d = (i < len && input->data[i] != '=') ? b64_dec_char(input->data[i]) : 0; i++;
-        if (a < 0 || b < 0) break;
-        if (c < 0) c = 0;
-        if (d < 0) d = 0;
-        unsigned int triple = (a << 18) | (b << 12) | (c << 6) | d;
-        if (j < out_len) out[j++] = (triple >> 16) & 0xFF;
-        if (j < out_len) out[j++] = (triple >> 8) & 0xFF;
-        if (j < out_len) out[j++] = triple & 0xFF;
+    if (len % 4 != 0) yk_base64_invalid();
+    char* out = (char*)malloc((size_t)(len / 4) * 3 + 1);
+    int64_t j = 0;
+    for (int64_t i = 0; i < len; i += 4) {
+        const char* q = input->data + i;
+        bool last = i + 4 == len;
+        int a = b64_dec_slot(q, 0, last);
+        int b = b64_dec_slot(q, 1, last);
+        int c = b64_dec_slot(q, 2, last);
+        int d = b64_dec_slot(q, 3, last);
+        if (c == -2 && d != -2) yk_base64_invalid();
+        unsigned int triple = ((unsigned)a << 18) | ((unsigned)b << 12) | ((unsigned)(c < 0 ? 0 : c) << 6) | (unsigned)(d < 0 ? 0 : d);
+        out[j++] = (char)((triple >> 16) & 0xFF);
+        if (c >= 0) out[j++] = (char)((triple >> 8) & 0xFF);
+        if (d >= 0) out[j++] = (char)(triple & 0xFF);
     }
-    out[out_len] = '\0';
+    out[j] = '\0';
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
-    s->data = out; s->len = out_len;
+    s->data = out; s->len = j;
     return s;
 }
 
