@@ -221,7 +221,6 @@ impl Interpreter {
     }
 
     pub fn match_pattern(&self, pattern: &Pattern, value: &Value, bindings: &mut HashMap<String, Value>) -> bool {
-        eprintln!("DEBUG match_pattern: value={:?}, bindings_before={:?}", value, bindings.keys());
         match pattern {
             Pattern::Ignore => true,
             Pattern::Ident(name) => { bindings.insert(name.clone(), value.clone()); true }

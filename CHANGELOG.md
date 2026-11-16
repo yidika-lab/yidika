@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- A `match` run by the interpreter no longer writes `DEBUG match_pattern: ...` lines to stderr.
+
 ## [0.3.0] - 2026-11-16
 
 ### Added
