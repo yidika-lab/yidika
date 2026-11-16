@@ -1517,4 +1517,33 @@ fn main() {
         assert!(interp.contains("Index 5 out of bounds for list of length 2"), "{}", interp);
         assert!(native.contains("Index 5 out of bounds for list of length 2"), "{}", native);
     }
+
+    #[test]
+    fn compat_enum_parameter_matches_its_own_variant() {
+        check_compat(r#"enum Shape { Circle(r: int); Square(side: int); Empty; }
+fn kind(s: Shape) -> str {
+    return match s {
+        Circle(_) => "round",
+        Square(_) => "square",
+        Empty => "nothing",
+    };
+}
+fn main() {
+    println(kind(Shape::Circle(2)), kind(Shape::Square(3)), kind(Shape::Empty));
+}
+"#, "enum_parameter_matches_its_own_variant");
+    }
+
+    #[test]
+    fn compat_match_reaches_every_arm() {
+        check_compat(r#"fn name(n: int) -> str {
+    return match n { 0 => "zero", 1 => "one", 2 => "two", _ => "many" };
+}
+fn main() {
+    println(name(0), name(1), name(2), name(9));
+    s = "c";
+    println(match s { "a" => 1, "b" => 2, "c" => 3, _ => 0 });
+}
+"#, "match_reaches_every_arm");
+    }
 }

@@ -13,6 +13,9 @@
   - an index out of bounds stops the program with the same error as the interpreter instead of returning 0.
 - `if (c) { "a" } else { "b" }` used as an expression yields the branch value in both engines (it was `none` and `0`).
 - `spawn` with arguments no longer overflows the interpreter's stack.
+- Native `match` tests every arm in order. Before, a value that failed the first pattern went straight into the second arm's body, so `match n { 0 => "zero", 1 => "one", _ => "many" }` returned `"one"` for 9.
+- Native `match` on an enum parameter compares variant tags, and a bare variant pattern such as `Empty` no longer matches everything.
+- Native `match` on a `str` builds (the IR used `memcmp` without declaring it).
 
 ### Changed
 
