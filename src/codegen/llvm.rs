@@ -40,6 +40,7 @@ pub struct LlvmCodegen {
     refusals: Vec<String>,
     elem_types: HashMap<String, String>,
     generic_fns: HashMap<String, ItemNode>,
+    enum_names: HashSet<String>,
     pending_instances: Vec<ItemNode>,
     spawn_counter: usize,
     fn_name_map: HashMap<String, String>,
@@ -97,6 +98,7 @@ impl LlvmCodegen {
             refusals: Vec::new(),
             elem_types: HashMap::new(),
             generic_fns: HashMap::new(),
+            enum_names: HashSet::new(),
             pending_instances: Vec::new(),
             spawn_counter: 0,
             fn_name_map: HashMap::new(),
@@ -898,7 +900,9 @@ impl LlvmCodegen {
                     "symbol" => "%yk_string".into(),
                     "complex" => "%yk_complex".into(),
                     _ => {
-                        if self.struct_defs.contains_key(name) {
+                        if self.enum_names.contains(name) {
+                            "%yk_variant".into()
+                        } else if self.struct_defs.contains_key(name) {
                             format!("%struct.{}", name)
                         } else if self.class_defs.contains_key(name) {
                             format!("%class.{}", name)
@@ -1203,6 +1207,16 @@ impl LlvmCodegen {
             }
         }
 
+        for module in modules {
+            for item in &module.items {
+                if let ItemKind::Enum { name, variants } = &item.value {
+                    self.enum_names.insert(name.clone());
+                    for variant in variants {
+                        self.get_variant_tag(&variant.name);
+                    }
+                }
+            }
+        }
         // First pass: collect class definitions and vtables
         for module in modules {
             for item in &module.items {
@@ -1452,6 +1466,7 @@ impl LlvmCodegen {
         self.e_raw("declare ptr @yk_list_new_of(i64, i64)");
         self.e_raw("declare void @yk_list_push_kind(ptr, i64, i64)");
         self.e_raw("declare ptr @yk_string_box(ptr)");
+        self.e_raw("declare i32 @memcmp(ptr, ptr, i64)");
         self.e_raw("declare i64 @yk_list_get(ptr, i64)");
         self.e_raw("declare i64 @yk_list_len(ptr)");
         self.e_raw("declare i64 @yk_list_pop(ptr)");
@@ -2708,11 +2723,16 @@ impl LlvmCodegen {
                 let result_ptr = self.fresh_label();
                 self.e(&format!("%{} = alloca {}, align 8", result_ptr, result_ty));
                 let merge_label = self.fresh_label();
+                let test_labels: Vec<String> = arms.iter().map(|_| self.fresh_label()).collect();
                 let arm_labels: Vec<String> = arms.iter().map(|_| self.fresh_label()).collect();
+                if let Some(first_test) = test_labels.first() {
+                    self.e(&format!("br label %{}", first_test));
+                }
                 for (idx, arm) in arms.iter().enumerate() {
+                    self.e_raw(&format!("{}:", test_labels[idx]));
                     let match_cond = self.compile_pattern_match(&arm.pattern, &sv, &st);
                     if let Some(ref cond) = match_cond {
-                        let next_target = if idx + 1 < arm_labels.len() { &arm_labels[idx + 1] } else { &merge_label };
+                        let next_target = test_labels.get(idx + 1).unwrap_or(&merge_label);
                         self.e(&format!("br i1 {}, label %{}, label %{}", cond, arm_labels[idx], next_target));
                     } else {
                         self.e(&format!("br label %{}", arm_labels[idx]));
@@ -4378,6 +4398,9 @@ impl LlvmCodegen {
     fn compile_pattern_match(&mut self, pattern: &Pattern, scrutinee_val: &str, scrutinee_ty: &str) -> Option<String> {
         match pattern {
             Pattern::Ignore => None, // always matches
+            Pattern::Ident(name) if scrutinee_ty == "%yk_variant" && self.variant_tags.contains_key(name) => {
+                self.compile_pattern_match(&Pattern::Variant(name.clone(), Vec::new()), scrutinee_val, scrutinee_ty)
+            }
             Pattern::Ident(_) | Pattern::Rest(_) => None, // always matches (bind)
             Pattern::LitInt(n) => {
                 if scrutinee_ty == "i64" {
