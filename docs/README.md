@@ -18,7 +18,20 @@
   - [Concurrency](concurrency.md)
   - [Modules and imports](modules.md)
 
-## Guides
+## Build
+
+- [Build a web server](web-server.md)
+- [Files and JSON](files-and-json.md)
+- [Parallel work](parallel-work.md)
+
+## Coming from
+
+- [JavaScript and TypeScript](from-javascript.md)
+- [Python](from-python.md)
+- [Rust](from-rust.md)
+- [Go](from-go.md)
+
+## Tools
 
 - [Packages and the registry](packages.md)
 - [Command line](cli.md)
@@ -31,4 +44,3 @@
 ## Understand
 
 - [Interpreter and native code](engines.md)
-- [Yidika next to Rust, TypeScript, Python and Kotlin](COMPARISON.md)

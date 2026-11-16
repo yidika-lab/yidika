@@ -168,6 +168,36 @@ function wireSearch() {
   });
 }
 
+const THEMES = ["system", "light", "dark"];
+const THEME_LABELS = { system: "follows the system", light: "light", dark: "dark" };
+
+function storedTheme() {
+  try { return localStorage.getItem("yidika-theme") || "system"; } catch (e) { return "system"; }
+}
+
+function applyTheme(button, mode) {
+  if (mode === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
+  button.dataset.mode = mode;
+  button.setAttribute("aria-label", `Color theme: ${THEME_LABELS[mode]}`);
+  button.title = `Theme: ${THEME_LABELS[mode]}`;
+  try {
+    if (mode === "system") localStorage.removeItem("yidika-theme");
+    else localStorage.setItem("yidika-theme", mode);
+  } catch (e) {}
+}
+
+function wireTheme() {
+  const button = document.querySelector(".theme-toggle");
+  if (!button) return;
+  const current = THEMES.includes(storedTheme()) ? storedTheme() : "system";
+  applyTheme(button, current);
+  button.addEventListener("click", () => {
+    const next = THEMES[(THEMES.indexOf(button.dataset.mode) + 1) % THEMES.length];
+    applyTheme(button, next);
+  });
+}
+
 function onceVisible(elements, play) {
   if (!("IntersectionObserver" in window)) return;
   const observer = new IntersectionObserver((entries) => {
@@ -236,6 +266,7 @@ function startMotion(A) {
   onceVisible(document.querySelectorAll("[data-reveal]"), (el) => playReveal(A, el));
 }
 
+wireTheme();
 wireCopyButtons();
 wireTabs();
 wireTocSpy();

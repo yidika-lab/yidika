@@ -36,6 +36,32 @@ fn main() {
 100 42
 ```
 
+## Moves
+
+A `str` or a list has one owner. Assigning it to another variable, or passing it to a function you wrote, moves it there, and the old name can no longer be used. `int`, `real`, `bool` and structs are copied instead, and the standard library (`println`, `fs.write`, ...) never takes ownership.
+
+```yidika
+fn shout(s: str) -> str {
+    return s + "!";
+}
+
+fn main() {
+    name = "Ada";
+    loud = shout(name + "");
+    println(name, loud);
+    count = 3;
+    other = count;
+    println(count, other);
+}
+```
+
+```output
+Ada Ada!
+3 3
+```
+
+`shout(name)` followed by `println(name)` stops before the program runs with `Cannot use variable 'name' after it has been moved`. Pass a new value instead, as `name + ""` does here, or let the function return what you still need. There is no `&` to lend a value and no `clone()` yet ([Known limits](limits.md)).
+
 ## Basic types
 
 | Type | Values | Example |

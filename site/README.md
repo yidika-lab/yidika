@@ -17,6 +17,14 @@ Nothing is copied by hand. The navigation, grouped by need (Learn, Guides, Refer
 - Header: 64 px (56 on phones), 24 px side padding, logo 28 px, links 15 px spaced 24, search field 240x36.
 - Background: pure white (#ffffff) in light mode, near black (#0b0d0c) in dark mode. No pattern: one faint green light (`--glow`, 10% accent) sits behind the hero code.
 
+## Header and theme
+
+The header is 72 px tall (60 on phones) with 40 px side padding (16 on phones) and 32 px between groups; on the home page it lines up with the 1200 px content. The theme button cycles through system, light and dark. The choice is stored in `localStorage` under `yidika-theme`, and a small inline script in `layout.html` applies it before the first paint, so a dark page never flashes white.
+
+## Callouts and exercises
+
+A blockquote that starts with `[!NOTE]`, `[!TIP]` or `[!WARNING]` (the GitHub alert syntax, so the Markdown reads the same on GitHub) becomes a callout with a Lucide icon. A guide ends with a "Try it" exercise whose solution sits in `<details>`.
+
 ## Icons
 
 Icons are [Lucide](https://lucide.dev) 1.66.0 (ISC, `site/icons/LICENSE`), copied as SVG files into `site/icons/` from `lucide-static@1.66.0/icons/`. Templates write `{{icon:name}}` or `{{icon:name:size}}`, Python code calls `icon(name, size)`, and the build inlines the SVG with `aria-hidden="true"`, so icons follow `currentColor` and need no request. A missing file stops the build. To add one, copy `https://cdn.jsdelivr.net/npm/lucide-static@1.66.0/icons/<name>.svg` into `site/icons/`. The GitHub mark is the one exception: Lucide ships no brand icons, and a brand is shown with its own mark (Octicons `mark-github`).
