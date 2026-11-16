@@ -112,7 +112,7 @@ yidi build server.yk
 ```
 
 > [!NOTE]
-> In native code a handler is one `return` of a string or a `Response`, made of literals, `+`, `if`, `req.method`, `req.path` and `req.body`. Handlers that take route parameters by name (`fn greet(name: str)` on `/hello/{name}`) and reading `req.body` work in the interpreter only for now. See [Known limits](limits.md).
+> In native code a handler is one `return` of a string or a `Response`, made of literals, `+`, `if`, `req.method`, `req.path` and `req.body`. Handlers that take route parameters by name (`fn greet(name: str)` on `/hello/{name}`) and reading `req.body` work in the interpreter only for now ([#108](https://github.com/yidika-lab/yidika/issues/108)).
 
 ## Try it
 
