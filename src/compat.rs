@@ -1568,4 +1568,16 @@ fn main() {
         let native = run_aot(source, "invalid_base64").expect_err("the native binary must stop instead of reading past the input");
         assert!(native.contains("base64.decode"), "{}", native);
     }
+
+    #[test]
+    fn compat_deep_recursion_runs_in_both_engines() {
+        check_compat(r#"fn depth(n: int) -> int {
+    if (n == 0) { return 0; }
+    return 1 + depth(n - 1);
+}
+fn main() {
+    println(depth(400));
+}
+"#, "deep_recursion_runs_in_both_engines");
+    }
 }

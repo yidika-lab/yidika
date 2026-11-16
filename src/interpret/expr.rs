@@ -10,8 +10,8 @@ use super::env::Interpreter;
 use super::class::NameSet;
 
 impl Interpreter {
-    pub(crate) fn call_fn_value(&mut self, fn_def: &crate::interpret::class::FnDef, arg_vals: &[Value]) -> Result<Value> {
-        self.enter_call(&fn_def.captures);
+    pub(crate) fn call_fn_value(&mut self, fn_def: &crate::interpret::class::FnDef, arg_vals: &[Value], span: Span) -> Result<Value> {
+        self.enter_call(&fn_def.captures, span)?;
         for (i, param) in fn_def.params.iter().enumerate() {
             let val = arg_vals.get(i).cloned().unwrap_or(Value::None_);
             self.frames.last_mut().unwrap().insert(param.name.clone(), val);
@@ -249,6 +249,10 @@ impl Interpreter {
     }
 
     pub fn eval_expr(&mut self, expr: &ExprNode) -> Result<EvalResult> {
+        crate::runtime::with_deep_stack(|| self.eval_expr_here(expr))
+    }
+
+    fn eval_expr_here(&mut self, expr: &ExprNode) -> Result<EvalResult> {
         macro_rules! eval {
             ($e:expr) => {
                 match self.eval_expr($e)? {
@@ -466,7 +470,7 @@ impl Interpreter {
                                 } else {
                                     let fndef = self.functions.get(name).cloned();
                                     match fndef {
-                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals, expr.span)?)),
                                         None => {
                                             // Check if name is a class (constructor call)
                                             if let Some(cls) = self.classes.get(name).cloned() {
@@ -484,7 +488,7 @@ impl Interpreter {
                                             // Check if name is a variable holding a function value
                                             match self.get_var(name) {
                                                 Ok(val) => match val {
-                                                    Value::Fn(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                                                    Value::Fn(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals, expr.span)?)),
                                                     _ => Err(self.err(expr.span, format!("'{}' is not a function", name))),
                                                 },
                                                 Err(_) => Err(self.err(expr.span, format!("Unknown function '{}'", name))),
@@ -544,7 +548,7 @@ impl Interpreter {
                                     };
                                     match method {
                                         Some(fn_def) => {
-                                            self.enter_call(&fn_def.captures);
+                                            self.enter_call(&fn_def.captures, expr.span)?;
                                             let cls_receiver = receiver;
                                             self.frames.last_mut().unwrap().insert("self".into(), cls_receiver.clone());
                                             self.frames.last_mut().unwrap().insert("super".into(), cls_receiver);
@@ -1083,7 +1087,7 @@ impl Interpreter {
                                         _ => Err(self.err(expr.span, "difference requires a set")),
                                     },
                                     _ => match self.field_fn(&receiver, field) {
-                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                                        Some(fn_def) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals, expr.span)?)),
                                         None => Err(self.err(expr.span, format!("Unknown method '{}'", field))),
                                     },
                                 }
@@ -1091,7 +1095,7 @@ impl Interpreter {
                         }
                     }
                     Expr::FnLit(..) | Expr::Closure(..) => match self.eval_expr(callee)? {
-                        EvalResult::Value(Value::Fn(fn_def)) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals)?)),
+                        EvalResult::Value(Value::Fn(fn_def)) => Ok(EvalResult::Value(self.call_fn_value(&fn_def, &arg_vals, expr.span)?)),
                         _ => Err(self.err(expr.span, "Invalid callee expression")),
                     },
                     _ => Err(self.err(expr.span, "Invalid callee expression")),

@@ -21,6 +21,13 @@ pub struct Task {
 }
 
 pub const INTERPRETER_STACK_SIZE: usize = 8 * 1024 * 1024;
+pub const MAX_CALL_DEPTH: usize = 10_000;
+const STACK_RED_ZONE: usize = 512 * 1024;
+const STACK_SEGMENT: usize = 8 * 1024 * 1024;
+
+pub fn with_deep_stack<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(STACK_RED_ZONE, STACK_SEGMENT, f)
+}
 const TASK_STACK: usize = 64 * 1024;
 
 impl Task {

@@ -17,6 +17,7 @@
 - Native `match` on an enum parameter compares variant tags, and a bare variant pattern such as `Empty` no longer matches everything.
 - Native `match` on a `str` builds (the IR used `memcmp` without declaring it).
 - Native `base64.encode` pads by the real input length (`"a"` gave `YQA=`, `"abc"` gave `YWJ=`).
+- The interpreter no longer crashes on recursion: it stopped with `stack overflow, aborting` after about 600 nested calls in a release build and 17 in a debug build. Its stack now grows on demand, and a program that goes past 10 000 nested calls gets an error that points at the call.
 
 ### Security
 

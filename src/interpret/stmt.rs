@@ -16,6 +16,10 @@ impl Interpreter {
     }
 
     pub fn exec_stmt(&mut self, stmt: &StmtNode) -> Result<Option<Value>> {
+        crate::runtime::with_deep_stack(|| self.exec_stmt_here(stmt))
+    }
+
+    fn exec_stmt_here(&mut self, stmt: &StmtNode) -> Result<Option<Value>> {
         match &stmt.value {
             Stmt::Decl { name, value, is_const, .. } => {
                 let val = match self.eval_expr(value)? {
