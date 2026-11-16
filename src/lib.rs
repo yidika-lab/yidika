@@ -2,6 +2,7 @@ pub mod cache;
 pub mod cli;
 pub mod codegen;
 pub mod compat;
+mod docs_examples;
 pub mod diagnostics;
 pub mod guilib;
 pub mod hardware;
