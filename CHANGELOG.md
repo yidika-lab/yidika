@@ -2,8 +2,21 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-16
+
+### Added
+
+- Code outside functions (#113): a file can hold statements next to its functions, as a script does. They run first, in order, then `fn main()` if the file has one. A variable created there is visible to every function, which can read it and assign to it, in both engines.
+- A function can call a function declared further down the file.
+- `RELEASING.md`: the rules for version numbers, the changelog and tags, checked by the release workflow.
+
 ### Fixed
 
+- `const NAME: T = value;` at the top of a file is visible inside functions; the type checker lost it and native code did not define it.
+- Native servers (#109):
+  - `app.serve(3000)` with a port number no longer crashes the binary;
+  - an unknown route answers `404 Not Found` with a body, as in the interpreter;
+  - `GET` and `POST` on the same path keep their own handler in both engines.
 - Native binaries no longer print a wrong value where the interpreter is right (#96):
   - a method inherited from a parent class returns its real value, and a child class keeps the parent's fields first in memory;
   - a set literal drops duplicates, and sets print as `set{...}`;
