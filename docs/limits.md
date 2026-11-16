@@ -15,6 +15,10 @@ Yidika is young. This page lists what does not work yet, so you can plan around 
 | `10 as real` | `10.0`, or arithmetic with a real: `n * 1.0` |
 | `int8`, `int64`, `real32` with literals | `int` and `real` |
 
+## Ownership
+
+Passing a `str` or a list to your own function, or assigning it to another variable, moves it ([Moves](variables-and-types.md#moves)). There is no `&` to lend it and no `clone()` yet: pass `s + ""` for a string, or return the value from the function.
+
 ## Do not rely on these
 
 They run without an error but do not do what they say ([#100](https://github.com/yidika-lab/yidika/issues/100)):
