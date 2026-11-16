@@ -81,15 +81,19 @@ use { base64, path } from "std";
 fn main() {
     println(base64.encode("hello"));
     println(base64.decode("aGVsbG8="));
-    println(path.is_absolute("/tmp"), path.is_absolute("notes.txt"));
+    println(path.basename("docs/notes.txt"), path.extension("notes.txt"));
+    println(path.is_absolute("notes.txt"));
 }
 ```
 
 ```output
 aGVsbG8=
 hello
-true false
+notes.txt txt
+false
 ```
+
+`path.is_absolute` follows the platform: `/tmp` is absolute on Linux and macOS, not on Windows, where an absolute path starts with a drive such as `C:\`.
 
 ## net
 
