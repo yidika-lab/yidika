@@ -1,51 +1,128 @@
-<section class="intro">
-  <div>
-    <h1>Yidika</h1>
-    <p class="meaning"><i>yidika</i>, Kikongo: to design, to arrange, to put back in order.</p>
-    <p class="lead">A statically typed language that runs your program straight away in an interpreter, or arranges it into native code through LLVM. Both engines must print the same output, and the test suite checks that they do.</p>
-    <p class="status">v{{version}}, released {{released}}. <a href="{{repo}}/blob/main/CHANGELOG.md">Changelog</a>. <a href="limits.html">Known limits</a>.</p>
+<section class="hero weave" aria-labelledby="hero-title">
+  <div class="hero-in">
+    <div class="hero-text">
+      <svg class="hero-logo logo" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><path class="logo-ink" data-logo-part d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" data-logo-part d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" data-logo-strand d="M3 32 C 8 40, 6 50, 12 60"/></svg>
+      <h1 id="hero-title">Yidika</h1>
+      <p class="meaning"><i lang="kg">yidika</i>, Kikongo: to design, to arrange, to put back in order.</p>
+      <p class="lead">A statically typed language. Run a program straight away in the interpreter, or let <code>yidi</code> arrange it into native code through LLVM. Both engines print the same output, and the test suite checks that they do.</p>
+      <div class="install" data-reveal>
+        <div class="tabs" role="tablist" aria-label="Install on">
+          <button type="button" role="tab" id="tab-unix" aria-controls="install-unix" aria-selected="true">Linux and macOS</button>
+          <button type="button" role="tab" id="tab-win" aria-controls="install-win" aria-selected="false" tabindex="-1">Windows</button>
+          <button type="button" role="tab" id="tab-src" aria-controls="install-src" aria-selected="false" tabindex="-1">From source</button>
+        </div>
+        <div class="tabpanel" role="tabpanel" id="install-unix" aria-labelledby="tab-unix"><div class="cmd"><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-win" aria-labelledby="tab-win" hidden><div class="cmd"><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-src" aria-labelledby="tab-src" hidden><div class="cmd"><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
+      </div>
+      <div class="cta">
+        <a class="button primary" href="quickstart.html">Start the quickstart</a>
+        <a class="button" href="installation.html">Installation options</a>
+      </div>
+    </div>
+    <div class="hero-code">
+      <figure class="code ordered"><figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>{{sample}}</code></pre></figure>
+      <div class="hero-run"><code>$ yidi fib.yk</code><code class="out">9227465</code></div>
+    </div>
   </div>
-  <img class="hero-mascot" src="assets/yidika-logo.svg" alt="" width="240" height="240">
 </section>
 
-<section class="bench" aria-labelledby="bench-title">
-  <figure class="code">
-    <figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption>
-    <pre><code>{{sample}}</code></pre>
-  </figure>
-  <div class="bench-result">
-    <h2 id="bench-title">fib(35), best of three</h2>
-    <dl class="bars">
-      <div><dt>yidi run (native)</dt><dd><span class="bar" style="--w: 0.30%"></span>0.034 s</dd></div>
-      <div><dt>Rust, rustc -O</dt><dd><span class="bar alt" style="--w: 0.32%"></span>0.036 s</dd></div>
-      <div><dt>yidi run --interp</dt><dd><span class="bar slow" style="--w: 100%"></span>11.3 s</dd></div>
+<section class="band" aria-labelledby="speed-title">
+  <div class="band-in split">
+    <div class="sec-text">
+      <p class="eyebrow">Speed</p>
+      <h2 id="speed-title">Native speed, measured</h2>
+      <p><code>yidi run</code> compiles the program above through LLVM, caches the binary and runs it. The same function built with <code>rustc -O</code> takes the same time.</p>
+      <p class="note">Best of three runs on an AMD Ryzen 5 4500U, Linux. <a href="{{repo}}/blob/main/benchmarks/fib/run.sh">Run the benchmark yourself</a>.</p>
+    </div>
+    <dl class="bars" data-bars>
+      <div class="bar-row"><dt>yidi, native</dt><dd><span class="track"><span class="fill native" style="--w: 0.30"></span></span><span class="val" data-value="0.034">0.034 s</span></dd></div>
+      <div class="bar-row"><dt>Rust, rustc -O</dt><dd><span class="track"><span class="fill rust" style="--w: 0.32"></span></span><span class="val" data-value="0.036">0.036 s</span></dd></div>
+      <div class="bar-row"><dt>yidi, interpreter</dt><dd><span class="track"><span class="fill interp" style="--w: 100"></span></span><span class="val" data-value="11.3">11.3 s</span></dd></div>
+      <p class="scale-note">Bars to scale: the native run is 330 times shorter than the interpreter run.</p>
     </dl>
-    <p class="note">AMD Ryzen 5 4500U, Linux. Bars to scale: the native runs are 330 times shorter than the interpreter run. <a href="{{repo}}/blob/main/benchmarks/fib/run.sh">Reproduce</a></p>
   </div>
 </section>
 
-<section class="install" aria-labelledby="install-title">
-  <div>
-    <h2 id="install-title">Install</h2>
-    <div class="tabs" role="tablist" aria-label="Operating system">
-      <button type="button" role="tab" id="tab-unix" aria-controls="panel-unix" aria-selected="true">Linux and macOS</button>
-      <button type="button" role="tab" id="tab-win" aria-controls="panel-win" aria-selected="false" tabindex="-1">Windows</button>
-      <button type="button" role="tab" id="tab-src" aria-controls="panel-src" aria-selected="false" tabindex="-1">From source</button>
+<section class="band" aria-labelledby="engines-title">
+  <div class="band-in split reverse">
+    <div class="sec-text">
+      <p class="eyebrow">Two engines</p>
+      <h2 id="engines-title">One program, two ways to run it, the same output</h2>
+      <ol class="steps" data-reveal>
+        <li><b>Checked first.</b> <code>yidi</code> parses and type-checks the whole program. An error stops here, with the file, line and column.</li>
+        <li><b>Native when it can.</b> The program is compiled to LLVM IR, linked and cached; the next run starts the cached binary.</li>
+        <li><b>Interpreter otherwise.</b> If the native backend does not support something yet, <code>yidi run</code> says so and runs the interpreter instead of a wrong binary.</li>
+      </ol>
+      <p><a href="engines.html">How the two engines are kept in step</a></p>
     </div>
-    <div class="tabpanel" role="tabpanel" id="panel-unix" aria-labelledby="tab-unix">
-      <figure class="code"><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code></pre></figure>
-    </div>
-    <div class="tabpanel" role="tabpanel" id="panel-win" aria-labelledby="tab-win" hidden>
-      <figure class="code"><figcaption><span>powershell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code></pre></figure>
-    </div>
-    <div class="tabpanel" role="tabpanel" id="panel-src" aria-labelledby="tab-src" hidden>
-      <figure class="code"><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code></pre></figure>
-    </div>
-    <p>The script checks the release's SHA-256, installs <code>yidi</code> in <code>~/.yidi/bin</code> and adds it to your <code>PATH</code>. Then read the <a href="quickstart.html">Quickstart</a>.</p>
+    <figure class="engines" data-engines>
+      <svg viewBox="0 0 540 200" role="img" aria-labelledby="engines-desc">
+        <desc id="engines-desc">app.yk goes either through the interpreter or through LLVM to native code, and both give the same output.</desc>
+        <path class="wire" d="M120 100 C 160 100, 160 44, 200 44"/>
+        <path class="wire" d="M120 100 C 160 100, 160 156, 200 156"/>
+        <path class="wire" d="M340 44 C 380 44, 380 100, 420 100"/>
+        <path class="wire" d="M340 156 C 380 156, 380 100, 420 100"/>
+        <rect class="node key" x="10" y="76" width="110" height="48" rx="6"/><text x="65" y="105">app.yk</text>
+        <rect class="node" x="200" y="20" width="140" height="48" rx="6"/><text x="270" y="49">interpreter</text>
+        <rect class="node" x="200" y="132" width="140" height="48" rx="6"/><text x="270" y="161">LLVM, native</text>
+        <rect class="node key" data-engines-out x="420" y="76" width="110" height="48" rx="6"/><text x="475" y="105">same output</text>
+      </svg>
+    </figure>
   </div>
 </section>
 
-<section class="docmap" aria-labelledby="docmap-title">
-  <h2 id="docmap-title">Documentation</h2>
-  <div class="docmap-grid">{{docmap}}</div>
+<section class="band" aria-labelledby="tour-title">
+  <div class="band-in">
+    <div class="sec-text wide">
+      <p class="eyebrow">The language</p>
+      <h2 id="tour-title">What the code looks like</h2>
+      <p>Static types with inference, classes and interfaces, enums with <code>match</code>, <code>Result</code> with <code>?</code>, and real threads. Each example below is a test: it runs in both engines and must print what is shown.</p>
+    </div>
+    <div class="tour" data-reveal>{{tabs}}</div>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="packages-title">
+  <div class="band-in split">
+    <div class="sec-text">
+      <p class="eyebrow">Packages</p>
+      <h2 id="packages-title">Packages from git, checked by hash</h2>
+      <p>A package is a git repository with a tag. The <a href="{{registry}}">registry</a> records which commit is which version and the SHA-256 to expect; <code>yidi.lock</code> pins both. One cache serves every project, so a second install needs no network.</p>
+      <p><a href="packages.html">Packages and the registry</a></p>
+    </div>
+    <figure class="code" data-reveal><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code><span class="tk-comment"># new project, then a dependency from the registry or from git</span>
+yidi init my-app
+yidi add greet
+yidi add github:user/repo
+<span class="tk-comment"># install exactly what yidi.lock records</span>
+yidi sync
+<span class="tk-comment"># tag a release and open the registry pull request</span>
+yidi publish</code></pre></figure>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="status-title">
+  <div class="band-in split">
+    <div class="sec-text">
+      <p class="eyebrow">Status</p>
+      <h2 id="status-title">Where Yidika stands</h2>
+      <p>Version {{version}}, released {{released}}. Yidika is young: some constructs are missing, such as <code>break</code>, and some programs only run in the interpreter so far. Both lists are kept up to date, with an issue for each item.</p>
+    </div>
+    <ul class="status-links" data-reveal>
+      <li><a href="limits.html"><b>Known limits</b><span>What does not work yet, and what to write instead</span></a></li>
+      <li><a href="changelog.html"><b>Changelog</b><span>Every fix and feature, release by release</span></a></li>
+      <li><a href="{{repo}}/issues"><b>Issues</b><span>Report a bug with the program and both outputs</span></a></li>
+    </ul>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="docmap-title">
+  <div class="band-in">
+    <div class="sec-text wide">
+      <p class="eyebrow">Documentation</p>
+      <h2 id="docmap-title">Where to go next</h2>
+    </div>
+    <div class="docmap" data-reveal>{{docmap}}</div>
+  </div>
 </section>
