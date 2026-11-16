@@ -20,6 +20,10 @@ Each construct now has one spelling. Programs using a removed form get a parse o
 - Constants have one form, as in JavaScript: `const limit = 100;` or `const limit: int = 100;`, in a function or at the top of a file. `limit: const<int> = 100`, `limit: const = 100` and `100 as const` are removed.
 - Collection types are written as in TypeScript: `int[]`, `Set<int>`, `Map<str, int>`. `list[int]`, `[int]`, `List<int>`, `set[int]` and `map[str, int]` are removed; the parse error names the form to write.
 
+### Fixed
+
+- A `match` run by the interpreter no longer writes `DEBUG match_pattern: ...` lines to stderr.
+
 ## [0.3.0] - 2026-11-16
 
 ### Added

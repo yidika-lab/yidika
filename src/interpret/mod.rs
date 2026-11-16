@@ -642,4 +642,14 @@ mod tests {
         ");
         assert_eq!(out, "init called\n99\n");
     }
+
+    #[test]
+    fn the_interpreter_writes_no_debug_lines() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("interpret");
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let source = std::fs::read_to_string(&path).unwrap();
+            assert!(!source.contains(concat!("eprintln!(", "\"DEBUG")), "{} prints a debug line", path.display());
+        }
+    }
 }
