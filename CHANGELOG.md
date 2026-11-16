@@ -17,6 +17,9 @@ Each construct now has one spelling. Programs using a removed form get a parse o
 - `mut` and `ref` as keywords; they meant nothing (`ref` was another way to write `&`).
 - `a ? b : c`, which could never be reached because `?` after a value is the error operator: use `if (a) b else c`.
 - Native code no longer accepts `string`, `integer`, `float`, `double` or `boolean` as type names; the type checker already refused them.
+### Fixed
+
+- A `match` run by the interpreter no longer writes `DEBUG match_pattern: ...` lines to stderr.
 
 ## [0.3.0] - 2026-11-16
 
