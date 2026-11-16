@@ -5,10 +5,10 @@ fn main() {
     b = Point { x: 1, y: 2 };
     c = Point { x: 3, y: 4 };
 
-    println(a.toString());
-    println(a.equals(b));
-    println(a.equals(c));
+    print(a.toString());
+    print(a.equals(b));
+    print(a.equals(c));
 
     d = a.copy();
-    println(d.toString());
+    print(d.toString());
 }

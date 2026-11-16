@@ -1,8 +1,8 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
-    Fn, Const, If, Else, For, In, While, Loop, Infiny, Return,
-    Struct, Class, Interface, Union, Enum, Object, Type, Use, Export, As, From,
-    Async, Await, Spawn, Try, Catch, Init, Open, Abstract, Data, Override, Final, True, False, Null, None, Mut, Ref, Match, Super,
+    Fn, Const, If, Else, For, In, While, Loop, Return,
+    Struct, Class, Interface, Union, Enum, Object, Type, Use, Implements, Export, As, From,
+    Async, Await, Spawn, Try, Catch, Init, Open, Abstract, Data, Override, Final, True, False, Null, Ref, Match, Super,
     OkKw, ErrorKw,
     TInt(u8), TRint(u8), TReal(u8), TComplex, TBool, TStr, TSymbol, TVector, TMatrix, TMap,
     IntLit(String), HexLit(String), RealLit(String),

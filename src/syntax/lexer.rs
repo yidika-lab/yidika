@@ -78,12 +78,12 @@ impl Lexer {
             "fn" => Token::Fn, "const" => Token::Const,
             "if" => Token::If, "else" => Token::Else,
             "for" => Token::For, "in" => Token::In,
-            "while" => Token::While, "loop" => Token::Loop, "infiny" => Token::Infiny,
+            "while" => Token::While, "loop" => Token::Loop,
             "return" => Token::Return, "struct" => Token::Struct,
             "class" => Token::Class, "interface" => Token::Interface,
             "union" => Token::Union, "enum" => Token::Enum, "object" => Token::Object,
             "type" => Token::Type,
-            "use" => Token::Use, "implements" => Token::Use, "export" => Token::Export,
+            "use" => Token::Use, "implements" => Token::Implements, "export" => Token::Export,
             "as" => Token::As, "from" => Token::From,
             "async" => Token::Async, "await" => Token::Await,
             "spawn" => Token::Spawn,
@@ -92,9 +92,8 @@ impl Lexer {
             "open" => Token::Open, "abstract" => Token::Abstract, "data" => Token::Data,
             "override" => Token::Override, "final" => Token::Final,
             "true" => Token::True, "false" => Token::False,
-            "null" => Token::Null, "None" => Token::None,
+            "null" => Token::Null,
             "Ok" => Token::OkKw, "Error" => Token::ErrorKw,
-            "mut" => Token::Mut, "ref" => Token::Ref,
             "match" => Token::Match, "super" => Token::Super,
             "int" => Token::TInt(0), "rint" => Token::TRint(0),
             "real" => Token::TReal(0), "complex" => Token::TComplex,
@@ -241,8 +240,8 @@ impl Iterator for Lexer {
                 let content: String = self.source[content_start..self.pos.saturating_sub(1)].iter().collect();
                 Token::BacktickStr(content)
             }
-            Some('f') if self.peek() == Some('"') || self.peek() == Some('\'') || self.peek() == Some('`') => {
-                let quote = self.advance().unwrap(); // skip the " or '
+            Some('f') if self.peek() == Some('"') || self.peek() == Some('`') => {
+                let quote = self.advance().unwrap();
                 let content_start = self.pos;
                 let mut depth = 0u32;
                 while let Some(c) = self.advance() {

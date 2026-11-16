@@ -11,7 +11,7 @@ fn main() {
         Point { x, y: 0 }   => "on x-axis",
         Point { x, y }      => f"({x}, {y})"
     };
-    println(desc0);
+    print(desc0);
 
     // Nested Destruct (struct dans struct)
     pp = Pair { a: Point { x: 1, y: 2 }, b: 42 };
@@ -21,7 +21,7 @@ fn main() {
         Pair { a: { x, y: 0 }, b }       => "y is zero in inner point",
         Pair { a: { x, y }, b }          => f"({x}, {y}) with {b}"
     };
-    println(desc1);
+    print(desc1);
 
     // Destruct avec binding
     p2 = Point { x: 5, y: 10 };
@@ -29,5 +29,5 @@ fn main() {
         Point { x: 5, y } => "x is 5, y is 10",
         _                 => "other"
     };
-    println(desc2);
+    print(desc2);
 }

@@ -9,7 +9,7 @@ pub fn each_child<'a>(expr: &'a ExprNode, f: &mut dyn FnMut(Child<'a>)) {
     let mut e = |x: &'a ExprNode| f(Child::Expr(x));
     match &expr.value {
         Expr::LitInt(_) | Expr::LitHex(_) | Expr::LitReal(_) | Expr::LitStr(_) | Expr::LitChar(_)
-        | Expr::LitBool(_) | Expr::LitSymbol(_) | Expr::LitNull | Expr::LitNone | Expr::Ident(_) => {}
+        | Expr::LitBool(_) | Expr::LitSymbol(_) | Expr::LitNull | Expr::Ident(_) => {}
         Expr::UnOp(_, a) | Expr::Field(a, _) | Expr::Loop(a) | Expr::PostInc(a) | Expr::PostDec(a)
         | Expr::Await(a) | Expr::Spawn(a) | Expr::ResultOk(a) | Expr::ResultErr(a) | Expr::Try(a)
         | Expr::SafeCall(a, _) | Expr::AsConst(a) | Expr::As(a, _) | Expr::FnLit(_, _, a) | Expr::Closure(_, a) => e(a),
