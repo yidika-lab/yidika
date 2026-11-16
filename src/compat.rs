@@ -1546,4 +1546,26 @@ fn main() {
 }
 "#, "match_reaches_every_arm");
     }
+
+    #[test]
+    fn compat_base64_round_trips_every_padding_length() {
+        check_compat(r#"use { base64 } from "base64";
+fn main() {
+    println(base64.encode("a"), base64.decode(base64.encode("a")));
+    println(base64.encode("ab"), base64.decode(base64.encode("ab")));
+    println(base64.encode("abc"), base64.decode(base64.encode("abc")));
+    println(base64.encode("abcd"), base64.decode(base64.encode("abcd")));
+    println(base64.encode("hello"), base64.decode(base64.encode("hello")));
+    println(base64.encode(""), base64.decode(""));
+}
+"#, "base64_round_trips_every_padding_length");
+    }
+
+    #[test]
+    fn aot_stops_on_invalid_base64_like_the_interpreter() {
+        let source = "use { base64 } from \"base64\";\nfn main() {\n    println(base64.decode(\"YQ\"));\n}\n";
+        assert!(run_interp(source).is_err(), "the interpreter rejects unpadded input");
+        let native = run_aot(source, "invalid_base64").expect_err("the native binary must stop instead of reading past the input");
+        assert!(native.contains("base64.decode"), "{}", native);
+    }
 }

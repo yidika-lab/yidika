@@ -16,6 +16,11 @@
 - Native `match` tests every arm in order. Before, a value that failed the first pattern went straight into the second arm's body, so `match n { 0 => "zero", 1 => "one", _ => "many" }` returned `"one"` for 9.
 - Native `match` on an enum parameter compares variant tags, and a bare variant pattern such as `Empty` no longer matches everything.
 - Native `match` on a `str` builds (the IR used `memcmp` without declaring it).
+- Native `base64.encode` pads by the real input length (`"a"` gave `YQA=`, `"abc"` gave `YWJ=`).
+
+### Security
+
+- Native `base64.decode` read past the end of an input whose length is not a multiple of 4. It now checks every character and padding position, and stops with `base64.decode: invalid input`, as the interpreter does.
 
 ### Changed
 
