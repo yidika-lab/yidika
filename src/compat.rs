@@ -1411,4 +1411,110 @@ fn main() {
 }
 "#, "gui_event_state");
     }
+
+    #[test]
+    fn compat_inherited_method_reads_parent_field() {
+        check_compat(r#"open class A(name: str) {
+    fn hi(self) -> str { return "hi " + self.name; }
+}
+class B(k: int, name: str) : A {
+}
+fn main() {
+    b = B { name: "x", k: 1 };
+    println(b.hi());
+    println(b.k);
+}
+"#, "inherited_method_reads_parent_field");
+    }
+
+    #[test]
+    fn compat_set_literal_drops_duplicates() {
+        check_compat(r#"fn main() {
+    s: set[int] = {1, 2, 2, 3, 1};
+    println(s.len());
+}
+"#, "set_literal_drops_duplicates");
+    }
+
+    #[test]
+    fn compat_generic_fn_keeps_argument_type() {
+        check_compat(r#"fn id<T>(x: T) -> T { return x; }
+fn main() {
+    println(id("s"));
+    println(id(5));
+    println(id(2.5));
+}
+"#, "generic_fn_keeps_argument_type");
+    }
+
+    #[test]
+    fn compat_await_returns_spawned_value() {
+        check_compat(r#"fn work(n: int) -> int { return n * 2; }
+fn main() {
+    t = spawn work(21);
+    println(await t);
+}
+"#, "await_returns_spawned_value");
+    }
+
+    #[test]
+    fn compat_if_expression_yields_branch_value() {
+        check_compat(r#"fn main() {
+    x = 5;
+    y = if (x > 3) { "big" } else { "small" };
+    println(y);
+    z = if (x > 9) { 1 } else { 2 };
+    println(z);
+}
+"#, "if_expression_yields_branch_value");
+    }
+
+    #[test]
+    fn compat_collections_keep_element_type() {
+        check_compat(r#"fn first(xs: list[str]) -> str { return xs[0]; }
+fn main() {
+    l = [1, 2, 3];
+    println(l);
+    s: set[int] = {3, 1, 3};
+    println(s);
+    println(s.len());
+    n = ["a", "b"];
+    println(n);
+    println(n[1]);
+    println(first(n));
+    r = [1.5, 2.5];
+    println(r[0]);
+    println(r);
+    b = [true, false];
+    println(b);
+    w = [];
+    w.push("x");
+    w.push("y");
+    println(w);
+    println(w[1]);
+    t: set[str] = {"a", "b", "a"};
+    println(t);
+}
+"#, "collections_keep_element_type");
+    }
+
+    #[test]
+    fn aot_refuses_json_parse_instead_of_printing_zero() {
+        let err = build_aot(r#"use { json } from "json";
+fn main() {
+    v = json.parse("{\"a\":1}");
+    println(v);
+}
+"#, "refuses_json_parse").expect_err("json.parse must not build until it is implemented natively");
+        assert!(err.contains("json.parse"), "{}", err);
+    }
+
+    #[test]
+    fn aot_stops_on_list_index_out_of_bounds() {
+        let source = "fn main() {\n    l = [1, 2];\n    println(l[5]);\n}\n";
+        let interp = run_interp(source).expect_err("the interpreter stops on a bad index");
+        let native = run_aot(source, "list_index_out_of_bounds").expect_err("the native binary must stop instead of printing 0");
+        assert!(interp.contains("Index 5 out of bounds for list of length 2"), "{}", interp);
+        assert!(native.contains("Index 5 out of bounds for list of length 2"), "{}", native);
+    }
 }

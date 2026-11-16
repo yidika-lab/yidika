@@ -21,7 +21,8 @@ impl JitEngine {
 
     /// Compile a function definition to native code and return a function pointer
     pub fn compile_function(&self, name: &str, module: &Module, hw: &HardwareInfo) -> Result<()> {
-        let ir = crate::codegen::llvm::compile_to_llvm(module);
+        let ir = crate::codegen::llvm::compile_to_llvm(module)
+            .map_err(|refusal| error::err(ErrorKind::Internal, Span::new(0, 0), refusal))?;
         let tmp_dir = std::env::temp_dir().join(format!("yk_jit_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&tmp_dir);
         let dll_path = tmp_dir.join(format!("{}.dll", name));

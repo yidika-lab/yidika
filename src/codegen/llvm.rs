@@ -36,7 +36,11 @@ pub struct LlvmCodegen {
     fn_ret_sigs: HashMap<String, FnSig>,
     fn_value_records: Vec<String>,
     closure_counter: usize,
-    spawn_wrappers: Vec<(String, String, ExprNode)>,
+    spawn_wrappers: Vec<(String, ExprNode)>,
+    refusals: Vec<String>,
+    elem_types: HashMap<String, String>,
+    generic_fns: HashMap<String, ItemNode>,
+    pending_instances: Vec<ItemNode>,
     spawn_counter: usize,
     fn_name_map: HashMap<String, String>,
     current_module: String,
@@ -90,6 +94,10 @@ impl LlvmCodegen {
             fn_value_records: Vec::new(),
             closure_counter: 0,
             spawn_wrappers: Vec::new(),
+            refusals: Vec::new(),
+            elem_types: HashMap::new(),
+            generic_fns: HashMap::new(),
+            pending_instances: Vec::new(),
             spawn_counter: 0,
             fn_name_map: HashMap::new(),
             current_module: String::new(),
@@ -182,9 +190,11 @@ impl LlvmCodegen {
                 self.ssa(&b)
             }
             "%yk_string" => {
-                let p = self.string_to_ptr(&val);
+                let slot = self.string_to_ptr(&val);
+                let p = self.fresh_label();
+                self.e(&format!("%{} = call ptr @yk_string_box(ptr {})", p, slot));
                 let b = self.fresh_label();
-                self.e(&format!("%{} = ptrtoint ptr {} to i64", b, p));
+                self.e(&format!("%{} = ptrtoint ptr %{} to i64", b, p));
                 self.ssa(&b)
             }
             "%yk_complex" => {
@@ -461,6 +471,72 @@ impl LlvmCodegen {
         }
     }
 
+    fn unbox_i64(&mut self, val: String, typ: &str) -> String {
+        let b = self.fresh_label();
+        match typ {
+            "double" => self.e(&format!("%{} = bitcast i64 {} to double", b, val)),
+            "i1" => self.e(&format!("%{} = trunc i64 {} to i1", b, val)),
+            "%yk_string" => {
+                let p = self.fresh_label();
+                self.e(&format!("%{} = inttoptr i64 {} to ptr", p, val));
+                self.e(&format!("%{} = load %yk_string, ptr %{}", b, p));
+            }
+            _ => return val,
+        }
+        self.ssa(&b)
+    }
+
+    fn elem_kind(elem_ty: &str) -> i64 {
+        match elem_ty {
+            "double" => 1,
+            "i1" => 2,
+            "%yk_string" => 3,
+            _ => 0,
+        }
+    }
+
+    fn elem_type_of(&mut self, collection: &ExprNode) -> String {
+        self.known_elem_type(collection).unwrap_or_else(|| "i64".into())
+    }
+
+    fn known_elem_type(&mut self, collection: &ExprNode) -> Option<String> {
+        match &collection.value {
+            Expr::Ident(name) => self.elem_types.get(name).cloned(),
+            Expr::ListLit(items) | Expr::SetLit(items) => items.first().map(|first| self.expr_type_str(first)),
+            _ => None,
+        }
+    }
+
+    fn record_elem_type(&mut self, name: &str, te: Option<&TypeExpr>, value: Option<&ExprNode>) {
+        let from_type = match te {
+            Some(TypeExpr::List(inner)) | Some(TypeExpr::Set(inner)) => Some(self.type_to_llvm(inner)),
+            _ => None,
+        };
+        let elem = from_type.or_else(|| value.and_then(|v| self.known_elem_type(v)));
+        match elem {
+            Some(e) => { self.elem_types.insert(name.to_string(), e); }
+            None => { self.elem_types.remove(name); }
+        }
+    }
+
+    fn compile_collection(&mut self, items: &[ExprNode], is_set: bool) -> (String, String) {
+        let kind = match items.first() {
+            Some(first) => {
+                let ty = self.expr_type_str(first);
+                Self::elem_kind(&ty)
+            }
+            None => 0,
+        };
+        let list_ptr = self.fresh_label();
+        self.e(&format!("%{} = call ptr @yk_list_new_of(i64 {}, i64 {})", list_ptr, kind, is_set as i64));
+        for item in items {
+            let (val, typ) = self.compile_expr(item);
+            let boxed = self.to_i64(val, typ);
+            self.e(&format!("call void @yk_list_push(ptr %{}, i64 {})", list_ptr, boxed));
+        }
+        (self.ssa(&list_ptr), "ptr".into())
+    }
+
     fn record_fn_value(&mut self, name: &str, te: &TypeExpr) {
         match self.fn_sig_of(te) {
             Some(sig) => { self.fn_value_sigs.insert(name.to_string(), sig); }
@@ -610,6 +686,7 @@ impl LlvmCodegen {
         for (i, (p, ty)) in d.params.iter().zip(&param_types).enumerate() {
             let ptr = self.alloca_name(&p.name);
             self.record_fn_value(&p.name, &p.type_expr.value);
+            self.record_elem_type(&p.name, Some(&p.type_expr.value), None);
             self.var_types.insert(p.name.clone(), ty.clone());
             self.var_alloca.insert(p.name.clone(), ptr.clone());
             self.alloc_local(&p.name, &ptr, ty);
@@ -896,7 +973,10 @@ impl LlvmCodegen {
                 else { lt }
             }
             Expr::UnOp(_, inner) => self.expr_type_str(inner),
-            Expr::Call(callee, _) => self.call_type_str(callee),
+            Expr::Call(callee, args) => match self.generic_instance(callee, args) {
+                Some(instance) => self.call_type_str(&instance),
+                None => self.call_type_str(callee),
+            },
             Expr::StructLit(name, _) => {
                 if self.class_defs.contains_key(name) {
                     format!("%class.{}", name)
@@ -924,6 +1004,8 @@ impl LlvmCodegen {
             Expr::ResultOk(_) | Expr::ResultErr(_) => "%yk_result".into(),
             Expr::Spawn(_) => "i64".into(),
             Expr::Await(inner) => self.expr_type_str(inner),
+            Expr::Index(obj, _) if self.expr_type_str(obj) == "ptr" => self.elem_type_of(obj),
+            Expr::If(_, then_e, _) => self.expr_type_str(then_e),
             Expr::As(_, target_type) => self.type_to_llvm(&target_type.value),
             Expr::Match(_, arms) => arms.first().map(|a| self.expr_type_str(&a.body)).unwrap_or("i64".into()),
             _ => "i64".into(),
@@ -970,6 +1052,18 @@ impl LlvmCodegen {
         let n = self.label_counter;
         self.label_counter += 1;
         format!("%{}.val_{}", var.replace('.', "_"), n)
+    }
+
+    fn refuse(&mut self, construct: &str) {
+        let message = format!("{} is not supported by the native backend yet", construct);
+        if !self.refusals.contains(&message) {
+            self.refusals.push(message);
+        }
+    }
+
+    fn refuse_call(&mut self, module: &str, function: &str) -> (String, String) {
+        self.refuse(&format!("{}.{}", module, function));
+        ("0".into(), "i64".into())
     }
 
     pub fn compile_module(&mut self, module: &Module) -> String {
@@ -1131,6 +1225,11 @@ impl LlvmCodegen {
                 }
             }
         }
+        let own_layouts = self.class_defs.clone();
+        for class_name in own_layouts.keys() {
+            let layout = self.inherited_layout(class_name, &own_layouts);
+            self.class_defs.insert(class_name.clone(), layout);
+        }
         // Build vtable info: walk inheritance chain to build full method list
         let mut class_vtable_methods: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for module in modules {
@@ -1289,7 +1388,7 @@ impl LlvmCodegen {
         self.e_raw("declare ptr @malloc(i64)");
         self.e_raw("declare void @yk_print_field(ptr, i1)");
         self.e_raw("declare ptr @yk_string_from_char(i64)");
-        self.e_raw("declare i64 @yk_run_thread(ptr, ptr)");
+        self.e_raw("declare i64 @yk_run_thread(ptr)");
         self.e_raw("declare i64 @yk_join_thread(i64)");
         self.e_raw("declare void @yk_task_set_result(i64, i64)");
         self.e_raw("declare i64 @yk_math_abs_i64(i64)");
@@ -1350,6 +1449,9 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_server_serve(i64, ptr)");
         self.e_raw("declare ptr @yk_list_new()");
         self.e_raw("declare void @yk_list_push(ptr, i64)");
+        self.e_raw("declare ptr @yk_list_new_of(i64, i64)");
+        self.e_raw("declare void @yk_list_push_kind(ptr, i64, i64)");
+        self.e_raw("declare ptr @yk_string_box(ptr)");
         self.e_raw("declare i64 @yk_list_get(ptr, i64)");
         self.e_raw("declare i64 @yk_list_len(ptr)");
         self.e_raw("declare i64 @yk_list_pop(ptr)");
@@ -1406,24 +1508,12 @@ impl LlvmCodegen {
         // Pre-scan all function return types so calls can resolve them before the callee is compiled
         for module in modules.iter() {
             for item in &module.items {
-                if let ItemKind::Fn { name, ret_type, params, .. } = &item.value {
-                    let mangled = self.mangle_name(name);
-                    let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
-                    self.current_fn_ret = ret.clone();
-                    self.fn_ret_types.insert(mangled.clone(), ret);
-                    if let Some(sig) = ret_type.as_ref().and_then(|t| self.fn_sig_of(&t.value)) {
-                        self.fn_ret_sigs.insert(mangled.clone(), sig);
+                match &item.value {
+                    ItemKind::Fn { name, generics, .. } if !generics.is_empty() => {
+                        self.generic_fns.insert(name.clone(), item.clone());
                     }
-                    let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
-                    self.fn_param_types.insert(mangled.clone(), param_types);
-                    let union_variants: Vec<Option<Vec<TypeExpr>>> = params.iter().map(|p| {
-                        if let TypeExpr::Union(ts) = &p.type_expr.value {
-                            Some(ts.clone())
-                        } else {
-                            None
-                        }
-                    }).collect();
-                    self.fn_param_union_variants.insert(mangled, union_variants);
+                    ItemKind::Fn { .. } => self.register_fn_signature(item),
+                    _ => {}
                 }
             }
         }
@@ -1431,8 +1521,8 @@ impl LlvmCodegen {
         for module in modules {
             self.current_module = module.name.clone();
             for item in &module.items {
-                if let ItemKind::Fn { name, .. } = &item.value {
-                    if name != "main" {
+                if let ItemKind::Fn { name, generics, .. } = &item.value {
+                    if name != "main" && generics.is_empty() {
                         self.compile_fn(item);
                     }
                 }
@@ -1508,11 +1598,14 @@ impl LlvmCodegen {
             self.var_alloca = saved_alloca;
         }
 
-        // Emit deferred closures (anonymous functions)
-        while !self.deferred_fns.is_empty() {
+        while !self.deferred_fns.is_empty() || !self.pending_instances.is_empty() {
             let deferred = std::mem::take(&mut self.deferred_fns);
             for d in deferred {
                 self.compile_deferred_fn(d);
+            }
+            let instances = std::mem::take(&mut self.pending_instances);
+            for instance in instances {
+                self.compile_fn(&instance);
             }
         }
         let records = std::mem::take(&mut self.fn_value_records);
@@ -1522,7 +1615,7 @@ impl LlvmCodegen {
 
         // Emit spawn wrappers
         let wrappers = std::mem::take(&mut self.spawn_wrappers);
-        for (name, _slot, expr) in wrappers {
+        for (name, expr) in wrappers {
             self.e_raw(&format!("define void @{}(ptr %slot) {{", name));
             self.indent += 1;
             let (val, _ty) = self.compile_expr(&expr);
@@ -1562,6 +1655,99 @@ impl LlvmCodegen {
         output
     }
 
+    fn register_fn_signature(&mut self, item: &ItemNode) {
+        let ItemKind::Fn { name, ret_type, params, .. } = &item.value else { return };
+        let mangled = self.mangle_name(name);
+        let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
+        self.current_fn_ret = ret.clone();
+        self.fn_ret_types.insert(mangled.clone(), ret);
+        if let Some(sig) = ret_type.as_ref().and_then(|t| self.fn_sig_of(&t.value)) {
+            self.fn_ret_sigs.insert(mangled.clone(), sig);
+        }
+        let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
+        self.fn_param_types.insert(mangled.clone(), param_types);
+        let union_variants: Vec<Option<Vec<TypeExpr>>> = params.iter().map(|p| match &p.type_expr.value {
+            TypeExpr::Union(ts) => Some(ts.clone()),
+            _ => None,
+        }).collect();
+        self.fn_param_union_variants.insert(mangled, union_variants);
+    }
+
+    fn type_of_llvm(llvm_ty: &str) -> TypeExpr {
+        match llvm_ty {
+            "double" => TypeExpr::Real(64),
+            "i1" => TypeExpr::Bool,
+            "%yk_string" => TypeExpr::Str,
+            "%yk_complex" => TypeExpr::Complex(Box::new(TypeExpr::Real(64)), Box::new(TypeExpr::Real(64))),
+            other => match other.strip_prefix("%struct.").or_else(|| other.strip_prefix("%class.")) {
+                Some(name) => TypeExpr::Named(name.to_string()),
+                None => TypeExpr::Int(64),
+            },
+        }
+    }
+
+    fn generic_instance(&mut self, callee: &ExprNode, args: &[ExprNode]) -> Option<ExprNode> {
+        let Expr::Ident(name) = &callee.value else { return None };
+        let generic = self.generic_fns.get(name)?.clone();
+        let ItemKind::Fn { params, generics, .. } = &generic.value else { return None };
+        let mut bindings: HashMap<String, TypeExpr> = generics.iter().map(|g| (g.clone(), TypeExpr::Int(64))).collect();
+        for (param, arg) in params.iter().zip(args) {
+            if let TypeExpr::Named(g) = &param.type_expr.value {
+                if bindings.contains_key(g) {
+                    let arg_ty = self.expr_type_str(arg);
+                    bindings.insert(g.clone(), Self::type_of_llvm(&arg_ty));
+                }
+            }
+        }
+        let suffix: Vec<String> = generics.iter().map(|g| crate::syntax::ast::mangle_struct_name("", &[bindings[g].clone()]).trim_start_matches('-').to_string()).collect();
+        let instance = format!("{}.{}", self.mangle_name(name), suffix.join("_"));
+        if !self.fn_name_map.contains_key(&instance) {
+            self.fn_name_map.insert(instance.clone(), instance.clone());
+            let item = Self::specialize(&generic, &instance, &bindings);
+            self.register_fn_signature(&item);
+            self.pending_instances.push(item);
+        }
+        Some(ExprNode::new(callee.id, callee.span, Expr::Ident(instance)))
+    }
+
+    fn specialize(generic: &ItemNode, instance: &str, bindings: &HashMap<String, TypeExpr>) -> ItemNode {
+        use crate::syntax::ast::{substitute_in_stmt, substitute_type_node};
+        let mut item = generic.clone();
+        if let ItemKind::Fn { name, params, ret_type, body, generics, .. } = &mut item.value {
+            *name = instance.to_string();
+            generics.clear();
+            for p in params.iter_mut() {
+                p.type_expr = substitute_type_node(&p.type_expr, bindings);
+            }
+            *ret_type = ret_type.as_ref().map(|t| substitute_type_node(t, bindings));
+            *body = body.iter().map(|s| substitute_in_stmt(s, bindings)).collect();
+        }
+        item
+    }
+
+    fn inherited_layout(&self, class_name: &str, own: &HashMap<String, Vec<(String, String)>>) -> Vec<(String, String)> {
+        let mut layout = match self.class_extends.get(class_name) {
+            Some(parent) if parent != class_name => self.inherited_layout(parent, own),
+            _ => Vec::new(),
+        };
+        for field in own.get(class_name).into_iter().flatten() {
+            if !layout.iter().any(|(n, _)| n == &field.0) {
+                layout.push(field.clone());
+            }
+        }
+        layout
+    }
+
+    fn method_ret_type(&self, class_name: &str, method: &str) -> Option<String> {
+        let mut current = class_name.to_string();
+        loop {
+            if let Some(ret) = self.class_method_ret_types.get(&(current.clone(), method.to_string())) {
+                return Some(ret.clone());
+            }
+            current = self.class_extends.get(&current)?.clone();
+        }
+    }
+
     fn compile_fn(&mut self, item: &ItemNode) {
         let saved_types = self.var_types.clone();
         let saved_alloca = self.var_alloca.clone();
@@ -1581,6 +1767,7 @@ impl LlvmCodegen {
                 let ty = self.type_to_llvm(&p.type_expr.value);
                 let ptr = self.alloca_name(&p.name);
                 self.record_fn_value(&p.name, &p.type_expr.value);
+                self.record_elem_type(&p.name, Some(&p.type_expr.value), None);
                 self.var_types.insert(p.name.clone(), ty.clone());
                 self.var_alloca.insert(p.name.clone(), ptr.clone());
                 self.alloc_local(&p.name, &ptr, &ty);
@@ -1836,6 +2023,7 @@ impl LlvmCodegen {
                     Some(te) => self.record_fn_value(name, &te.value),
                     None => self.record_value_sig(name, value),
                 }
+                self.record_elem_type(name, type_expr.as_ref().map(|t| &t.value), Some(value));
                 let ptr = self.alloca_name(name);
                 self.var_types.insert(name.clone(), effective_ty.clone());
                 self.var_alloca.insert(name.clone(), ptr.clone());
@@ -1910,6 +2098,9 @@ impl LlvmCodegen {
             }
             Stmt::Assign(name, expr) => {
                 let (val, val_ty) = self.compile_expr(expr);
+                if !self.var_alloca.contains_key(name) {
+                    self.record_elem_type(name, None, Some(expr));
+                }
                 let mut is_http_ctor = false;
                 if let Expr::Call(callee, _) = &expr.value {
                     if let Expr::Ident(callee_name) = &callee.value {
@@ -2169,7 +2360,10 @@ impl LlvmCodegen {
                     }
                 }
             }
-            Expr::Call(callee, args) => self.compile_call(callee, args),
+            Expr::Call(callee, args) => match self.generic_instance(callee, args) {
+                Some(instance) => self.compile_call(&instance, args),
+                None => self.compile_call(callee, args),
+            },
             Expr::Field(obj, field) => {
                 let (o, obj_ty) = self.compile_expr(obj);
                 let tmp = self.fresh_label();
@@ -2300,9 +2494,11 @@ impl LlvmCodegen {
                 let (o, ot) = self.compile_expr(obj);
                 let (i, _) = self.compile_expr(index);
                 if ot == "ptr" {
+                    let elem = self.elem_type_of(obj);
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = call i64 @yk_list_get(ptr {}, i64 {})", tmp, o, i));
-                    (self.ssa(&tmp), "i64".into())
+                    let raw = self.ssa(&tmp);
+                    (self.unbox_i64(raw, &elem), elem)
                 } else {
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = getelementptr inbounds i64, ptr {}, i64 {}", tmp, o, i));
@@ -2375,42 +2571,7 @@ impl LlvmCodegen {
                 self.e(&format!("%{} = phi {} [ {}, %{} ], [ {}, %{} ]", result, t_ty, t_val, then_label, e_val, else_label));
                 (self.ssa(&result), t_ty)
             }
-            Expr::ListLit(items) => {
-                let list_ptr = self.fresh_label();
-                self.e(&format!("%{} = call ptr @yk_list_new()", list_ptr));
-                for item in items {
-                    let (val, typ) = self.compile_expr(item);
-                    let push_val = match typ.as_str() {
-                        "double" => {
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = bitcast double {} to i64", b, val));
-                            self.ssa(&b)
-                        }
-                        "i1" => {
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = zext i1 {} to i64", b, val));
-                            self.ssa(&b)
-                        }
-                        "%yk_string" => {
-                            let p = self.string_to_ptr(&val);
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = ptrtoint ptr {} to i64", b, p));
-                            self.ssa(&b)
-                        }
-                        "%yk_complex" => {
-                            let slot = self.fresh_label();
-                            self.e(&format!("%{} = alloca %yk_complex, align 8", slot));
-                            self.e(&format!("store %yk_complex {}, ptr %{}", val, slot));
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = ptrtoint ptr %{} to i64", b, slot));
-                            self.ssa(&b)
-                        }
-                        _ => val,
-                    };
-                    self.e(&format!("call void @yk_list_push(ptr %{}, i64 {})", list_ptr, push_val));
-                }
-                (self.ssa(&list_ptr), "ptr".into())
-            }
+            Expr::ListLit(items) => self.compile_collection(items, false),
             Expr::StructLit(name, fields) => {
                 let class_ty = format!("%class.{}", name);
                 if self.class_defs.contains_key(name.as_str()) {
@@ -2471,73 +2632,26 @@ impl LlvmCodegen {
                 self.e(&format!("%{} = call ptr @yk_list_new()", list_ptr));
                 for (k, v) in pairs {
                     let (kv, kt) = self.compile_expr(k);
-                    let kp = match kt.as_str() {
-                        "double" => { let b=self.fresh_label(); self.e(&format!("%{b} = bitcast double {kv} to i64", b=b, kv=kv)); self.ssa(&b) }
-                        "i1" => { let b=self.fresh_label(); self.e(&format!("%{b} = zext i1 {kv} to i64", b=b, kv=kv)); self.ssa(&b) }
-                        "%yk_string" => { let p=self.string_to_ptr(&kv); let b=self.fresh_label(); self.e(&format!("%{b} = ptrtoint ptr {p} to i64", b=b, p=p)); self.ssa(&b) }
-                        "%yk_complex" => { let s=self.fresh_label(); self.e(&format!("%{s} = alloca %yk_complex, align 8", s=s)); self.e(&format!("store %yk_complex {kv}, ptr %{s}", kv=kv, s=s)); let b=self.fresh_label(); self.e(&format!("%{b} = ptrtoint ptr %{s} to i64", b=b, s=s)); self.ssa(&b) }
-                        _ => kv,
-                    };
+                    let kp = self.to_i64(kv, kt);
                     self.e(&format!("call void @yk_list_push(ptr %{}, i64 {})", list_ptr, kp));
                     let (vv, vt) = self.compile_expr(v);
-                    let vp = match vt.as_str() {
-                        "double" => { let b=self.fresh_label(); self.e(&format!("%{b} = bitcast double {vv} to i64", b=b, vv=vv)); self.ssa(&b) }
-                        "i1" => { let b=self.fresh_label(); self.e(&format!("%{b} = zext i1 {vv} to i64", b=b, vv=vv)); self.ssa(&b) }
-                        "%yk_string" => { let p=self.string_to_ptr(&vv); let b=self.fresh_label(); self.e(&format!("%{b} = ptrtoint ptr {p} to i64", b=b, p=p)); self.ssa(&b) }
-                        "%yk_complex" => { let s=self.fresh_label(); self.e(&format!("%{s} = alloca %yk_complex, align 8", s=s)); self.e(&format!("store %yk_complex {vv}, ptr %{s}", vv=vv, s=s)); let b=self.fresh_label(); self.e(&format!("%{b} = ptrtoint ptr %{s} to i64", b=b, s=s)); self.ssa(&b) }
-                        _ => vv,
-                    };
+                    let vp = self.to_i64(vv, vt);
                     self.e(&format!("call void @yk_list_push(ptr %{}, i64 {})", list_ptr, vp));
                 }
                 (self.ssa(&list_ptr), "ptr".into())
             }
-            Expr::SetLit(items) => {
-                let list_ptr = self.fresh_label();
-                self.e(&format!("%{} = call ptr @yk_list_new()", list_ptr));
-                for item in items {
-                    let (val, typ) = self.compile_expr(item);
-                    let push_val = match typ.as_str() {
-                        "double" => {
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = bitcast double {} to i64", b, val));
-                            self.ssa(&b)
-                        }
-                        "i1" => {
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = zext i1 {} to i64", b, val));
-                            self.ssa(&b)
-                        }
-                        "%yk_string" => {
-                            let p = self.string_to_ptr(&val);
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = ptrtoint ptr {} to i64", b, p));
-                            self.ssa(&b)
-                        }
-                        "%yk_complex" => {
-                            let slot = self.fresh_label();
-                            self.e(&format!("%{} = alloca %yk_complex, align 8", slot));
-                            self.e(&format!("store %yk_complex {}, ptr %{}", val, slot));
-                            let b = self.fresh_label();
-                            self.e(&format!("%{} = ptrtoint ptr %{} to i64", b, slot));
-                            self.ssa(&b)
-                        }
-                        _ => val,
-                    };
-                    self.e(&format!("call void @yk_list_push(ptr %{}, i64 {})", list_ptr, push_val));
-                }
-                (self.ssa(&list_ptr), "ptr".into())
-            }
+            Expr::SetLit(items) => self.compile_collection(items, true),
             Expr::FnLit(params, ret_type, body) => self.compile_lambda(params, ret_type.as_ref(), body),
             Expr::Closure(params, body) => self.compile_lambda(params, None, body),
             Expr::Spawn(inner) => {
+                if self.expr_type_str(inner) != "i64" {
+                    self.refuse("spawn of a function that does not return int");
+                }
                 let wrapper_name = format!("__spawn_wrapper_{}", self.spawn_counter);
                 self.spawn_counter += 1;
-                let result_ptr = self.fresh_label();
-                self.e(&format!("%{} = alloca i64, align 8", result_ptr));
-                self.e(&format!("store i64 0, ptr %{}", result_ptr));
                 let handle = self.fresh_label();
-                self.e(&format!("%{} = call i64 @yk_run_thread(ptr @{}, ptr %{})", handle, wrapper_name, result_ptr));
-                self.spawn_wrappers.push((wrapper_name, self.ssa(&result_ptr), *inner.clone()));
+                self.e(&format!("%{} = call i64 @yk_run_thread(ptr @{})", handle, wrapper_name));
+                self.spawn_wrappers.push((wrapper_name, *inner.clone()));
                 (self.ssa(&handle), "i64".into())
             }
             Expr::Await(inner) => {
@@ -3603,7 +3717,7 @@ impl LlvmCodegen {
                                 self.e(&format!("%{} = call i64 @yk_math_rand(i64 {})", tmp, max));
                                 (self.ssa(&tmp), "i64".into())
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "time" => {
@@ -3626,7 +3740,7 @@ impl LlvmCodegen {
                                 self.e(&format!("%{} = call i64 @yk_time_timestamp()", tmp));
                                 (self.ssa(&tmp), "i64".into())
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "sys" => {
@@ -3668,7 +3782,7 @@ impl LlvmCodegen {
                                     ("0".into(), "%yk_string".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "path" => {
@@ -3712,7 +3826,7 @@ impl LlvmCodegen {
                                     ("0".into(), "i1".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "fs" || mod_name == "io" => {
@@ -3758,7 +3872,7 @@ impl LlvmCodegen {
                                     ("0".into(), "i1".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "base64" => {
@@ -3775,7 +3889,7 @@ impl LlvmCodegen {
                                     ("0".into(), "%yk_string".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "json" => {
@@ -3824,7 +3938,7 @@ impl LlvmCodegen {
                                     ("0".into(), "%yk_string".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "re" || mod_name == "regex" => {
@@ -3861,7 +3975,7 @@ impl LlvmCodegen {
                                     ("0".into(), "%yk_string".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if mod_name == "datetime" => {
@@ -3905,7 +4019,7 @@ impl LlvmCodegen {
                                     ("0".into(), "%yk_string".into())
                                 }
                             }
-                            _ => ("0".into(), "i64".into()),
+                            _ => self.refuse_call(mod_name, func_name),
                         }
                     }
                     (Expr::Ident(mod_name), func_name) if self.gui_modules.contains(mod_name.as_str()) => {
@@ -4033,14 +4147,13 @@ impl LlvmCodegen {
                         if o_ty == "ptr" {
                             match field.as_str() {
                                 "push" => {
-                                    if let Some((pv, pt)) = arg_results.first() {
-                                        let push_val = match pt.as_str() {
-                                            "double" => { let t = self.fresh_label(); self.e(&format!("%{} = bitcast double {} to i64", t, pv)); self.ssa(&t) }
-                                            "i1" => { let t = self.fresh_label(); self.e(&format!("%{} = zext i1 {} to i64", t, pv)); self.ssa(&t) }
-                                            "%yk_string" => { let t = self.fresh_label(); self.e(&format!("%{} = ptrtoint ptr {} to i64", t, pv)); self.ssa(&t) }
-                                            _ => pv.clone()
-                                        };
-                                        self.e(&format!("call void @yk_list_push(ptr {}, i64 {})", o_val, push_val));
+                                    if let Some((pv, pt)) = arg_results.first().cloned() {
+                                        let kind = Self::elem_kind(&pt);
+                                        if let Expr::Ident(list_name) = &obj.value {
+                                            self.elem_types.entry(list_name.clone()).or_insert_with(|| pt.clone());
+                                        }
+                                        let push_val = self.to_i64(pv, pt);
+                                        self.e(&format!("call void @yk_list_push_kind(ptr {}, i64 {}, i64 {})", o_val, push_val, kind));
                                     }
                                     return ("0".into(), "i64".into());
                                 }
@@ -4158,7 +4271,7 @@ impl LlvmCodegen {
                                     let self_ssa = self.ssa(&self_int);
                                     let mut all_args = vec![format!("i64 {}", self_ssa)];
                                     all_args.extend(arg_results.iter().map(|(v, t)| format!("{} {}", t, v)));
-                                    let call_ret = self.class_method_ret_types.get(&(cls_name.to_string(), field.clone())).cloned().unwrap_or_else(|| "i64".into());
+                                    let call_ret = self.method_ret_type(cls_name, field).unwrap_or_else(|| "i64".into());
                                     let all_args_str = all_args.join(", ");
                                     let arg_types_str = all_args.iter().map(|s| s.split_whitespace().next().unwrap_or("i64")).collect::<Vec<_>>().join(", ");
                                     if call_ret == "void" {
@@ -4427,13 +4540,18 @@ impl LlvmCodegen {
     }
 }
 
-pub fn compile_to_llvm(module: &Module) -> String {
+pub fn compile_to_llvm(module: &Module) -> std::result::Result<String, String> {
     compile_to_llvm_modules(&[module])
 }
 
-pub fn compile_to_llvm_modules(modules: &[&Module]) -> String {
+pub fn compile_to_llvm_modules(modules: &[&Module]) -> std::result::Result<String, String> {
     let mut codegen = LlvmCodegen::new();
-    codegen.compile_modules(modules)
+    let ir = codegen.compile_modules(modules);
+    if codegen.refusals.is_empty() {
+        Ok(ir)
+    } else {
+        Err(codegen.refusals.join("\n"))
+    }
 }
 
 pub fn validate_modules(modules: &[&Module], file_paths: &[String]) -> Vec<String> {
@@ -5399,7 +5517,7 @@ mod tests {
     fn test_struct_lit_and_field() {
         ast::reset_ids();
         let module = Parser::parse("struct Point { x: int, y: int } fn main() { p: Point = Point { x: 1, y: 2 }; print(p.x); }").unwrap();
-        let llvm = compile_to_llvm(&module);
+        let llvm = compile_to_llvm(&module).unwrap();
         assert!(llvm.contains("%struct.Point = type { i64, i64 }"));
         assert!(llvm.contains("insertvalue %struct.Point undef, i64 1, 0"));
         assert!(llvm.contains("insertvalue %struct.Point %"));
@@ -5410,7 +5528,7 @@ mod tests {
     fn test_tuple_lit() {
         ast::reset_ids();
         let module = Parser::parse("fn main() { print((10, 20, 30).0); }").unwrap();
-        let llvm = compile_to_llvm(&module);
+        let llvm = compile_to_llvm(&module).unwrap();
         eprintln!("LLVM OUTPUT:\n{}", llvm);
         assert!(llvm.contains("i64, i64, i64"));
         assert!(llvm.contains("insertvalue"));
@@ -5574,7 +5692,7 @@ mod tests {
             is_abstract_method: false,
         });
         let module = Module { name: String::new(), span: Span::new(0, 0), imports: vec![], exports: vec![], items: vec![main_fn] };
-        let llvm = compile_to_llvm(&module);
+        let llvm = compile_to_llvm(&module).unwrap();
         eprintln!("LLVM:\n{}", llvm);
         assert!(llvm.contains("__closure_0"));
         assert!(llvm.contains("ptrtoint"));

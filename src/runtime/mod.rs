@@ -20,6 +20,7 @@ pub struct Task {
     handle: Option<JoinHandle<()>>,
 }
 
+pub const INTERPRETER_STACK_SIZE: usize = 8 * 1024 * 1024;
 const TASK_STACK: usize = 64 * 1024;
 
 impl Task {
