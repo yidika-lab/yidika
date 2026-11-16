@@ -26,7 +26,7 @@ fn count_primes(lo: int, hi: int) -> int {
 }
 
 fn main() {
-    println(count_primes(1, 100000), "primes up to 100000");
+    print(count_primes(1, 100000), "primes up to 100000");
 }
 ```
 
@@ -62,7 +62,7 @@ fn main() {
     high = spawn count_primes(50001, 100000);
     a = await low;
     b = await high;
-    println(a, "+", b, "=", a + b);
+    print(a, "+", b, "=", a + b);
 }
 ```
 
@@ -92,7 +92,7 @@ fn main() {
     b = await t2;
     c = await t3;
     d = await t4;
-    println(a + b + c + d);
+    print(a + b + c + d);
 }
 ```
 

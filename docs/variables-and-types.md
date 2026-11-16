@@ -12,7 +12,7 @@ fn main() {
     name: str = "Ada";
     ready: bool = true;
     later: auto = count * 2;
-    println(count, ratio, name, ready, later);
+    print(count, ratio, name, ready, later);
 }
 ```
 
@@ -28,7 +28,7 @@ fn main() {
 fn main() {
     limit: const<int> = 100;
     answer: int = 42 as const;
-    println(limit, answer);
+    print(limit, answer);
 }
 ```
 
@@ -38,7 +38,7 @@ fn main() {
 
 ## Moves
 
-A `str` or a list has one owner. Assigning it to another variable, or passing it to a function you wrote, moves it there, and the old name can no longer be used. `int`, `real`, `bool` and structs are copied instead, and the standard library (`println`, `fs.write`, ...) never takes ownership.
+A `str` or a list has one owner. Assigning it to another variable, or passing it to a function you wrote, moves it there, and the old name can no longer be used. `int`, `real`, `bool` and structs are copied instead, and the standard library (`print`, `fs.write`, ...) never takes ownership.
 
 ```yidika
 fn shout(s: str) -> str {
@@ -48,10 +48,10 @@ fn shout(s: str) -> str {
 fn main() {
     name = "Ada";
     loud = shout(name + "");
-    println(name, loud);
+    print(name, loud);
     count = 3;
     other = count;
-    println(count, other);
+    print(count, other);
 }
 ```
 
@@ -60,7 +60,7 @@ Ada Ada!
 3 3
 ```
 
-`shout(name)` followed by `println(name)` stops before the program runs with `Cannot use variable 'name' after it has been moved`. Pass a new value instead, as `name + ""` does here, or let the function return what you still need. There is no `&` to lend a value and no `clone()` yet ([Known limits](limits.md)).
+`shout(name)` followed by `print(name)` stops before the program runs with `Cannot use variable 'name' after it has been moved`. Pass a new value instead, as `name + ""` does here, or let the function return what you still need. There is no `&` to lend a value and no `clone()` yet ([Known limits](limits.md)).
 
 ## Basic types
 
@@ -80,14 +80,14 @@ Integer division truncates toward zero; `**` is the power operator and is right-
 
 ```yidika
 fn main() {
-    println(7 / 2, 7 % 2, -7 / 2);
-    println(7.0 / 2.0, 2 ** 10, 2 ** 3 ** 2);
-    println(1 + 2 * 3, (1 + 2) * 3);
+    print(7 / 2, 7 % 2, -7 / 2);
+    print(7.0 / 2.0, 2 ** 10, 2 ** 3 ** 2);
+    print(1 + 2 * 3, (1 + 2) * 3);
     x = 5;
     x += 3;
     x *= 2;
     x++;
-    println(x);
+    print(x);
 }
 ```
 
@@ -102,7 +102,7 @@ Mixing `int` and `real` gives a `real`:
 
 ```yidika
 fn main() {
-    println(1 + 0.5, 3 * 1.5);
+    print(1 + 0.5, 3 * 1.5);
 }
 ```
 
@@ -115,8 +115,8 @@ fn main() {
 ```yidika
 fn main() {
     x = 7;
-    println(x > 3 && x < 10, !(x == 7), x != 7 || false);
-    println(6 & 3, 6 | 3, 6 ^ 3, 1 << 4, 256 >> 2, ~0);
+    print(x > 3 && x < 10, !(x == 7), x != 7 || false);
+    print(6 & 3, 6 | 3, 6 ^ 3, 1 << 4, 256 >> 2, ~0);
 }
 ```
 
@@ -131,8 +131,8 @@ true false false
 fn main() {
     z = 2.0 + 3.0i;
     w = 1.0 - 1.0i;
-    println(z + w);
-    println(z * w);
+    print(z + w);
+    print(z * w);
 }
 ```
 

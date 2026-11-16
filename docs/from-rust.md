@@ -10,7 +10,7 @@ Much of Yidika will look familiar: `fn`, `->`, structs, enums, `match`, `Result`
 | `let limit = 100;` | `limit: const<int> = 100;` |
 | `i64`, `f64`, `bool`, `String` | `int`, `real`, `bool`, `str` |
 | `format!("{name} is {age}")` | `f"{name} is {age}"` |
-| `println!("{} {}", a, b)` | `println(a, b);` |
+| `println!("{} {}", a, b)` | `print(a, b);` |
 | `\|x\| x + 1` | `(x) => x + 1` |
 | `for x in &items` | `for (x: items)` |
 | `for i in 0..5` | `for (i in 0..4)` or `for (i in 5)` |
@@ -32,7 +32,7 @@ fn main() {
     for (i in 1..4) { up = up + str(i); }
     down = "";
     for (i in 3..1) { down = down + str(i); }
-    println(up, down);
+    print(up, down);
 }
 ```
 
@@ -43,6 +43,18 @@ fn main() {
 ## Result and ?
 
 `Result` and `?` work as in Rust; the failure variant is `Error` instead of `Err`:
+
+```rust
+fn parse_port(s: &str) -> Result<i64, String> {
+    if s.is_empty() { return Err("empty port".into()); }
+    Ok(8080)
+}
+
+fn next_port(s: &str) -> Result<i64, String> {
+    let p = parse_port(s)?;
+    Ok(p + 1)
+}
+```
 
 ```yidika
 fn parse_port(s: str) -> Result<int, str> {
@@ -56,8 +68,8 @@ fn next_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(next_port("8080"));
-    println(next_port(""));
+    print(next_port("8080"));
+    print(next_port(""));
 }
 ```
 
@@ -71,6 +83,22 @@ Instead of `Option<T>`, a type that can be absent is written `T?`. `?.` reads a 
 ## Traits become interfaces
 
 An interface lists methods, and a class says which interfaces it implements. A value of the class can be passed where the interface is expected, like a `&dyn Trait`:
+
+```rust
+trait Drawable {
+    fn draw(&self) -> String;
+}
+
+struct Circle { r: i64 }
+
+impl Drawable for Circle {
+    fn draw(&self) -> String { format!("circle of radius {}", self.r) }
+}
+
+fn render(d: &dyn Drawable) -> String {
+    format!("<{}>", d.draw())
+}
+```
 
 ```yidika
 interface Drawable {
@@ -87,7 +115,7 @@ fn render(d: Drawable) -> str {
 }
 
 fn main() {
-    println(render(Circle { r: 2 }));
+    print(render(Circle { r: 2 }));
 }
 ```
 
@@ -117,7 +145,7 @@ fn kind(s: Shape) -> str {
 }
 
 fn main() {
-    println(kind(Shape::Circle(2)), kind(Shape::Empty));
+    print(kind(Shape::Circle(2)), kind(Shape::Empty));
 }
 ```
 
@@ -141,7 +169,7 @@ fn main() {
     b = spawn work(2000);
     x = await a;
     y = await b;
-    println(x, y);
+    print(x, y);
 }
 ```
 

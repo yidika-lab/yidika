@@ -21,7 +21,7 @@ fn fib(n: int) -> int {
 }
 
 fn main() {
-    println("fib(35) =", fib(35));
+    print("fib(35) =", fib(35));
 }
 ```
 

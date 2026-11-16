@@ -1,6 +1,6 @@
 # Standard library
 
-`use { math } from "std";` imports a module as a name, used as `math.sqrt(...)`. `use { sqrt } from "math";` imports functions from it, used as `sqrt(...)`. `len`, `str`, `print`, `println` and `fetch` need no import.
+`use { math } from "std";` imports a module as a name, used as `math.sqrt(...)`. `use { sqrt } from "math";` imports functions from it, used as `sqrt(...)`. `len`, `str`, `print` and `fetch` need no import.
 
 | Module | Functions |
 |---|---|
@@ -23,10 +23,10 @@ Some functions exist only in the interpreter so far; a program that uses one run
 use { math } from "std";
 
 fn main() {
-    println(math.sqrt(2.0));
-    println(math.pow(2.0, 8.0), math.abs(-3.5));
-    println(math.floor(2.7), math.ceil(2.1), math.round(2.5));
-    println(math.max(3.0, 7.0), math.min(3.0, 7.0));
+    print(math.sqrt(2.0));
+    print(math.pow(2.0, 8.0), math.abs(-3.5));
+    print(math.floor(2.7), math.ceil(2.1), math.round(2.5));
+    print(math.max(3.0, 7.0), math.min(3.0, 7.0));
 }
 ```
 
@@ -43,9 +43,9 @@ fn main() {
 use { json } from "std";
 
 fn main() {
-    println(json.stringify(42));
-    println(json.stringify("say \"hi\""));
-    println(json.stringify(true));
+    print(json.stringify(42));
+    print(json.stringify("say \"hi\""));
+    print(json.stringify(true));
 }
 ```
 
@@ -61,9 +61,9 @@ true
 use { regex } from "std";
 
 fn main() {
-    println(regex.match("\\d+", "order 123"));
-    println(regex.match("\\d+", "no digits"));
-    println(regex.replace("\\d", "a1b2c3", "#"));
+    print(regex.match("\\d+", "order 123"));
+    print(regex.match("\\d+", "no digits"));
+    print(regex.replace("\\d", "a1b2c3", "#"));
 }
 ```
 
@@ -79,10 +79,10 @@ a#b#c#
 use { base64, path } from "std";
 
 fn main() {
-    println(base64.encode("hello"));
-    println(base64.decode("aGVsbG8="));
-    println(path.basename("docs/notes.txt"), path.extension("notes.txt"));
-    println(path.is_absolute("notes.txt"));
+    print(base64.encode("hello"));
+    print(base64.decode("aGVsbG8="));
+    print(path.basename("docs/notes.txt"), path.extension("notes.txt"));
+    print(path.is_absolute("notes.txt"));
 }
 ```
 
@@ -123,11 +123,11 @@ use { HTTP, TcpStream } from "net";
 fn main() {
     http = HTTP();
     status = http.get("https://example.com");
-    println(status, http.body);
+    print(status, http.body);
 
     sock = TcpStream("127.0.0.1:7000");
     sock.send("hello");
-    println(sock.recv(1024));
+    print(sock.recv(1024));
     sock.close();
 }
 ```

@@ -16,7 +16,7 @@ fn manhattan(p: Point) -> int {
 
 fn main() {
     p = Point { x: 3, y: 4 };
-    println(p.x, p.y, manhattan(p));
+    print(p.x, p.y, manhattan(p));
 }
 ```
 
@@ -38,7 +38,7 @@ class Dog {
 
 fn main() {
     d = Dog { name: "Rex" };
-    println(d.speak());
+    print(d.speak());
 }
 ```
 
@@ -51,12 +51,12 @@ Constructor parameters can be written after the class name, and an `init` block 
 ```yidika
 class Counter(start: int) {
     fn get(&self) -> int { return self.start; }
-    init { println("counter created"); }
+    init { print("counter created"); }
 }
 
 fn main() {
     c = Counter(99);
-    println(c.get());
+    print(c.get());
 }
 ```
 
@@ -82,8 +82,8 @@ class Cat(name: str) : Animal {
 }
 
 fn main() {
-    println(Dog { name: "Rex", age: 3 }.speak());
-    println(Cat { name: "Tom" }.speak());
+    print(Dog { name: "Rex", age: 3 }.speak());
+    print(Cat { name: "Tom" }.speak());
 }
 ```
 
@@ -102,7 +102,7 @@ class Box<T> {
 
 fn main() {
     b: Box<int> = Box { val: 42 };
-    println(b.get());
+    print(b.get());
 }
 ```
 
@@ -129,7 +129,7 @@ fn render(d: Drawable) -> str {
 }
 
 fn main() {
-    println(render(Circle { r: 2 }));
+    print(render(Circle { r: 2 }));
 }
 ```
 
@@ -144,7 +144,7 @@ fn main() {
 ```yidika
 object Log {
     fn info(msg: str) {
-        println("[info] " + msg);
+        print("[info] " + msg);
     }
 }
 

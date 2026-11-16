@@ -16,40 +16,40 @@
 <link rel="stylesheet" href="style.css">
 <script type="module" src="site.js"></script>
 </head>
-<body class="{{body_class}}">
-<a class="skip" href="#main">Skip to content</a>
-<header class="top">
-  <div class="top-in">
-    <a class="brand" href="index.html" aria-label="Yidika home">
-      <svg class="logo" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>
-      <span>Yidika</span>
-    </a>
-    <span class="ver">v{{version}}</span>
-    <nav class="links" aria-label="Site">
-      <a href="quickstart.html">Docs</a>
-      <a class="wide" href="web-server.html">Guides</a>
-      <a href="{{registry}}">Packages{{icon:arrow-up-right:14}}</a>
-      <a class="wide" href="changelog.html">Changelog</a>
+<body class="{{body_class}} min-h-dvh">
+<a class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-ink focus:px-4 focus:py-2 focus:text-bg" href="#main">Skip to content</a>
+<header class="sticky top-[env(safe-area-inset-top,0px)] z-40 border-b border-rule bg-bg">
+  <div class="mx-auto flex h-header items-center gap-3 px-4 md:gap-8 md:px-10 {{header_width}}">
+    <div class="flex items-center gap-3">
+      <a class="flex items-center gap-2.5 text-lg font-bold tracking-tight text-ink no-underline" href="index.html" aria-label="Yidika home">
+        <svg class="logo" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>
+        <span>Yidika</span>
+      </a>
+      <span class="hidden rounded-sm border border-rule px-1.5 py-1 font-mono text-xs leading-none text-muted md:inline">v{{version}}</span>
+    </div>
+    <nav class="hidden items-center gap-8 lg:flex" aria-label="Site">
+      <a class="text-[0.9375rem] font-medium text-ink no-underline hover:text-accent-ink" href="quickstart.html">Docs</a>
+      <a class="text-[0.9375rem] font-medium text-ink no-underline hover:text-accent-ink" href="web-server.html">Guides</a>
+      <a class="inline-flex items-center gap-0.5 text-[0.9375rem] font-medium text-ink no-underline hover:text-accent-ink" href="{{registry}}">Packages{{icon:arrow-up-right:14}}</a>
+      <a class="text-[0.9375rem] font-medium text-ink no-underline hover:text-accent-ink" href="changelog.html">Changelog</a>
     </nav>
-    <button type="button" class="search-open" aria-label="Search the documentation" aria-keyshortcuts="/">
-      {{icon:search}}
-      <span class="search-label">Search</span><kbd>/</kbd>
-    </button>
-    <button type="button" class="theme-toggle" data-mode="system" aria-label="Color theme: follows the system">{{icon:monitor:18}}{{icon:sun:18}}{{icon:moon:18}}</button>
-    <a class="gh" href="{{repo}}" aria-label="Yidika on GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+    <div class="ml-auto flex items-center gap-1 md:gap-2">
+      <button type="button" class="search-open flex h-10 w-10 cursor-pointer items-center justify-center gap-2 rounded-md border border-rule bg-surface text-sm text-muted hover:border-rule-strong md:mr-2 md:w-64 md:justify-start md:px-3" aria-label="Search the documentation" aria-keyshortcuts="/">
+        {{icon:search}}
+        <span class="hidden md:inline">Search</span><kbd class="ml-auto hidden md:inline">/</kbd>
+      </button>
+      <button type="button" class="theme-toggle grid h-10 w-10 cursor-pointer place-items-center rounded-md text-ink hover:bg-accent-soft hover:text-accent-ink" data-mode="system" aria-label="Color theme: follows the system">{{icon:monitor:18}}{{icon:sun:18}}{{icon:moon:18}}</button>
+      <a class="hidden h-10 w-10 place-items-center rounded-md text-ink hover:bg-accent-soft hover:text-accent-ink sm:grid" href="{{repo}}" aria-label="Yidika on GitHub">{{icon:github:20}}</a>
+      <a class="ml-1 inline-flex h-10 items-center gap-2 rounded-md bg-ink px-4 text-[0.9375rem] font-semibold text-bg no-underline hover:bg-accent hover:text-on-accent md:ml-2" href="learn.html">{{icon:graduation-cap}}Learn</a>
+    </div>
   </div>
 </header>
-<div class="frame">
-  <aside class="sidebar" aria-label="Documentation">{{nav}}</aside>
-  <details class="contents"><summary>{{icon:list}}Documentation</summary><nav aria-label="Documentation">{{nav}}</nav></details>
-  <main id="main">{{content}}</main>
-  {{toc}}
-</div>
-<footer class="foot">
-  <div class="foot-in">
-    <p class="foot-brand"><svg class="logo" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>Yidika {{version}}, MIT license.</p>
-    <nav aria-label="Footer"><a href="quickstart.html">Docs</a><a href="{{registry}}">Packages</a><a href="changelog.html">Changelog</a><a href="{{repo}}">GitHub</a><a href="llms.txt">llms.txt</a></nav>
-    <p class="foot-note">Every example on this site is run by the test suite in both engines, on Linux, macOS and Windows.</p>
+{{main}}
+<footer class="border-t border-rule">
+  <div class="mx-auto grid max-w-[1200px] gap-6 px-4 py-12 md:grid-cols-[1fr_auto] md:px-10">
+    <p class="m-0 flex items-center gap-2.5 font-semibold"><svg class="logo" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>Yidika {{version}}, MIT license.</p>
+    <nav class="flex flex-wrap gap-x-6 gap-y-2 text-sm" aria-label="Footer"><a class="text-muted no-underline hover:text-ink" href="quickstart.html">Docs</a><a class="text-muted no-underline hover:text-ink" href="learn.html">Learn</a><a class="text-muted no-underline hover:text-ink" href="{{registry}}">Packages</a><a class="text-muted no-underline hover:text-ink" href="changelog.html">Changelog</a><a class="text-muted no-underline hover:text-ink" href="{{repo}}">GitHub</a><a class="text-muted no-underline hover:text-ink" href="llms.txt">llms.txt</a></nav>
+    <p class="m-0 text-sm text-muted md:col-span-2">Every example on this site is run by the test suite in both engines, on Linux, macOS and Windows.</p>
   </div>
 </footer>
 <dialog class="search" aria-label="Search the documentation">

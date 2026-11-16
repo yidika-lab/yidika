@@ -8,16 +8,16 @@
 fn main() {
     l = [3, 1, 2];
     l.push(4);
-    println(l, l.len(), len(l), l[0]);
+    print(l, l.len(), len(l), l[0]);
     l.sort();
-    println(l);
+    print(l);
     l.reverse();
-    println(l);
+    print(l);
     l.insert(0, 9);
     l.remove(1);
-    println(l);
+    print(l);
     last = l.pop();
-    println(last, l);
+    print(last, l);
 }
 ```
 
@@ -38,9 +38,9 @@ fn first(xs: list[str]) -> str {
 
 fn main() {
     names = ["Ada", "Grace"];
-    println(names, first(names));
+    print(names, first(names));
     rs = [1.5, 2.5];
-    println(rs[1] * 2.0);
+    print(rs[1] * 2.0);
 }
 ```
 
@@ -58,7 +58,7 @@ A set keeps one copy of each value.
 ```yidika
 fn main() {
     s: set[int] = {3, 1, 3, 2};
-    println(s, s.len());
+    print(s, s.len());
 }
 ```
 
@@ -71,8 +71,8 @@ set{3, 1, 2} 3
 ```yidika
 fn main() {
     ages = {"Ada": 36, "Grace": 85};
-    println(ages["Ada"], ages.len());
-    println(ages.keys());
+    print(ages["Ada"], ages.len());
+    print(ages.keys());
 }
 ```
 
@@ -86,7 +86,7 @@ fn main() {
 ```yidika
 fn main() {
     t = (42, "answer");
-    println(t.0, t.1);
+    print(t.0, t.1);
 }
 ```
 

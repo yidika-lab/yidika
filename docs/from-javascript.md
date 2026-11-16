@@ -13,7 +13,7 @@ Yidika reads much like TypeScript with types checked for real: braces, `(x) => x
 | `` `${name} is ${age}` `` | `f"{name} is {age}"` |
 | `function add(a: number, b: number): number` | `fn add(a: int, b: int) -> int` |
 | `(x) => x + 1` | `(x) => x + 1` |
-| `console.log(a, b)` | `println(a, b);` |
+| `console.log(a, b)` | `print(a, b);` |
 | `for (const x of items)` | `for (x: items)` |
 | `switch` | `match` |
 | `{ x: 1, y: 2 }` | a `struct`: `Point { x: 1, y: 2 }` |
@@ -29,9 +29,9 @@ JavaScript has one `number`. Yidika has `int` (64-bit) and `real` (64-bit floati
 
 ```yidika
 fn main() {
-    println(7 / 2, 7.0 / 2.0, 7 % 2);
-    println(0.1 + 0.2 == 0.3);
-    println(9007199254740993 - 1);
+    print(7 / 2, 7.0 / 2.0, 7 % 2);
+    print(0.1 + 0.2 == 0.3);
+    print(9007199254740993 - 1);
 }
 ```
 
@@ -61,7 +61,7 @@ struct Point {
 
 fn main() {
     p = Point { x: 3, y: 4 };
-    println(p.x + p.y);
+    print(p.x + p.y);
 }
 ```
 
@@ -78,7 +78,7 @@ class Counter(start: int) {
 
 fn main() {
     c = Counter(41);
-    println(c.next());
+    print(c.next());
 }
 ```
 
@@ -101,8 +101,8 @@ fn find(id: int) -> User? {
 }
 
 fn main() {
-    println(find(1)?.name ?: "nobody");
-    println(find(2)?.name ?: "nobody");
+    print(find(1)?.name ?: "nobody");
+    print(find(2)?.name ?: "nobody");
 }
 ```
 
@@ -136,8 +136,8 @@ fn next_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(next_port("8080"));
-    println(next_port(""));
+    print(next_port("8080"));
+    print(next_port(""));
 }
 ```
 
@@ -166,7 +166,7 @@ fn main() {
     b = spawn work(2000);
     x = await a;
     y = await b;
-    println(x, y);
+    print(x, y);
 }
 ```
 

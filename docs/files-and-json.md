@@ -14,12 +14,12 @@ fn main() {
     fs.write(file, "write the docs\n");
     fs.append(file, "ship 0.3\n");
     lines = fs.read(file).trim().split("\n");
-    println(len(lines), "tasks");
+    print(len(lines), "tasks");
     for (line: lines) {
-        println("-", line);
+        print("-", line);
     }
     fs.remove(file);
-    println(fs.exists(file));
+    print(fs.exists(file));
 }
 ```
 
@@ -41,9 +41,9 @@ use { path } from "std";
 
 fn main() {
     report = path.join("reports", "2026-11.csv");
-    println(path.basename(report));
-    println(path.extension(report));
-    println(path.basename(path.dirname(report)));
+    print(path.basename(report));
+    print(path.extension(report));
+    print(path.basename(path.dirname(report)));
 }
 ```
 
@@ -74,8 +74,8 @@ fn main() {
     file = "settings-" + str(sys.pid()) + ".json";
     fs.write(file, "{\"name\": \"shop\", \"port\": 8080, \"debug\": true}");
     s = parse_settings(fs.read(file));
-    println(s.name, "listens on", s.port);
-    println(json.stringify(s.name), json.stringify(s.port + 1));
+    print(s.name, "listens on", s.port);
+    print(json.stringify(s.name), json.stringify(s.port + 1));
     fs.remove(file);
 }
 ```
@@ -102,7 +102,7 @@ use { fs } from "std";
 
 fn main() {
     lines = fs.read("count.yk").split("\n");
-    println(len(lines), "lines");
+    print(len(lines), "lines");
 }
 ```
 

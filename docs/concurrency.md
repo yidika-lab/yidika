@@ -14,7 +14,7 @@ fn main() {
     b = spawn work(2000);
     x = await a;
     y = await b;
-    println(x, y, x + y);
+    print(x, y, x + y);
 }
 ```
 
