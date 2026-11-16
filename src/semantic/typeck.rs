@@ -129,7 +129,7 @@ impl<'a> TypeChecker<'a> {
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
         // Register universally available builtins
-        for name in &["print", "println", "len", "str", "input", "fetch", "typeof", "int", "real", "bool"] {
+        for name in &["print", "len", "str", "input", "fetch", "typeof", "int", "real", "bool"] {
             self.builtin_modules.insert(name.to_string());
         }
         // Register builtin module imports
@@ -586,7 +586,6 @@ impl<'a> TypeChecker<'a> {
             Expr::LitBool(_) => Ok(TypeExpr::Bool),
             Expr::LitSymbol(_) => Ok(TypeExpr::Symbol),
             Expr::LitNull => Ok(TypeExpr::Null),
-            Expr::LitNone => Ok(TypeExpr::None_),
             Expr::Ident(name) => {
                 match self.vars.get(name) {
                     Some(var_info) => {
@@ -651,7 +650,7 @@ impl<'a> TypeChecker<'a> {
                     Expr::Ident(name) => {
                         if self.builtin_modules.contains(name.as_str()) {
                             match name.as_str() {
-                                "print" | "println" | "input" | "typeof" => Ok(TypeExpr::None_),
+                                "print" | "input" | "typeof" => Ok(TypeExpr::None_),
                                 "cos" | "sin" | "sqrt" | "abs" | "floor" | "ceil" | "round" | "max" | "min" | "pow" | "rand" => Ok(TypeExpr::Real(0)),
                                 "now" | "utc" => Ok(TypeExpr::Str),
                                 "timestamp" => Ok(TypeExpr::Int(0)),

@@ -1452,8 +1452,8 @@ class B(k: int, name: str) : A {
 }
 fn main() {
     b = B { name: "x", k: 1 };
-    println(b.hi());
-    println(b.k);
+    print(b.hi());
+    print(b.k);
 }
 "#, "inherited_method_reads_parent_field");
     }
@@ -1462,7 +1462,7 @@ fn main() {
     fn compat_set_literal_drops_duplicates() {
         check_compat(r#"fn main() {
     s: set[int] = {1, 2, 2, 3, 1};
-    println(s.len());
+    print(s.len());
 }
 "#, "set_literal_drops_duplicates");
     }
@@ -1471,9 +1471,9 @@ fn main() {
     fn compat_generic_fn_keeps_argument_type() {
         check_compat(r#"fn id<T>(x: T) -> T { return x; }
 fn main() {
-    println(id("s"));
-    println(id(5));
-    println(id(2.5));
+    print(id("s"));
+    print(id(5));
+    print(id(2.5));
 }
 "#, "generic_fn_keeps_argument_type");
     }
@@ -1483,7 +1483,7 @@ fn main() {
         check_compat(r#"fn work(n: int) -> int { return n * 2; }
 fn main() {
     t = spawn work(21);
-    println(await t);
+    print(await t);
 }
 "#, "await_returns_spawned_value");
     }
@@ -1493,9 +1493,9 @@ fn main() {
         check_compat(r#"fn main() {
     x = 5;
     y = if (x > 3) { "big" } else { "small" };
-    println(y);
+    print(y);
     z = if (x > 9) { 1 } else { 2 };
-    println(z);
+    print(z);
 }
 "#, "if_expression_yields_branch_value");
     }
@@ -1505,26 +1505,26 @@ fn main() {
         check_compat(r#"fn first(xs: list[str]) -> str { return xs[0]; }
 fn main() {
     l = [1, 2, 3];
-    println(l);
+    print(l);
     s: set[int] = {3, 1, 3};
-    println(s);
-    println(s.len());
+    print(s);
+    print(s.len());
     n = ["a", "b"];
-    println(n);
-    println(n[1]);
-    println(first(n));
+    print(n);
+    print(n[1]);
+    print(first(n));
     r = [1.5, 2.5];
-    println(r[0]);
-    println(r);
+    print(r[0]);
+    print(r);
     b = [true, false];
-    println(b);
+    print(b);
     w = [];
     w.push("x");
     w.push("y");
-    println(w);
-    println(w[1]);
+    print(w);
+    print(w[1]);
     t: set[str] = {"a", "b", "a"};
-    println(t);
+    print(t);
 }
 "#, "collections_keep_element_type");
     }
@@ -1534,7 +1534,7 @@ fn main() {
         let err = build_aot(r#"use { json } from "json";
 fn main() {
     v = json.parse("{\"a\":1}");
-    println(v);
+    print(v);
 }
 "#, "refuses_json_parse").expect_err("json.parse must not build until it is implemented natively");
         assert!(err.contains("json.parse"), "{}", err);
@@ -1542,7 +1542,7 @@ fn main() {
 
     #[test]
     fn aot_stops_on_list_index_out_of_bounds() {
-        let source = "fn main() {\n    l = [1, 2];\n    println(l[5]);\n}\n";
+        let source = "fn main() {\n    l = [1, 2];\n    print(l[5]);\n}\n";
         let interp = run_interp(source).expect_err("the interpreter stops on a bad index");
         let native = run_aot(source, "list_index_out_of_bounds").expect_err("the native binary must stop instead of printing 0");
         assert!(interp.contains("Index 5 out of bounds for list of length 2"), "{}", interp);
@@ -1560,7 +1560,7 @@ fn kind(s: Shape) -> str {
     };
 }
 fn main() {
-    println(kind(Shape::Circle(2)), kind(Shape::Square(3)), kind(Shape::Empty));
+    print(kind(Shape::Circle(2)), kind(Shape::Square(3)), kind(Shape::Empty));
 }
 "#, "enum_parameter_matches_its_own_variant");
     }
@@ -1571,9 +1571,9 @@ fn main() {
     return match n { 0 => "zero", 1 => "one", 2 => "two", _ => "many" };
 }
 fn main() {
-    println(name(0), name(1), name(2), name(9));
+    print(name(0), name(1), name(2), name(9));
     s = "c";
-    println(match s { "a" => 1, "b" => 2, "c" => 3, _ => 0 });
+    print(match s { "a" => 1, "b" => 2, "c" => 3, _ => 0 });
 }
 "#, "match_reaches_every_arm");
     }
@@ -1582,19 +1582,19 @@ fn main() {
     fn compat_base64_round_trips_every_padding_length() {
         check_compat(r#"use { base64 } from "base64";
 fn main() {
-    println(base64.encode("a"), base64.decode(base64.encode("a")));
-    println(base64.encode("ab"), base64.decode(base64.encode("ab")));
-    println(base64.encode("abc"), base64.decode(base64.encode("abc")));
-    println(base64.encode("abcd"), base64.decode(base64.encode("abcd")));
-    println(base64.encode("hello"), base64.decode(base64.encode("hello")));
-    println(base64.encode(""), base64.decode(""));
+    print(base64.encode("a"), base64.decode(base64.encode("a")));
+    print(base64.encode("ab"), base64.decode(base64.encode("ab")));
+    print(base64.encode("abc"), base64.decode(base64.encode("abc")));
+    print(base64.encode("abcd"), base64.decode(base64.encode("abcd")));
+    print(base64.encode("hello"), base64.decode(base64.encode("hello")));
+    print(base64.encode(""), base64.decode(""));
 }
 "#, "base64_round_trips_every_padding_length");
     }
 
     #[test]
     fn aot_stops_on_invalid_base64_like_the_interpreter() {
-        let source = "use { base64 } from \"base64\";\nfn main() {\n    println(base64.decode(\"YQ\"));\n}\n";
+        let source = "use { base64 } from \"base64\";\nfn main() {\n    print(base64.decode(\"YQ\"));\n}\n";
         assert!(run_interp(source).is_err(), "the interpreter rejects unpadded input");
         let native = run_aot(source, "invalid_base64").expect_err("the native binary must stop instead of reading past the input");
         assert!(native.contains("base64.decode"), "{}", native);
@@ -1607,7 +1607,7 @@ fn main() {
     return 1 + depth(n - 1);
 }
 fn main() {
-    println(depth(400));
+    print(depth(400));
 }
 "#, "deep_recursion_runs_in_both_engines");
     }

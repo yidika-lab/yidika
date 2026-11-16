@@ -16,7 +16,6 @@ fn keyword_to_ident(tok: &Token) -> String {
         Token::TVector => "vector".into(),
         Token::TMatrix => "matrix".into(),
         Token::TMap => "map".into(),
-        Token::Infiny => "infiny".into(),
         Token::Super => "super".into(),
         Token::Override => "override".into(),
         Token::Final => "final".into(),
@@ -103,7 +102,6 @@ impl Parser {
             Token::TVector => { self.pos += 1; Ok("vector".into()) }
             Token::TMatrix => { self.pos += 1; Ok("matrix".into()) }
             Token::TMap => { self.pos += 1; Ok("map".into()) }
-            Token::Infiny => { self.pos += 1; Ok("infiny".into()) }
             Token::Data => { self.pos += 1; Ok("data".into()) }
             Token::Enum => { self.pos += 1; Ok("enum".into()) }
             Token::Object => { self.pos += 1; Ok("object".into()) }
@@ -113,11 +111,8 @@ impl Parser {
             Token::Super => { self.pos += 1; Ok("super".into()) }
             Token::Override => { self.pos += 1; Ok("override".into()) }
             Token::Final => { self.pos += 1; Ok("final".into()) }
-            Token::Mut => { self.pos += 1; Ok("mut".into()) }
-            Token::Ref => { self.pos += 1; Ok("ref".into()) }
             Token::Fn => { self.pos += 1; Ok("fn".into()) }
             Token::If => { self.pos += 1; Ok("if".into()) }
-            Token::None => { self.pos += 1; Ok("None".into()) }
             Token::True => { self.pos += 1; Ok("True".into()) }
             Token::False => { self.pos += 1; Ok("False".into()) }
             Token::Null => { self.pos += 1; Ok("Null".into()) }
@@ -144,6 +139,7 @@ impl Parser {
             Token::Union => "union".into(),
             Token::Type => "type".into(),
             Token::Use => "use".into(),
+            Token::Implements => "implements".into(),
             Token::Export => "export".into(),
             Token::As => "as".into(),
             Token::From => "from".into(),
@@ -159,11 +155,9 @@ impl Parser {
             Token::Override => "override".into(),
             Token::Final => "final".into(),
             Token::Super => "super".into(),
-            Token::Mut => "mut".into(),
-            Token::Ref => "ref".into(),
             Token::True => "true".into(),
             Token::False => "false".into(),
-            Token::None | Token::Null => "none".into(),
+            Token::Null => "null".into(),
             Token::OkKw => "Ok".into(),
             Token::ErrorKw => "Error".into(),
             Token::Const => "const".into(),
@@ -178,8 +172,7 @@ impl Parser {
             Token::TMatrix => "matrix".into(),
             Token::TMap => "map".into(),
             Token::IntLit(s) => s.clone(),
-            Token::Infiny => "infiny".into(),
-            _ => return Err(error::err(ErrorKind::Syntax, span, format!("Expected identifier, found {:?}", tok))),
+                _ => return Err(error::err(ErrorKind::Syntax, span, format!("Expected identifier, found {:?}", tok))),
         };
         self.pos += 1;
         Ok(s)
@@ -440,7 +433,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 }
                 self.eat(Token::RParen)?;
             }
-            if self.tok() == &Token::Use {
+            if self.tok() == &Token::Implements {
                 self.advance();
                 loop {
                     implements.push(self.ident()?);
@@ -448,7 +441,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 }
             }
         }
-        if self.tok() == &Token::Use {
+        if self.tok() == &Token::Implements {
             self.advance();
             loop {
                 implements.push(self.ident()?);
@@ -582,22 +575,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn type_(&mut self) -> Result<TypeNode> {
         let (tok, span) = self.advance();
         let first = match tok {
-            Token::TInt(w) => {
-                // Support both "int8" (TInt(8)) and "int 8" (TInt(0) + IntLit) syntaxes
-                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Int(w)) }
-                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Int(v)) }
-                else { TypeNode::new(fresh_id(),span,TypeExpr::Int(0)) }
-            }
-            Token::TRint(w) => {
-                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Rint(w)) }
-                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Rint(v)) }
-                else { TypeNode::new(fresh_id(),span,TypeExpr::Rint(0)) }
-            }
-            Token::TReal(w) => {
-                if w > 0 { TypeNode::new(fresh_id(),span,TypeExpr::Real(w)) }
-                else if let Token::IntLit(s) = self.tok() { let v=s.parse::<u8>().unwrap_or(0); let s2=self.advance().1; TypeNode::new(fresh_id(),span.merge(s2),TypeExpr::Real(v)) }
-                else { TypeNode::new(fresh_id(),span,TypeExpr::Real(0)) }
-            }
+            Token::TInt(w) => TypeNode::new(fresh_id(),span,TypeExpr::Int(w)),
+            Token::TRint(w) => TypeNode::new(fresh_id(),span,TypeExpr::Rint(w)),
+            Token::TReal(w) => TypeNode::new(fresh_id(),span,TypeExpr::Real(w)),
             Token::TComplex => {
                 if self.tok() == &Token::LBracket {
                     self.advance();
@@ -627,13 +607,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 } else {
                     TypeNode::new(fresh_id(), span, TypeExpr::Map(Box::new(TypeExpr::Str), Box::new(TypeExpr::Infer)))
                 }
-            }
-            Token::LBrace => {
-                let k = self.type_()?;
-                self.eat(Token::Comma)?;
-                let v = self.type_()?;
-                self.eat(Token::RBrace)?;
-                TypeNode::new(fresh_id(), span, TypeExpr::Map(Box::new(k.value), Box::new(v.value)))
             }
             Token::LBracket => { let inner = self.type_()?; self.eat(Token::RBracket)?; TypeNode::new(fresh_id(),span,TypeExpr::List(Box::new(inner.value))) }
             Token::Ident(s) => {
@@ -685,13 +658,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 TypeExpr::Named(n) if n == "List" && args.len() == 1 => {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(args.into_iter().next().unwrap())))
                 }
-                TypeExpr::Named(n) if n == "list" && args.len() == 1 => {
-                    TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(args.into_iter().next().unwrap())))
-                }
                 TypeExpr::Named(n) if n == "Set" && args.len() == 1 => {
-                    TypeNode::new(fresh_id(), first.span, TypeExpr::Set(Box::new(args.into_iter().next().unwrap())))
-                }
-                TypeExpr::Named(n) if n == "set" && args.len() == 1 => {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::Set(Box::new(args.into_iter().next().unwrap())))
                 }
                 TypeExpr::Named(n) if n == "Vector" && args.len() == 1 => {
@@ -701,12 +668,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::Matrix(Box::new(args.into_iter().next().unwrap())))
                 }
                 TypeExpr::Named(n) if n == "Map" && args.len() == 2 => {
-                    let mut a = args.into_iter();
-                    let k = a.next().unwrap();
-                    let v = a.next().unwrap();
-                    TypeNode::new(fresh_id(), first.span, TypeExpr::Map(Box::new(k), Box::new(v)))
-                }
-                TypeExpr::Named(n) if n == "map" && args.len() == 2 => {
                     let mut a = args.into_iter();
                     let k = a.next().unwrap();
                     let v = a.next().unwrap();
@@ -759,7 +720,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::For => self.for_stmt(),
             Token::While => { self.advance(); self.eat(Token::LParen)?; let c=self.expr(0)?; self.eat(Token::RParen)?; let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(c,b))) }
             Token::Loop => { self.advance(); let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Loop(b))) }
-            Token::Infiny => { self.advance(); let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Loop(b))) }
             Token::Return => {
                 self.advance();
                 if self.tok() == &Token::Semicolon { self.advance(); Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::Return(None))) }
@@ -908,49 +868,17 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     fn for_stmt(&mut self) -> Result<StmtNode> {
         self.advance();
         self.eat(Token::LParen)?;
-        let saved = self.pos;
-        if self.tok() == &Token::Semicolon {
-            self.advance();
-            let cond = self.expr(0)?;
-            self.eat(Token::Semicolon)?;
-            let inc = self.expr(0)?;
-            self.eat(Token::RParen)?;
-            let mut body = self.block_stmts()?;
-            body.push(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(inc)));
-            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(cond, body)))
-        } else if matches!(self.tok(), Token::Ident(_)) {
-            let first = self.ident()?;
-            if self.tok() == &Token::In || self.tok() == &Token::Colon {
-                let is_for_of = self.tok() == &Token::Colon;
-                self.advance();
-                let iterable = self.expr(0)?;
-                self.eat(Token::RParen)?;
-                let body = self.block_stmts()?;
-                Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(first,iterable,body,is_for_of)))
-            } else {
-                self.pos = saved;
-                let _init = self.expr(0)?;
-                self.eat(Token::Semicolon)?;
-                let cond = self.expr(0)?;
-                self.eat(Token::Semicolon)?;
-                let inc = self.expr(0)?;
-                self.eat(Token::RParen)?;
-                let mut body = self.block_stmts()?;
-                body.push(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(inc)));
-                Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(cond, body)))
-            }
-        } else {
-            self.pos = saved;
-            let _init = self.expr(0)?;
-            self.eat(Token::Semicolon)?;
-            let cond = self.expr(0)?;
-            self.eat(Token::Semicolon)?;
-            let inc = self.expr(0)?;
-            self.eat(Token::RParen)?;
-            let mut body = self.block_stmts()?;
-            body.push(StmtNode::new(fresh_id(), Span::new(0,0), Stmt::Expr(inc)));
-            Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(cond, body)))
-        }
+        let name = self.ident()?;
+        let is_for_of = match self.tok() {
+            Token::In => false,
+            Token::Colon => true,
+            t => return Err(error::err(ErrorKind::Syntax, self.span(), format!("Expected 'in' or ':' after the loop variable, found {:?}. Write for (i in 0..n) or for (x: items)", t))),
+        };
+        self.advance();
+        let iterable = self.expr(0)?;
+        self.eat(Token::RParen)?;
+        let body = self.block_stmts()?;
+        Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::For(name,iterable,body,is_for_of)))
     }
 
     // ─── Expressions (Pratt) ──────────────────────────
@@ -1077,14 +1005,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             lhs = ExprNode::new(fresh_id(), lhs.span, Expr::BinOp(Box::new(lhs), op, Box::new(rhs)));
     }
 
-        // Ternary ? :
-        if self.tok() == &Token::Question {
-            self.advance();
-            let then = self.expr(0)?;
-            self.eat(Token::Colon)?;
-            let else_ = self.expr(0)?;
-            lhs = ExprNode::new(fresh_id(), lhs.span, Expr::If(Box::new(lhs), Box::new(then), Some(Box::new(else_))));
-        }
         // Elvis ?:
         if self.tok() == &Token::Elvis {
             self.advance();
@@ -1159,7 +1079,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::True => Ok(ExprNode::new(fresh_id(),span,Expr::LitBool(true))),
             Token::False => Ok(ExprNode::new(fresh_id(),span,Expr::LitBool(false))),
             Token::Null => Ok(ExprNode::new(fresh_id(),span,Expr::LitNull)),
-            Token::None => Ok(ExprNode::new(fresh_id(),span,Expr::LitNone)),
             Token::SymbolLit(s) => Ok(ExprNode::new(fresh_id(),span,Expr::LitSymbol(s[1..].to_string()))),
             Token::CharLit(c) => Ok(ExprNode::new(fresh_id(),span,Expr::LitChar(c))),
             Token::Ident(name) => {
@@ -1180,8 +1099,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                     } else { Vec::new() };
                     Ok(ExprNode::new(fresh_id(), span, Expr::Variant(name, vname, args)))
                 } else if name == "set" && self.tok() == &Token::LBrace { self.set_lit(span) }
-                else if name == "tuple" && self.tok() == &Token::LBrace { self.tuple_lit(span) }
-                else if (name == "map" || name == "Map") && self.tok() == &Token::LBrace { self.map_lit(span) }
                 else if self.tok() == &Token::LParen { self.call(name, span) }
                 else if !self.no_struct && self.tok() == &Token::LBrace { self.struct_lit(name, span) }
                 else { Ok(ExprNode::new(fresh_id(),span,Expr::Ident(name))) }
@@ -1189,10 +1106,9 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::TInt(_) | Token::TRint(_) | Token::TReal(_) | Token::TComplex
             | Token::TBool | Token::TStr | Token::TSymbol
             | Token::TVector | Token::TMatrix | Token::TMap
-            | Token::Infiny | Token::Open | Token::Abstract | Token::Data | Token::Init | Token::Super | Token::Override | Token::Final => {
+            | Token::Open | Token::Abstract | Token::Data | Token::Init | Token::Super | Token::Override | Token::Final => {
                 let name = keyword_to_ident(&tok);
                 if self.tok() == &Token::LParen { self.call(name, span) }
-                else if (name == "map" || name == "Map") && self.tok() == &Token::LBrace { self.map_lit(span) }
                 else if !self.no_struct && self.tok() == &Token::LBrace { self.struct_lit(name, span) }
                 else { Ok(ExprNode::new(fresh_id(),span,Expr::Ident(name))) }
             }
@@ -1474,19 +1390,16 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     }
 
     fn set_lit(&mut self, span: Span) -> Result<ExprNode> {
-        let use_paren = self.tok() == &Token::LParen;
         self.advance();
         let mut items = Vec::new();
         loop {
-            let close = if use_paren { Token::RParen } else { Token::RBrace };
             match self.tok() {
-                t if *t == close => { self.advance(); break; }
+                Token::RBrace => { self.advance(); break; }
                 _ => {
                     items.push(self.expr(0)?);
                     if self.tok() == &Token::Comma { self.advance(); }
-                    else if self.tok() != &close {
-                        let expected = if use_paren { ")" } else { "}" };
-                        return Err(error::err(ErrorKind::Syntax, self.span(), format!("Expected , or {} in set literal", expected)));
+                    else if self.tok() != &Token::RBrace {
+                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in set literal"));
                     }
                 }
             }
@@ -1494,70 +1407,6 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         Ok(ExprNode::new(fresh_id(), span, Expr::SetLit(items)))
     }
 
-    fn tuple_lit(&mut self, span: Span) -> Result<ExprNode> {
-        self.advance();
-        let mut items = Vec::new();
-        loop {
-            match self.tok() {
-                Token::RBrace => { self.advance(); break; }
-                _ => {
-                    items.push(self.expr(0)?);
-                    if self.tok() == &Token::Comma { self.advance(); }
-                    else if self.tok() != &Token::RBrace {
-                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in tuple literal"));
-                    }
-                }
-            }
-        }
-        Ok(ExprNode::new(fresh_id(), span, Expr::TupleLit(items)))
-    }
-
-    fn map_lit(&mut self, span: Span) -> Result<ExprNode> {
-        self.advance();
-        let mut pairs = Vec::new();
-        loop {
-            match self.tok() {
-                Token::RBrace => { self.advance(); break; }
-                Token::LBracket => {
-                    self.advance();
-                    let key = self.expr(0)?;
-                    self.eat(Token::RBracket)?;
-                    self.eat(Token::Colon)?;
-                    let val = self.expr(0)?;
-                    pairs.push((key, val));
-                    if self.tok() == &Token::Comma { self.advance(); }
-                    else if self.tok() != &Token::RBrace {
-                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
-                    }
-                }
-                _ => {
-                    let ahead = self.tokens.get(self.pos + 1).map(|(t, _)| t);
-                    let is_shorthand = matches!(self.tok(), Token::Ident(_))
-                        && matches!(ahead, Some(Token::Comma | Token::RBrace));
-                    if is_shorthand {
-                        let name = self.ident()?;
-                        pairs.push((
-                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(name.clone())),
-                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::Ident(name)),
-                        ));
-                    } else {
-                        let key = self.expr(0)?;
-                        self.eat(Token::Colon)?;
-                        let key = if let Expr::Ident(s) = &key.value {
-                            ExprNode::new(fresh_id(), Span::new(0,0), Expr::LitStr(s.clone()))
-                        } else { key };
-                        let val = self.expr(0)?;
-                        pairs.push((key, val));
-                    }
-                    if self.tok() == &Token::Comma { self.advance(); }
-                    else if self.tok() != &Token::RBrace {
-                        return Err(error::err(ErrorKind::Syntax, self.span(), "Expected , or } in map literal"));
-                    }
-                }
-            }
-        }
-        Ok(ExprNode::new(fresh_id(), span, Expr::MapLit(pairs)))
-    }
 
     fn parse_fstring(&mut self, raw: String, span: Span) -> Result<ExprNode> {
         enum Part { Text(String), Expr(ExprNode) }
@@ -1817,10 +1666,10 @@ fn is_method_call(expr: &Expr, methods: &[&str]) -> bool {
 fn tokens_match(a: &Token, b: &Token) -> bool {
     use Token::*;
     matches!((a,b),
-        (Fn,Fn)|(Const,Const)|(If,If)|(Else,Else)|(For,For)|(In,In)|(While,While)|(Loop,Loop)|(Infiny,Infiny)|(Return,Return)
+        (Fn,Fn)|(Const,Const)|(If,If)|(Else,Else)|(For,For)|(In,In)|(While,While)|(Loop,Loop)|(Implements,Implements)|(Return,Return)
         |(Struct,Struct)|(Class,Class)|(Interface,Interface)|(Union,Union)|(Enum,Enum)|(Type,Type)|(Use,Use)|(Export,Export)|(As,As)|(From,From)
-        |(Async,Async)|(Await,Await)|(Spawn,Spawn)|(Try,Try)|(Catch,Catch)|(Init,Init)|(Open,Open)|(Abstract,Abstract)|(Data,Data)|(Override,Override)|(Final,Final)|(True,True)|(False,False)|(Null,Null)|(None,None)
-        |(OkKw,OkKw)|(ErrorKw,ErrorKw)|(Mut,Mut)|(Ref,Ref)|(Match,Match)|(Super,Super)
+        |(Async,Async)|(Await,Await)|(Spawn,Spawn)|(Try,Try)|(Catch,Catch)|(Init,Init)|(Open,Open)|(Abstract,Abstract)|(Data,Data)|(Override,Override)|(Final,Final)|(True,True)|(False,False)|(Null,Null)
+        |(OkKw,OkKw)|(ErrorKw,ErrorKw)|(Ref,Ref)|(Match,Match)|(Super,Super)
         |(TInt(_),TInt(_))|(TRint(_),TRint(_))|(TReal(_),TReal(_))|(TComplex,TComplex)|(TBool,TBool)|(TStr,TStr)|(TSymbol,TSymbol)|(TVector,TVector)|(TMatrix,TMatrix)|(TMap,TMap)
         |(Plus,Plus)|(Minus,Minus)|(Star,Star)|(Slash,Slash)|(Percent,Percent)|(StarStar,StarStar)|(Caret,Caret)|(Tilde,Tilde)
         |(Eq,Eq)|(EqEq,EqEq)|(NotEq,NotEq)

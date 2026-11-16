@@ -269,7 +269,6 @@ impl Interpreter {
             Expr::LitChar(c) => Ok(EvalResult::Value(Value::Char(*c))),
             Expr::LitBool(b) => Ok(EvalResult::Value(Value::Bool(*b))),
             Expr::LitNull => Ok(EvalResult::Value(Value::Null)),
-            Expr::LitNone => Ok(EvalResult::Value(Value::None_)),
             Expr::LitComplex(r, im) => {
                 let rv = eval!(r);
                 let iv = eval!(im);
@@ -380,7 +379,7 @@ impl Interpreter {
                 match &callee.value {
                     Expr::Ident(name) => {
                         match name.as_str() {
-                            "print" | "println" => {
+                            "print" => {
                                 let parts: Vec<String> = arg_vals.iter().map(|v| v.to_string()).collect();
                                 let s = if parts.is_empty() { "\n".into() } else { parts.join(" ") + "\n" };
                                 if self.tui_mode {

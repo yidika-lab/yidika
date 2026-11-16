@@ -384,13 +384,13 @@ mod tests {
 
     #[test]
     fn fstring_literal() {
-        let out = run(r#"fn main() { name: str = "world"; print(f'hello {name}'); }"#);
+        let out = run(r#"fn main() { name: str = "world"; print(f"hello {name}"); }"#);
         assert_eq!(out, "hello world\n");
     }
 
     #[test]
     fn fstring_expr() {
-        let out = run(r#"fn main() { print(f'sum: {1 + 2}'); }"#);
+        let out = run(r#"fn main() { print(f"sum: {1 + 2}"); }"#);
         assert_eq!(out, "sum: 3\n");
     }
 

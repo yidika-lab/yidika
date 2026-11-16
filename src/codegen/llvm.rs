@@ -904,13 +904,13 @@ impl LlvmCodegen {
             TypeExpr::Named(name) => {
                 let lc = name.to_lowercase();
                 match lc.as_str() {
-                    "str" | "string" => "%yk_string".into(),
-                    "int" | "int64" | "integer" => "i64".into(),
+                    "str" => "%yk_string".into(),
+                    "int" => "i64".into(),
                     "int8" => "i8".into(),
                     "int16" => "i16".into(),
                     "int32" => "i32".into(),
-                    "real" | "float" | "double" => "double".into(),
-                    "bool" | "boolean" => "i1".into(),
+                    "real" => "double".into(),
+                    "bool" => "i1".into(),
                     "symbol" => "%yk_string".into(),
                     "complex" => "%yk_complex".into(),
                     _ => {
@@ -2147,7 +2147,7 @@ impl LlvmCodegen {
                 }
 
                 if Self::is_nullable_ty(&effective_ty) && !Self::is_nullable_ty(&val_ty) {
-                    let is_null = matches!(&value.value, Expr::LitNull | Expr::LitNone);
+                    let is_null = matches!(&value.value, Expr::LitNull);
                     let wrapped = self.wrap_in_nullable(&effective_ty, &val, &val_ty, is_null);
                     self.e(&format!("store {} {}, ptr {}", effective_ty, wrapped, ptr));
                 } else if Self::is_union_ty(&effective_ty) && !Self::is_union_ty(&val_ty) {
@@ -2229,7 +2229,7 @@ impl LlvmCodegen {
                 if is_http_ctor { self.http_vars.insert(name.clone()); }
                 let ty = self.val_ty(name);
                 if Self::is_nullable_ty(&ty) && !Self::is_nullable_ty(&val_ty) {
-                    let is_null = matches!(&expr.value, Expr::LitNull | Expr::LitNone);
+                    let is_null = matches!(&expr.value, Expr::LitNull);
                     let wrapped = self.wrap_in_nullable(&ty, &val, &val_ty, is_null);
                     self.e(&format!("store {} {}, ptr {}", ty, wrapped, ptr));
                 } else if Self::is_union_ty(&ty) && !Self::is_union_ty(&val_ty) {
@@ -2267,7 +2267,7 @@ impl LlvmCodegen {
                         let (val, val_ty) = self.compile_expr(ex);
                         let fn_ret = self.current_fn_ret.clone();
                         if Self::is_nullable_ty(&fn_ret) && !Self::is_nullable_ty(&val_ty) {
-                            let is_null = matches!(&ex.value, Expr::LitNull | Expr::LitNone);
+                            let is_null = matches!(&ex.value, Expr::LitNull);
                             let wrapped = self.wrap_in_nullable(&fn_ret, &val, &val_ty, is_null);
                             self.e(&format!("ret {} {}", fn_ret, wrapped));
                         } else if fn_ret == "i64" && val_ty == "ptr" {
@@ -2415,7 +2415,7 @@ impl LlvmCodegen {
             Expr::LitBool(false) => ("false".into(), "i1".into()),
             Expr::LitStr(s) => (self.make_string_slot(s), "%yk_string".into()),
             Expr::LitChar(c) => (format!("{}", *c as i64), "i64".into()),
-            Expr::LitNull | Expr::LitNone => ("0".into(), "i64".into()),
+            Expr::LitNull => ("0".into(), "i64".into()),
             Expr::LitSymbol(s) => (self.make_string_slot(&format!(":{}", s)), "%yk_string".into()),
             Expr::Ident(name) => {
                 if self.object_defs.contains_key(name.as_str()) {
@@ -3429,7 +3429,7 @@ impl LlvmCodegen {
 
         match &callee.value {
             Expr::Ident(name) => match name.as_str() {
-                "print" | "println" => {
+                "print" => {
                     if arg_results.is_empty() {
                         ("0".into(), "void".into())
                     } else if arg_results.len() > 1 || args.first().is_some_and(|a| self.expr_is_char(a)) {

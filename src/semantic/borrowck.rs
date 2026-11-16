@@ -166,7 +166,7 @@ impl BorrowChecker {
             // Literals and simple expressions
             Expr::LitInt(_) | Expr::LitHex(_) | Expr::LitReal(_)
             | Expr::LitStr(_) | Expr::LitChar(_) | Expr::LitBool(_)
-            | Expr::LitSymbol(_) | Expr::LitNull | Expr::LitNone => {}
+            | Expr::LitSymbol(_) | Expr::LitNull => {}
             Expr::Range(start, end) => {
                 self.check_expr(start);
                 self.check_expr(end);

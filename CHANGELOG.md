@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Removed
+
+Each construct now has one spelling. Programs using a removed form get a parse or type error; write the form on the right.
+
+- `println(...)`: use `print(...)`, which already ended the line.
+- `infiny { }`: use `loop { }`.
+- `None`: use `null`. `None` printed `none` in the interpreter and `0` in native code, so the two engines disagreed.
+- `class C use I`: use `class C implements I`. `implements` was lexed as `use`, so `implements {x} from "m"` parsed as an import.
+- C-style `for (i = 0; i < n; i += 1)`: use `for (i in 0..n-1)`. Its initialisation was parsed and thrown away, so the loop never ran it.
+- `f'...'`: use `f"..."` or `` f`...` ``.
+- `tuple{a, b}`, `map{...}` and `Map{...}`: use `(a, b)` and `{k: v}`.
+- The types `int 8` (with a space), `{K, V}`, `list<T>` and `set<T>`: use `int8`, `map[K, V]`, `list[T]` and `set[T]`.
+- `mut` and `ref` as keywords; they meant nothing (`ref` was another way to write `&`).
+- `a ? b : c`, which could never be reached because `?` after a value is the error operator: use `if (a) b else c`.
+- Native code no longer accepts `string`, `integer`, `float`, `double` or `boolean` as type names; the type checker already refused them.
+
 ## [0.3.0] - 2026-11-16
 
 ### Added

@@ -104,7 +104,7 @@ impl fmt::Display for TypeExpr {
 pub enum Expr {
     LitInt(i64), LitHex(i64), LitReal(f64),
     LitStr(String), LitChar(char), LitBool(bool),
-    LitSymbol(String), LitNull, LitNone,
+    LitSymbol(String), LitNull,
     Ident(String),
     BinOp(Box<ExprNode>, BinOp, Box<ExprNode>),
     UnOp(UnOp, Box<ExprNode>),
