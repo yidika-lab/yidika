@@ -1,10 +1,12 @@
 const ANIME = "./vendor/anime-4.5.0.esm.min.js";
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function flash(button, label) {
-  const original = button.textContent;
-  button.textContent = label;
-  setTimeout(() => { button.textContent = original; }, 1400);
+function flash(button, label, done) {
+  const text = button.querySelector(".copy-label") || button;
+  const original = text.textContent;
+  text.textContent = label;
+  if (done) button.dataset.done = "";
+  setTimeout(() => { text.textContent = original; delete button.dataset.done; }, 1400);
 }
 
 function selectText(node) {
@@ -16,7 +18,7 @@ function selectText(node) {
 }
 
 function copyText(text, button, fallbackNode) {
-  const done = () => flash(button, "Copied");
+  const done = () => flash(button, "Copied", true);
   const fail = () => { if (fallbackNode) selectText(fallbackNode); flash(button, "Press Ctrl+C"); };
   if (navigator.clipboard) navigator.clipboard.writeText(text).then(done, fail);
   else fail();
@@ -104,11 +106,15 @@ function resultItem(entry, i) {
   li.id = `result-${i}`;
   const a = document.createElement("a");
   a.href = entry.u;
+  const kind = entry.c ? "code" : entry.u.includes("#") ? "section" : "page";
+  a.append(document.getElementById(`icon-${kind}`).content.cloneNode(true));
+  const text = document.createElement("span");
   const title = document.createElement(entry.c ? "code" : "span");
   title.textContent = entry.t;
   const where = document.createElement("small");
   where.textContent = entry.s;
-  a.append(title, where);
+  text.append(title, where);
+  a.append(text);
   li.append(a);
   return li;
 }

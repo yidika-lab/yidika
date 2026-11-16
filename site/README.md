@@ -17,6 +17,10 @@ Nothing is copied by hand. The navigation, grouped by need (Learn, Guides, Refer
 - Header: 64 px (56 on phones), 24 px side padding, logo 28 px, links 15 px spaced 24, search field 240x36.
 - Background motif: a woven pattern (24 px SVG tile, 7% ink, fading out) behind the home hero only.
 
+## Icons
+
+Icons are [Lucide](https://lucide.dev) 1.66.0 (ISC, `site/icons/LICENSE`), copied as SVG files into `site/icons/` from `lucide-static@1.66.0/icons/`. Templates write `{{icon:name}}` or `{{icon:name:size}}`, Python code calls `icon(name, size)`, and the build inlines the SVG with `aria-hidden="true"`, so icons follow `currentColor` and need no request. A missing file stops the build. To add one, copy `https://cdn.jsdelivr.net/npm/lucide-static@1.66.0/icons/<name>.svg` into `site/icons/`. The GitHub mark is the one exception: Lucide ships no brand icons, and a brand is shown with its own mark (Octicons `mark-github`).
+
 ## Motion
 
 `site.js` loads Anime.js 4.5.0 from `site/vendor/`; `build.py` refuses to build if its SHA-256 differs from the one recorded there, which matches the file jsDelivr serves for `animejs@4.5.0/dist/bundles/anime.esm.min.js`. Anime.js is imported on its own, so copy buttons, tabs and search work even if it fails to load.
