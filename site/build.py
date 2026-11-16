@@ -182,7 +182,7 @@ def build_doc(name, layout, nav, order, keywords, meta, out):
         f'<a href="{stem}.md">View as Markdown</a>'
         f'<a href="{REPO}/edit/main/docs/{name}">Edit on GitHub</a></div>'
     )
-    values = dict(meta, title=html.escape(page_title(markdown)), nav=nav_html(nav, name), toc=toc_html(toc),
+    values = dict(meta, page_title=html.escape(page_title(markdown)) + " | Yidika", nav=nav_html(nav, name), toc=toc_html(toc),
                   content=actions + body + pager_html(order, name), body_class="doc")
     (out / f"{stem}.html").write_text(fill(layout, values))
     shutil.copy(DOCS / name, out / name)
@@ -200,7 +200,7 @@ def build_home(layout, nav, keywords, meta, out):
     home = (SITE / "home.html").read_text()
     sample = (ROOT / "benchmarks" / "fib" / "fib.yk").read_text()
     content = fill(home, dict(meta, sample=highlight_yidika(sample, keywords), docmap=docmap_html(nav)))
-    values = dict(meta, title="Yidika", nav=nav_html(nav, ""), toc="", content=content, body_class="home")
+    values = dict(meta, page_title="Yidika, a language that runs now and compiles to native code", nav=nav_html(nav, ""), toc="", content=content, body_class="home")
     (out / "index.html").write_text(fill(layout, values))
 
 
