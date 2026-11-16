@@ -198,6 +198,7 @@ impl Parser {
         let mut imports = Vec::new();
         let mut exports = Vec::new();
         let mut items = Vec::new();
+        let mut body = Vec::new();
         loop {
             match self.tok() {
                 Token::Eof => break,
@@ -210,10 +211,18 @@ impl Parser {
                     item.decorators.push("export".to_string());
                     items.push(item);
                 }
-                _ => items.push(self.item()?),
+                _ if self.starts_item() => items.push(self.item()?),
+                _ => body.push(self.stmt()?),
             }
         }
-        Ok(Module { name: name.to_string(), span: Span::new(0, self.source.len()), imports, exports, items })
+        let entry = crate::syntax::entry::with_top_level(items, body);
+        Ok(Module { name: name.to_string(), span: Span::new(0, self.source.len()), imports, exports, items: entry.items, globals: entry.globals })
+    }
+
+    fn starts_item(&self) -> bool {
+        matches!(self.tok(), Token::Fn | Token::Async | Token::Struct | Token::Open | Token::Abstract | Token::Data
+            | Token::Class | Token::Interface | Token::Union | Token::Enum | Token::Object | Token::Type | Token::Const
+            | Token::SymbolLit(_))
     }
 
 fn item_name(kind: &ItemKind) -> Option<String> {

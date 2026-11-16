@@ -33,6 +33,9 @@ pub struct LlvmCodegen {
     var_union_variants: HashMap<String, Vec<TypeExpr>>,
     deferred_fns: Vec<DeferredFn>,
     captured_here: std::collections::HashSet<String>,
+    global_names: std::collections::HashSet<String>,
+    in_entry: bool,
+    const_inits: Vec<(String, ExprNode)>,
     fn_ret_sigs: HashMap<String, FnSig>,
     fn_value_records: Vec<String>,
     closure_counter: usize,
@@ -91,6 +94,9 @@ impl LlvmCodegen {
             var_union_variants: HashMap::new(),
             deferred_fns: Vec::new(),
             captured_here: std::collections::HashSet::new(),
+            global_names: std::collections::HashSet::new(),
+            in_entry: false,
+            const_inits: Vec::new(),
             fn_ret_sigs: HashMap::new(),
             fn_value_records: Vec::new(),
             closure_counter: 0,
@@ -1543,6 +1549,10 @@ impl LlvmCodegen {
         }
 
         for module in modules {
+            self.declare_globals(module);
+        }
+
+        for module in modules {
             self.current_module = module.name.clone();
             for item in &module.items {
                 if let ItemKind::Fn { name, generics, .. } = &item.value {
@@ -1613,7 +1623,10 @@ impl LlvmCodegen {
                     };
                     self.e(&format!("call void @{}()", mangled_init));
                 }
+                self.init_constants();
+                self.in_entry = true;
                 self.compile_fn_body(body);
+                self.in_entry = false;
                 self.e("ret i32 0");
                 self.indent -= 1;
                 self.e_raw("}");
@@ -1770,6 +1783,66 @@ impl LlvmCodegen {
             }
             current = self.class_extends.get(&current)?.clone();
         }
+    }
+
+    fn declare_constants(&mut self, module: &Module) {
+        for item in &module.items {
+            if let ItemKind::Const { name, type_expr, value } = &item.value {
+                let ty = self.type_to_llvm(&type_expr.value);
+                self.record_fn_value(name, &type_expr.value);
+                self.record_elem_type(name, Some(&type_expr.value), Some(value));
+                self.declare_global_slot(name, ty);
+                self.const_inits.push((name.clone(), value.clone()));
+            }
+        }
+    }
+
+    fn declare_global_slot(&mut self, name: &str, ty: String) {
+        let ptr = format!("@yk.global.{}", name);
+        self.e_raw(&format!("{} = internal global {} zeroinitializer", ptr, ty));
+        self.var_types.insert(name.to_string(), ty);
+        self.var_alloca.insert(name.to_string(), ptr);
+        self.global_names.insert(name.to_string());
+    }
+
+    fn init_constants(&mut self) {
+        for (name, value) in std::mem::take(&mut self.const_inits) {
+            let (val, val_ty) = self.compile_expr(&value);
+            self.e(&format!("store {} {}, ptr @yk.global.{}", val_ty, val, name));
+        }
+    }
+
+    fn declare_globals(&mut self, module: &Module) {
+        self.declare_constants(module);
+        let Some(body) = module.items.iter().find_map(|item| match &item.value {
+            ItemKind::Fn { name, body, .. } if name == crate::syntax::entry::ENTRY_FN => Some(body),
+            _ => None,
+        }) else { return };
+        for name in &module.globals {
+            let Some((type_expr, value)) = body.iter().find_map(|stmt| match &stmt.value {
+                Stmt::Decl { name: n, type_expr, value, .. } if n == name => Some((type_expr.as_ref(), value)),
+                Stmt::Assign(n, value) if n == name => Some((None, value)),
+                _ => None,
+            }) else { continue };
+            let ty = match type_expr {
+                Some(te) => self.type_to_llvm(&te.value),
+                None => self.expr_type_str(value),
+            };
+            match type_expr {
+                Some(te) => self.record_fn_value(name, &te.value),
+                None => self.record_value_sig(name, value),
+            }
+            self.record_elem_type(name, type_expr.map(|t| &t.value), Some(value));
+            self.declare_global_slot(name, ty);
+        }
+        self.e_raw("");
+    }
+
+    fn global_slot(&self, name: &str) -> Option<(String, String)> {
+        if !self.in_entry || !self.global_names.contains(name) {
+            return None;
+        }
+        Some((format!("@yk.global.{}", name), self.var_types.get(name)?.clone()))
     }
 
     fn compile_fn(&mut self, item: &ItemNode) {
@@ -2042,16 +2115,27 @@ impl LlvmCodegen {
                     None => self.expr_type_str(value),
                 };
                 let (val, val_ty) = self.compile_expr(value);
-                let effective_ty = if ty == "i64" && val_ty != "i64" { val_ty.clone() } else { ty.clone() };
+                let global = self.global_slot(name);
+                let effective_ty = match &global {
+                    Some((_, global_ty)) => global_ty.clone(),
+                    None if ty == "i64" && val_ty != "i64" => val_ty.clone(),
+                    None => ty.clone(),
+                };
                 match type_expr {
                     Some(te) => self.record_fn_value(name, &te.value),
                     None => self.record_value_sig(name, value),
                 }
                 self.record_elem_type(name, type_expr.as_ref().map(|t| &t.value), Some(value));
-                let ptr = self.alloca_name(name);
-                self.var_types.insert(name.clone(), effective_ty.clone());
-                self.var_alloca.insert(name.clone(), ptr.clone());
-                self.alloc_local(name, &ptr, &effective_ty);
+                let ptr = match global {
+                    Some((global_ptr, _)) => global_ptr,
+                    None => {
+                        let ptr = self.alloca_name(name);
+                        self.var_types.insert(name.clone(), effective_ty.clone());
+                        self.var_alloca.insert(name.clone(), ptr.clone());
+                        self.alloc_local(name, &ptr, &effective_ty);
+                        ptr
+                    }
+                };
 
                 // Store union variant definitions for later use in Assign
                 if effective_ty == "%yk_variant" {
@@ -5723,7 +5807,7 @@ mod tests {
             is_final: false,
             is_abstract_method: false,
         });
-        let module = Module { name: String::new(), span: Span::new(0, 0), imports: vec![], exports: vec![], items: vec![main_fn] };
+        let module = Module { name: String::new(), span: Span::new(0, 0), imports: vec![], exports: vec![], items: vec![main_fn], globals: vec![] };
         let llvm = compile_to_llvm(&module).unwrap();
         eprintln!("LLVM:\n{}", llvm);
         assert!(llvm.contains("__closure_0"));

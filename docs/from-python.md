@@ -22,7 +22,7 @@ Yidika keeps much of what makes Python pleasant: no variable keyword, `f"..."` s
 | `threading`, `multiprocessing` | `spawn` / `await` |
 | `import json` | `use { json } from "std";` |
 | `pip install pkg` | `yidi add pkg` |
-| `if __name__ == "__main__":` | `fn main() { ... }` |
+| code at module level | code at the top level, as in Python; an optional `fn main()` runs after it |
 
 ## Braces and semicolons
 
