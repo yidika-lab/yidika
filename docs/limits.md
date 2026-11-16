@@ -39,6 +39,8 @@ These work, but `yidi run` runs them in the interpreter because the native backe
 - `json.parse`, the `path` and `datetime` modules;
 - `spawn` of a function that does not return `int`.
 
+In native code a route handler is one `return` of a string or a `Response`, built from literals, `+`, `if` and `req.method`, `req.path`, `req.body`. Handlers that take the route parameters by name (`fn greet(name: str)` on `/hello/{name}`) and `req.body` itself only work in the interpreter for now.
+
 ## Platforms
 
 - Importing C++ or Rust libraries (`use ... from "c++:..."`) and the `gui` module work on Windows only.

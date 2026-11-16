@@ -211,12 +211,20 @@ impl LlvmCodegen {
         }
     }
 
+    fn listen_addr_from_port(&mut self, port: &str) -> String {
+        let addr = self.fresh_label();
+        self.e(&format!("%{} = call ptr @yk_listen_addr_from_port(i64 {})", addr, port));
+        self.ssa(&addr)
+    }
+
     fn compile_server_method(&mut self, handle: &str, field: &str, compiled_args: &[(String, String)], raw_args: &[ExprNode]) -> (String, String) {
         match field {
             "serve" => {
-                let addr_ptr = compiled_args.first().map(|(av, at)| {
-                    if at == "%yk_string" { self.string_to_ptr(av) } else { "null".into() }
-                }).unwrap_or_else(|| "null".into());
+                let addr_ptr = match compiled_args.first() {
+                    Some((av, at)) if at == "%yk_string" => self.string_to_ptr(av),
+                    Some((av, at)) if at == "i64" => self.listen_addr_from_port(av),
+                    _ => self.listen_addr_from_port(&crate::stdlib::DEFAULT_SERVER_PORT.to_string()),
+                };
                 self.e(&format!("call void @yk_server_serve(i64 {}, ptr {})", handle, addr_ptr));
                 ("0".into(), "void".into())
             }
@@ -1461,6 +1469,7 @@ impl LlvmCodegen {
         self.e_raw("declare i64 @yk_udp_send_to(i64, ptr, ptr)");
         self.e_raw("declare ptr @yk_udp_recv_from(i64, i64)");
         self.e_raw("declare void @yk_server_serve(i64, ptr)");
+        self.e_raw("declare ptr @yk_listen_addr_from_port(i64)");
         self.e_raw("declare ptr @yk_list_new()");
         self.e_raw("declare void @yk_list_push(ptr, i64)");
         self.e_raw("declare ptr @yk_list_new_of(i64, i64)");

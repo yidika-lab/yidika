@@ -148,17 +148,17 @@ struct RouteNode {
     children: HashMap<String, RouteNode>,
     wildcard: Option<Box<RouteNode>>,
     param_name: Option<String>, // For tracking :param or {param}
-    handler: Option<(String, Handler)>,
+    handlers: Vec<(String, Handler)>,
 }
 
 impl RouteNode {
     fn new() -> Self {
-        RouteNode { children: HashMap::new(), wildcard: None, param_name: None, handler: None }
+        RouteNode { children: HashMap::new(), wildcard: None, param_name: None, handlers: Vec::new() }
     }
 
     fn insert(&mut self, segments: &[&str], method: &str, handler: Handler) {
         if segments.is_empty() {
-            self.handler = Some((method.to_string(), handler));
+            self.set_handler(method, handler);
             return;
         }
         let seg = segments[0];
@@ -184,14 +184,20 @@ impl RouteNode {
         }
     }
 
-    fn find<'a>(&'a self, segments: &[&str], method: &str, params: &mut HashMap<String, String>) -> Option<&'a Handler> {
-        if let Some((ref m, ref h)) = self.handler {
-            if m == method && segments.is_empty() {
-                return Some(h);
-            }
+    fn set_handler(&mut self, method: &str, handler: Handler) {
+        match self.handlers.iter_mut().find(|(m, _)| m == method) {
+            Some(entry) => entry.1 = handler,
+            None => self.handlers.push((method.to_string(), handler)),
         }
+    }
+
+    fn handler_for(&self, method: &str) -> Option<&Handler> {
+        self.handlers.iter().find(|(m, _)| m == method).map(|(_, h)| h)
+    }
+
+    fn find<'a>(&'a self, segments: &[&str], method: &str, params: &mut HashMap<String, String>) -> Option<&'a Handler> {
         if segments.is_empty() {
-            return None;
+            return self.handler_for(method);
         }
         let seg = segments[0];
         let rest = &segments[1..];
@@ -220,7 +226,7 @@ impl RouteNode {
     }
 
     fn precompile_handlers(&self) {
-        if let Some((_, ref handler)) = self.handler {
+        for (_, handler) in &self.handlers {
             match handler {
                 Handler::Literal(text) => {
                     use std::hash::{Hash, Hasher};
@@ -1422,7 +1428,7 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
                     let addr = match args.first() {
                         Some(Value::Int(port)) => format!("0.0.0.0:{}", port),
                         Some(Value::Str(a)) => a.clone(),
-                        _ => "0.0.0.0:8080".into(),
+                        _ => format!("0.0.0.0:{}", crate::stdlib::DEFAULT_SERVER_PORT),
                     };
                     srv.addr = addr.clone();
                     addr
@@ -1632,6 +1638,31 @@ mod tests {
     use crate::syntax::ast::*;
     use crate::diagnostics::span::Span;
     use std::net::TcpListener;
+
+    fn literal_of(trie: &RouteTrie, path: &str, method: &str) -> Option<String> {
+        match trie.match_route(path, method) {
+            Some((Handler::Literal(text), _)) => Some(text.clone()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn two_methods_on_one_path_keep_their_own_handler() {
+        let mut trie = RouteTrie::new();
+        trie.add_route("/notes", "GET", Handler::Literal("list".into()));
+        trie.add_route("/notes", "POST", Handler::Literal("created".into()));
+        assert_eq!(literal_of(&trie, "/notes", "GET").as_deref(), Some("list"));
+        assert_eq!(literal_of(&trie, "/notes", "POST").as_deref(), Some("created"));
+        assert_eq!(literal_of(&trie, "/notes", "DELETE"), None);
+    }
+
+    #[test]
+    fn registering_a_method_again_replaces_its_handler() {
+        let mut trie = RouteTrie::new();
+        trie.add_route("/notes/{id}", "GET", Handler::Literal("old".into()));
+        trie.add_route("/notes/{id}", "GET", Handler::Literal("new".into()));
+        assert_eq!(literal_of(&trie, "/notes/7", "GET").as_deref(), Some("new"));
+    }
 
     fn start_echo_server() -> u16 {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

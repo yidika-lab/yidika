@@ -726,6 +726,32 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn compat_net_server_listens_on_a_port_number() {
+        let source = route_server("/hello", "\"on a port number\"", 19890).replace("app.serve(\"127.0.0.1:19890\")", "app.serve(19890)");
+        let server = AotServer::start("net_server_port_number", &source, 19890);
+        let exchange = server.exchange(&get_request("/hello"));
+        assert!(exchange.response.contains("on a port number"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+    }
+
+    #[test]
+    fn compat_net_server_unknown_route_says_not_found() {
+        let server = AotServer::start("net_server_not_found_body", &route_server("/hello", "\"hi\"", 19891), 19891);
+        let exchange = server.exchange(&get_request("/missing"));
+        assert!(exchange.response.starts_with("HTTP/1.1 404"), "got: {:?}", exchange.response);
+        assert!(exchange.response.ends_with("\r\n\r\nNot Found"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+    }
+
+    #[test]
+    fn compat_net_server_two_methods_on_one_path() {
+        let source = "use { Server } from \"net\";\nfn main() {\n    app = Server();\n    app.get(\"/notes\", \"list\");\n    app.post(\"/notes\", \"created\");\n    app.serve(\"127.0.0.1:19892\");\n}";
+        let server = AotServer::start("net_server_two_methods", source, 19892);
+        let get = server.exchange(&get_request("/notes"));
+        let post = server.exchange("POST /notes HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        assert!(get.response.ends_with("\r\n\r\nlist"), "GET got: {:?}\nserver log:\n{}", get.response, server.log());
+        assert!(post.response.ends_with("\r\n\r\ncreated"), "POST got: {:?}\nserver log:\n{}", post.response, server.log());
+    }
+
+    #[test]
     fn compat_net_server_wildcard_route() {
         let server = AotServer::start("net_server_wildcard_route", &route_server("/hello/{name}", "\"Hello, \" + req.path", 19877), 19877);
         let exchange = server.exchange(&get_request("/hello/world"));
