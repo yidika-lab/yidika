@@ -535,13 +535,17 @@ impl Interpreter {
         self.fn_bases.last().copied().unwrap_or(0)
     }
 
-    pub(crate) fn enter_call(&mut self, captures: &[(String, crate::interpret::value::Shared)]) {
+    pub(crate) fn enter_call(&mut self, captures: &[(String, crate::interpret::value::Shared)], span: Span) -> Result<()> {
+        if self.fn_bases.len() >= crate::runtime::MAX_CALL_DEPTH {
+            return Err(self.err(span, format!("Too many nested calls (more than {}): the recursion probably never ends", crate::runtime::MAX_CALL_DEPTH)));
+        }
         self.fn_bases.push(self.frames.len());
         self.push_frame();
         let frame = self.frames.last_mut().unwrap();
         for (name, cell) in captures {
             frame.insert(name.clone(), Value::Cell(cell.clone()));
         }
+        Ok(())
     }
 
     pub(crate) fn leave_call(&mut self) {
@@ -594,4 +598,20 @@ fn share_slot(slot: &mut Value) -> crate::interpret::value::Shared {
     let cell = std::sync::Arc::new(std::sync::Mutex::new(std::mem::replace(slot, Value::None_)));
     *slot = Value::Cell(cell.clone());
     cell
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Interpreter;
+    use crate::diagnostics::span::Span;
+    use crate::runtime::MAX_CALL_DEPTH;
+
+    #[test]
+    fn a_call_past_the_depth_limit_is_an_error() {
+        let mut interp = Interpreter::new();
+        interp.fn_bases = vec![0; MAX_CALL_DEPTH - 1];
+        assert!(interp.enter_call(&[], Span::new(0, 0)).is_ok());
+        let err = interp.enter_call(&[], Span::new(0, 0)).expect_err("the limit stops the call");
+        assert!(format!("{:?}", err).contains("Too many nested calls"), "{:?}", err);
+    }
 }

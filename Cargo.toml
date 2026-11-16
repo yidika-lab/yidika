@@ -17,6 +17,7 @@ name = "yidi"
 path = "src/main.rs"
 
 [dependencies]
+stacker = "0.1.25"
 fastrand = "2"
 rustc-hash = "2"
 notify = "8.2"
