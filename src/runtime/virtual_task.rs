@@ -53,8 +53,6 @@ fn pin_thread_to_core(_core_id: usize) {
     }
 }
 
-const WORKER_STACK_SIZE: usize = 512 * 1024;
-
 pub struct VirtualScheduler {
     workers: Vec<JoinHandle<()>>,
     worker_threads: Vec<thread::Thread>,
@@ -79,7 +77,7 @@ impl VirtualScheduler {
 
             let handle = thread::Builder::new()
                 .name(format!("yk-vworker-{}", core))
-                .stack_size(WORKER_STACK_SIZE)
+                .stack_size(super::INTERPRETER_STACK_SIZE)
                 .spawn(move || {
                     pin_thread_to_core(core);
                     wt.lock().unwrap().push(thread::current());

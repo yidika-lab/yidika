@@ -1427,10 +1427,10 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 self.eat(Token::LParen)?;
                 let cond = self.expr(0)?;
                 self.eat(Token::RParen)?;
-                let then = self.expr(0)?;
+                let then = branch_value(self.expr(0)?);
                 let else_ = if self.tok() == &Token::Else {
                     self.advance();
-                    Some(Box::new(self.expr(0)?))
+                    Some(Box::new(branch_value(self.expr(0)?)))
                 } else { None };
                 Ok(ExprNode::new(fresh_id(), span, Expr::If(Box::new(cond), Box::new(then), else_)))
             }
@@ -1825,6 +1825,13 @@ fn tokens_match(a: &Token, b: &Token) -> bool {
         |(Ident(_),Ident(_))|(IntLit(_),IntLit(_))|(StrLit(_),StrLit(_))|(BacktickStr(_),BacktickStr(_))|(FStrLit(_),FStrLit(_))|(RealLit(_),RealLit(_))|(HexLit(_),HexLit(_))|(SymbolLit(_),SymbolLit(_))|(CharLit(_),CharLit(_))
         |(Error(_),Error(_))
     )
+}
+
+fn branch_value(branch: ExprNode) -> ExprNode {
+    match branch.value {
+        Expr::Block(stmts) => fn_literal_body(stmts, branch.span),
+        _ => branch,
+    }
 }
 
 fn fn_literal_body(mut stmts: Vec<StmtNode>, span: Span) -> ExprNode {

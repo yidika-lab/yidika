@@ -555,22 +555,56 @@ yk_string* yk_string_from_complex(yk_complex* c) {
     return yk_string_from_buffer(buf, yk_format_complex(c, buf, sizeof(buf)));
 }
 
-typedef struct { void (*entry)(void*); void* ctx; yk_thread_t thread; int64_t result; } yk_task;
+typedef struct { void (*entry)(int64_t*); yk_thread_t thread; int64_t result; } yk_task;
 
-typedef struct { int64_t* data; int64_t len; int64_t cap; } yk_list;
+enum { YK_KIND_INT = 0, YK_KIND_REAL = 1, YK_KIND_BOOL = 2, YK_KIND_STR = 3 };
 
-yk_list* yk_list_new(void) {
+typedef struct { int64_t* data; int64_t len; int64_t cap; int64_t kind; int64_t is_set; } yk_list;
+
+yk_list* yk_list_new_of(int64_t kind, int64_t is_set) {
     yk_list* l = (yk_list*)malloc(sizeof(yk_list));
-    l->data = NULL; l->len = 0; l->cap = 0;
+    l->data = NULL; l->len = 0; l->cap = 0; l->kind = kind; l->is_set = is_set;
     return l;
 }
 
-void yk_list_push(yk_list* l, int64_t val) {
+yk_list* yk_list_new(void) { return yk_list_new_of(YK_KIND_INT, 0); }
+
+yk_string* yk_string_box(const yk_string* s) {
+    yk_string* boxed = (yk_string*)malloc(sizeof(yk_string));
+    *boxed = *s;
+    return boxed;
+}
+
+static void yk_list_append(yk_list* l, int64_t val) {
     if (l->len >= l->cap) {
         l->cap = l->cap ? l->cap * 2 : 8;
         l->data = (int64_t*)realloc(l->data, l->cap * sizeof(int64_t));
     }
     l->data[l->len++] = val;
+}
+
+static bool yk_elem_eq(int64_t kind, int64_t a, int64_t b) {
+    if (kind != YK_KIND_STR) return a == b;
+    const yk_string* x = (const yk_string*)(intptr_t)a;
+    const yk_string* y = (const yk_string*)(intptr_t)b;
+    return x->len == y->len && memcmp(x->data, y->data, (size_t)x->len) == 0;
+}
+
+static bool yk_list_has(const yk_list* l, int64_t val) {
+    for (int64_t i = 0; i < l->len; i++) {
+        if (yk_elem_eq(l->kind, l->data[i], val)) return true;
+    }
+    return false;
+}
+
+void yk_list_push(yk_list* l, int64_t val) {
+    if (l->is_set && yk_list_has(l, val)) return;
+    yk_list_append(l, val);
+}
+
+void yk_list_push_kind(yk_list* l, int64_t val, int64_t kind) {
+    if (l->len == 0) l->kind = kind;
+    yk_list_push(l, val);
 }
 
 int64_t yk_list_get(yk_list* l, int64_t idx) {
@@ -589,29 +623,45 @@ int64_t yk_list_pop(yk_list* l) {
 
 void yk_list_clear(yk_list* l) { l->len = 0; }
 
+typedef struct { char* data; int64_t len; int64_t cap; } yk_text;
+
+static void yk_text_add(yk_text* t, const char* src, int64_t n) {
+    if (n <= 0) return;
+    if (t->len + n + 1 > t->cap) {
+        int64_t cap = t->cap ? t->cap : 32;
+        while (cap < t->len + n + 1) cap *= 2;
+        t->data = (char*)realloc(t->data, (size_t)cap);
+        t->cap = cap;
+    }
+    memcpy(t->data + t->len, src, (size_t)n);
+    t->len += n;
+    t->data[t->len] = 0;
+}
+
+static void yk_text_add_elem(yk_text* t, int64_t kind, int64_t v) {
+    char buf[400];
+    int n = 0;
+    switch (kind) {
+    case YK_KIND_REAL: { double d; memcpy(&d, &v, sizeof d); n = yk_format_real(d, buf, sizeof(buf)); break; }
+    case YK_KIND_BOOL: n = snprintf(buf, sizeof(buf), "%s", v ? "true" : "false"); break;
+    case YK_KIND_STR: { const yk_string* s = (const yk_string*)(intptr_t)v; yk_text_add(t, s->data, s->len); return; }
+    default: n = snprintf(buf, sizeof(buf), "%lld", (long long)v); break;
+    }
+    if (n > (int)sizeof(buf) - 1) n = (int)sizeof(buf) - 1;
+    yk_text_add(t, buf, n);
+}
+
 yk_string* yk_list_to_string(yk_list* l) {
-    // Approximate: return a string like "[1, 2, 3]"
-    // For simplicity, return first element as string
-    if (l->len == 0) {
-        yk_string* s = (yk_string*)malloc(sizeof(yk_string));
-        s->data = strdup("[]");
-        s->len = 2;
-        return s;
+    yk_text t = { NULL, 0, 0 };
+    yk_text_add(&t, l->is_set ? "set{" : "[", l->is_set ? 4 : 1);
+    for (int64_t i = 0; i < l->len; i++) {
+        if (i > 0) yk_text_add(&t, ", ", 2);
+        yk_text_add_elem(&t, l->kind, l->data[i]);
     }
-    // Build a string of all elements
-    char buf[4096];
-    int pos = 0;
-    buf[pos++] = '[';
-    for (int64_t i = 0; i < l->len && pos < 4090; i++) {
-        if (i > 0) { buf[pos++] = ','; buf[pos++] = ' '; }
-        int n = snprintf(buf + pos, 4096 - pos, "%lld", (long long)l->data[i]);
-        if (n > 0) pos += n;
-    }
-    buf[pos++] = ']';
-    buf[pos] = '\0';
+    yk_text_add(&t, l->is_set ? "}" : "]", 1);
     yk_string* s = (yk_string*)malloc(sizeof(yk_string));
-    s->data = strdup(buf);
-    s->len = pos;
+    s->data = t.data;
+    s->len = t.len;
     return s;
 }
 
@@ -651,12 +701,10 @@ void yk_list_remove(yk_list* l, int64_t idx) {
 }
 
 void yk_list_print(yk_list* l) {
-    printf("[");
-    for (int64_t i = 0; i < l->len; i++) {
-        if (i > 0) printf(", ");
-        printf("%lld", (long long)l->data[i]);
-    }
-    printf("]\n");
+    yk_string* s = yk_list_to_string(l);
+    printf("%.*s\n", (int)s->len, s->data);
+    free(s->data);
+    free(s);
 }
 
 int64_t yk_result_str_new(int64_t data, int64_t len) {
@@ -680,14 +728,13 @@ void yk_print_result_val(int64_t val, int8_t ok) {
 
 static yk_thread_ret YK_THREAD_CALL yk_task_start(void* arg) {
     yk_task* t = (yk_task*)arg;
-    t->entry(t->ctx);
+    t->entry(&t->result);
     return YK_THREAD_DONE;
 }
 
-uint64_t yk_run_thread(void (*entry)(void*), void* ctx) {
+uint64_t yk_run_thread(void (*entry)(int64_t*)) {
     yk_task* t = (yk_task*)malloc(sizeof(yk_task));
     t->entry = entry;
-    t->ctx = ctx;
     t->result = 0;
     if (!yk_thread_spawn(&t->thread, yk_task_start, t)) { free(t); return 0; }
     return (uint64_t)(intptr_t)t;

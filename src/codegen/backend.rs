@@ -75,7 +75,8 @@ impl CodegenBackend for LlvmBackend {
         if !errors.is_empty() {
             return Err(error::err(ErrorKind::Internal, Span::new(0, 0), errors.join("\n")));
         }
-        let llvm_ir = super::llvm::compile_to_llvm_modules(modules);
+        let llvm_ir = super::llvm::compile_to_llvm_modules(modules)
+            .map_err(|refusal| error::err(ErrorKind::Internal, Span::new(0, 0), refusal))?;
 
         // Collect FFI import library paths for linking
         let mut ffi_libs = Vec::new();

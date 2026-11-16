@@ -340,10 +340,9 @@ impl Interpreter {
     }
 
     pub fn run_main(&mut self) -> Result<String> {
-        const STACK_SIZE: usize = 8 * 1024 * 1024;
         let builder = std::thread::Builder::new()
             .name("interpreter".into())
-            .stack_size(STACK_SIZE);
+            .stack_size(crate::runtime::INTERPRETER_STACK_SIZE);
         let functions = self.functions.clone();
         let globals = self.globals.clone();
         let struct_defs = self.struct_defs.clone();
