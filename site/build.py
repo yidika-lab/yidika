@@ -16,14 +16,22 @@ REGISTRY = "https://yidika-lab.github.io/registry/"
 BASE = "https://yidika-lab.github.io/yidika/"
 ANIME = ("anime-4.5.0.esm.min.js", "a19015a1a92d52025a2fb6703b6d67eadd1cc2aeaf880770e96e04cf6aa07be1")
 ICONS = SITE / "icons"
-GROUP_ICONS = {"Learn": "graduation-cap", "Guides": "compass", "Reference": "library", "Understand": "lightbulb"}
+GROUP_ICONS = {"Learn": "graduation-cap", "Build": "hammer", "Coming from": "arrow-right-left", "Tools": "wrench",
+               "Reference": "library", "Understand": "lightbulb"}
+CALLOUTS = {"NOTE": ("info", "Note"), "TIP": ("lightbulb", "Tip"), "WARNING": ("triangle-alert", "Warning")}
 YIDIKA_FENCES = {"yidika", "yidika-file"}
-FENCE_LABELS = {"yidika": "yidika", "yidika-file": "yidika", "sh": "shell", "powershell": "powershell", "toml": "toml", "text": "text"}
-HOME_TABS = [
-    ("Classes", "structs-and-classes.md", "Inheritance"),
-    ("Match", "enums-and-match.md", "Enums"),
-    ("Errors", "errors-and-null.md", "The ? operator"),
-    ("Threads", "concurrency.md", None),
+FENCE_LABELS = {"yidika": "yidika", "yidika-file": "yidika", "sh": "shell", "powershell": "powershell", "toml": "toml",
+                "text": "terminal", "js": "javascript", "ts": "typescript", "python": "python", "go": "go", "rust": "rust"}
+TOUR_TABS = [
+    ("Classes", None, "structs-and-classes.md", "Inheritance", "Classes in the language tour"),
+    ("Match", None, "enums-and-match.md", "Enums", "Match in the language tour"),
+    ("Errors", None, "errors-and-null.md", "The ? operator", "Errors in the language tour"),
+    ("Threads", None, "concurrency.md", None, "Threads in the language tour"),
+]
+BUILD_TABS = [
+    ("Web server", "server", "web-server.md", "Three kinds of handlers", "Build a web server"),
+    ("Files and JSON", "file-json", "files-and-json.md", "Read a JSON file", "Files and JSON"),
+    ("Parallel work", "cpu", "parallel-work.md", "Two threads", "Parallel work"),
 ]
 
 
@@ -242,9 +250,19 @@ def breadcrumb(trail):
     return f'<nav class="crumbs" aria-label="Breadcrumb">{parts}</nav>'
 
 
+def callout_html(match):
+    icon_name, title = CALLOUTS[match.group(1)]
+    return (f'<aside class="callout callout-{match.group(1).lower()}">'
+            f'<p class="callout-title">{icon(icon_name)}{title}</p><p>{match.group(2)}</aside>')
+
+
+def with_callouts(rendered):
+    return re.sub(r"<blockquote>\s*<p>\[!(NOTE|TIP|WARNING)\]\s*(.*?)</blockquote>", callout_html, rendered, flags=re.S)
+
+
 def render_markdown(markdown, keywords):
     toc = []
-    return make_renderer(keywords, toc).render(markdown), toc
+    return with_callouts(make_renderer(keywords, toc).render(markdown)), toc
 
 
 def write_page(out, name, layout, values):
@@ -296,32 +314,34 @@ def search_entries(markdown, title, url, group):
     return entries
 
 
-def first_example(name, heading):
+def example_blocks(name, heading):
     markdown = (DOCS / name).read_text()
     if heading:
         markdown = markdown[markdown.index(f"## {heading}"):]
-    code = re.search(r"```yidika\n(.*?)```", markdown, re.S).group(1)
-    output = re.search(r"```output\n(.*?)```", markdown[markdown.index(code):], re.S).group(1)
-    return code, output
+    fences = re.findall(r"^```([\w-]*)\n(.*?)^```", markdown, re.S | re.M)
+    return fences[0], fences[1]
 
 
-def tab_html(i, label, name, heading, keywords):
-    code, output = first_example(name, heading)
-    tab_id = f"tour-{slugify(label)}"
+def tab_html(group, i, tab, keywords):
+    label, icon_name, name, heading, link_text = tab
+    (code_lang, code), (result_lang, result) = example_blocks(name, heading)
+    tab_id = f"{group}-{slugify(label)}"
     focus = "" if i == 0 else ' tabindex="-1"'
-    button = f'<button type="button" role="tab" id="tab-{tab_id}" aria-controls="{tab_id}" aria-selected="{"true" if i == 0 else "false"}"{focus}>{html.escape(label)}</button>'
+    tab_icon = icon(icon_name) if icon_name else ""
+    button = (f'<button type="button" role="tab" id="tab-{tab_id}" aria-controls="{tab_id}" '
+              f'aria-selected="{"true" if i == 0 else "false"}"{focus}>{tab_icon}{html.escape(label)}</button>')
     anchor = "#" + slugify(heading) if heading else ""
-    link = f'<a class="more" href="{name[:-3]}.html{anchor}">{html.escape(label)} in the language tour</a>'
+    link = f'<a class="more" href="{name[:-3]}.html{anchor}">{html.escape(link_text)}{icon("arrow-right", 14)}</a>'
     panel = (f'<div class="tabpanel" role="tabpanel" id="{tab_id}" aria-labelledby="tab-{tab_id}"{"" if i == 0 else " hidden"}>'
-             f'{code_figure("yidika", highlight_yidika(code, keywords))}{output_figure(output)}{link}</div>')
+             f'{fence_html(code_lang, code, keywords)}{fence_html(result_lang, result, keywords)}{link}</div>')
     return button, panel
 
 
-def tabs_html(keywords):
-    pairs = [tab_html(i, *tab, keywords) for i, tab in enumerate(HOME_TABS)]
+def tabs_html(group, tabs, label, keywords):
+    pairs = [tab_html(group, i, tab, keywords) for i, tab in enumerate(tabs)]
     buttons = "".join(button for button, _ in pairs)
     panels = "".join(panel for _, panel in pairs)
-    return f'<div class="tabs" role="tablist" aria-label="Language examples">{buttons}</div>{panels}'
+    return f'<div class="tabs" role="tablist" aria-label="{label}">{buttons}</div>{panels}'
 
 
 def docmap_html(nav):
@@ -336,7 +356,9 @@ def docmap_html(nav):
 
 def build_home(layout, nav, keywords, meta, out):
     sample = (ROOT / "benchmarks" / "fib" / "fib.yk").read_text()
-    values = dict(meta, sample=highlight_yidika(sample, keywords), tabs=tabs_html(keywords), docmap=docmap_html(nav))
+    values = dict(meta, sample=highlight_yidika(sample, keywords), docmap=docmap_html(nav),
+                  tabs=tabs_html("tour", TOUR_TABS, "Language examples", keywords),
+                  build=tabs_html("build", BUILD_TABS, "Programs you can build", keywords))
     content = fill((SITE / "home.html").read_text(), values)
     write_page(out, "index.html", layout, dict(meta, page_title="Yidika, a typed language that runs now or compiles to native code",
                                                  nav=nav_html(nav, ""), toc="", content=content, body_class="home"))

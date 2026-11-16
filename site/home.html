@@ -3,8 +3,9 @@
     <div class="hero-text">
       <svg class="hero-logo logo" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><path class="logo-ink" data-logo-part d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" data-logo-part d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" data-logo-strand d="M3 32 C 8 40, 6 50, 12 60"/></svg>
       <h1 id="hero-title">Yidika</h1>
+      <p class="tagline">Write it once. Run it now, or ship it native.</p>
+      <p class="lead">A statically typed language with one tool, <code>yidi</code>. It runs your program straight away in an interpreter, or compiles it through LLVM into a native binary. Both engines print the same output, and the test suite checks that they do.</p>
       <p class="meaning"><i lang="kg">yidika</i>, Kikongo: to design, to arrange, to put back in order.</p>
-      <p class="lead">A statically typed language. Run a program straight away in the interpreter, or let <code>yidi</code> arrange it into native code through LLVM. Both engines print the same output, and the test suite checks that they do.</p>
       <div class="install" data-reveal>
         <div class="tabs" role="tablist" aria-label="Install on">
           <button type="button" role="tab" id="tab-unix" aria-controls="install-unix" aria-selected="true">Linux and macOS</button>
@@ -27,6 +28,17 @@
   </div>
 </section>
 
+<section class="band" aria-labelledby="build-title">
+  <div class="band-in">
+    <div class="sec-text wide">
+      <p class="eyebrow">What you can build today</p>
+      <h2 id="build-title">Web servers, file tools and parallel programs</h2>
+      <p>The standard library covers HTTP, files, JSON, paths, regular expressions and threads, with nothing to install. Each example comes from a guide and was checked in both engines.</p>
+    </div>
+    <div class="build" data-reveal>{{build}}</div>
+  </div>
+</section>
+
 <section class="band" aria-labelledby="speed-title">
   <div class="band-in split">
     <div class="sec-text">
@@ -40,6 +52,25 @@
       <div class="bar-row"><dt>Rust, rustc -O</dt><dd><span class="track"><span class="fill rust" style="--w: 0.32"></span></span><span class="val" data-value="0.036">0.036 s</span></dd></div>
       <div class="bar-row"><dt>yidi, interpreter</dt><dd><span class="track"><span class="fill interp" style="--w: 100"></span></span><span class="val" data-value="11.3">11.3 s</span></dd></div>
       <p class="scale-note">Bars to scale: the native run is 330 times shorter than the interpreter run.</p>
+    </dl>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="toolkit-title">
+  <div class="band-in split">
+    <div class="sec-text">
+      <p class="eyebrow">One tool</p>
+      <h2 id="toolkit-title">Everything goes through <code>yidi</code></h2>
+      <p>Running, compiling, watching, projects, packages and upgrades are one command. There is no build file to write, and a built program needs no runtime installed next to it.</p>
+      <p><a href="cli.html">Every command</a></p>
+    </div>
+    <dl class="toolkit" data-reveal>
+      <div><dt><code>yidi app.yk</code></dt><dd>Type-check, compile to native code, cache and run.</dd></div>
+      <div><dt><code>yidi app.yk --watch</code></dt><dd>Run again each time a file of the program is saved.</dd></div>
+      <div><dt><code>yidi build app.yk</code></dt><dd>Write a standalone executable next to the source.</dd></div>
+      <div><dt><code>yidi run app.yk --interp</code></dt><dd>Start at once in the interpreter, no compiler needed.</dd></div>
+      <div><dt><code>yidi init</code>, <code>yidi add</code></dt><dd>Create a project and add packages, pinned in <code>yidi.lock</code>.</dd></div>
+      <div><dt><code>yidi upgrade</code></dt><dd>Install the latest release after checking its SHA-256.</dd></div>
     </dl>
   </div>
 </section>
@@ -80,6 +111,22 @@
       <p>Static types with inference, classes and interfaces, enums with <code>match</code>, <code>Result</code> with <code>?</code>, and real threads. Each example below is a test: it runs in both engines and must print what is shown.</p>
     </div>
     <div class="tour" data-reveal>{{tabs}}</div>
+  </div>
+</section>
+
+<section class="band" aria-labelledby="from-title">
+  <div class="band-in">
+    <div class="sec-text wide">
+      <p class="eyebrow">Coming from another language</p>
+      <h2 id="from-title">Start from what you already know</h2>
+      <p>Each page maps the habits of one language to Yidika, side by side, and lists what will surprise you.</p>
+    </div>
+    <ul class="from-links" data-reveal>
+      <li><a href="from-javascript.html"><b>JavaScript and TypeScript{{icon:arrow-right}}</b><span><code>Promise.all</code> becomes <code>spawn</code> and <code>await</code> on real threads.</span></a></li>
+      <li><a href="from-python.html"><b>Python{{icon:arrow-right}}</b><span>Same <code>f"..."</code> strings, braces instead of indentation, no global lock.</span></a></li>
+      <li><a href="from-rust.html"><b>Rust{{icon:arrow-right}}</b><span><code>Result</code> and <code>?</code> as you know them, without lifetimes to write.</span></a></li>
+      <li><a href="from-go.html"><b>Go{{icon:arrow-right}}</b><span><code>?</code> replaces <code>if err != nil</code>; enums come with <code>match</code>.</span></a></li>
+    </ul>
   </div>
 </section>
 
