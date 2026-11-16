@@ -1,11 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Yidika">
-  <path d="M40 52 L58 60 L52 44 Z" fill="#7a5a2e"/>
-  <ellipse cx="38" cy="40" rx="20" ry="17" fill="#f2b21b"/>
-  <path d="M28 36 C 36 28, 52 32, 56 44 C 46 46, 34 45, 28 36 Z" fill="#c98a0a"/>
-  <circle cx="26" cy="24" r="16" fill="#f2b21b"/>
-  <path d="M11 20 C 14 11, 26 8, 36 14 C 36 25, 29 34, 17 35 C 11 31, 9 25, 11 20 Z" fill="#1d1b18"/>
-  <path d="M12 23 L 2 26 L 13 30 Z" fill="#1d1b18"/>
-  <circle cx="23" cy="20" r="3.6" fill="#e2483a"/>
-  <circle cx="23" cy="20" r="1.6" fill="#1d1b18"/>
-  <path d="M3 27 C 6 36, 4 46, 9 56" fill="none" stroke="#0b6e4f" stroke-width="3.5" stroke-linecap="round"/>
+  <style>
+    .ink { fill: #1d1b18; }
+    .eye { fill: #faf8f4; }
+    .strand { stroke: #0b6e4f; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #ece7de; }
+      .eye { fill: #161513; }
+      .strand { stroke: #5fc39b; }
+    }
+  </style>
+  <path class="ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/>
+  <path class="ink" d="M24 22 L 2 31 L 24 38 Z"/>
+  <circle class="eye" cx="38" cy="24" r="4.2"/>
+  <path class="strand" d="M3 32 C 8 40, 6 50, 12 60" fill="none" stroke-width="4" stroke-linecap="round"/>
 </svg>

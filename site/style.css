@@ -111,7 +111,7 @@ figure pre { margin: 0; padding: var(--space-3); overflow-x: auto; line-height: 
 
 .foot { border-top: 1px solid var(--rule); color: var(--muted); font-size: 0.85rem; padding: var(--space-3) max(16px, env(safe-area-inset-right)) var(--space-4) max(16px, env(safe-area-inset-left)); text-align: center; }
 
-.intro { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; gap: var(--space-4); align-items: start; padding: var(--space-4) 0 var(--space-5); border-bottom: 1px solid var(--rule); }
+.intro { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: var(--space-4); align-items: start; padding: var(--space-4) 0 var(--space-5); border-bottom: 1px solid var(--rule); }
 .intro h1 { margin: 0; font-size: 3.2rem; letter-spacing: -0.02em; }
 .meaning { margin: var(--space-1) 0 var(--space-3); font-size: var(--step-1); color: var(--muted); }
 .lead { font-size: 1.15rem; max-width: 60ch; margin: 0 0 var(--space-3); }
@@ -150,7 +150,7 @@ figure pre { margin: 0; padding: var(--space-3); overflow-x: auto; line-height: 
   .contents { display: block; border: 1px solid var(--rule); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
   .contents summary { cursor: pointer; font-weight: 600; }
   .bench, .install { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
-  .hero-mascot { width: 16rem; order: -1; }
+  .hero-mascot { width: 7rem; order: -1; }
   .docmap-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .intro { grid-template-columns: minmax(0, 1fr); }
   .intro h1 { font-size: 2.6rem; }
