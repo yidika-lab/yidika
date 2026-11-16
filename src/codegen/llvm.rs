@@ -471,7 +471,7 @@ impl LlvmCodegen {
         }
     }
 
-    fn from_i64(&mut self, val: String, typ: &str) -> String {
+    fn unbox_i64(&mut self, val: String, typ: &str) -> String {
         let b = self.fresh_label();
         match typ {
             "double" => self.e(&format!("%{} = bitcast i64 {} to double", b, val)),
@@ -2498,7 +2498,7 @@ impl LlvmCodegen {
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = call i64 @yk_list_get(ptr {}, i64 {})", tmp, o, i));
                     let raw = self.ssa(&tmp);
-                    (self.from_i64(raw, &elem), elem)
+                    (self.unbox_i64(raw, &elem), elem)
                 } else {
                     let tmp = self.fresh_label();
                     self.e(&format!("%{} = getelementptr inbounds i64, ptr {}, i64 {}", tmp, o, i));

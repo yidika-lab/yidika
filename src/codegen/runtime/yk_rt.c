@@ -608,7 +608,11 @@ void yk_list_push_kind(yk_list* l, int64_t val, int64_t kind) {
 }
 
 int64_t yk_list_get(yk_list* l, int64_t idx) {
-    if (idx < 0 || idx >= l->len) { return 0; }
+    if (idx < 0 || idx >= l->len) {
+        fflush(stdout);
+        fprintf(stderr, "error: Index %lld out of bounds for list of length %lld\n", (long long)idx, (long long)l->len);
+        exit(1);
+    }
     return l->data[idx];
 }
 

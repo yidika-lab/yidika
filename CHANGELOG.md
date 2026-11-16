@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Native binaries no longer print a wrong value where the interpreter is right (#96):
+  - a method inherited from a parent class returns its real value, and a child class keeps the parent's fields first in memory;
+  - a set literal drops duplicates, and sets print as `set{...}`;
+  - a generic function is compiled once per argument type, so `id("s")` returns `s`;
+  - `await` returns the value computed by `spawn`;
+  - lists of `str`, `real` and `bool` print and index correctly, and strings stored in a list stay valid after the function that built it returns;
+  - an index out of bounds stops the program with the same error as the interpreter instead of returning 0.
+- `if (c) { "a" } else { "b" }` used as an expression yields the branch value in both engines (it was `none` and `0`).
+- `spawn` with arguments no longer overflows the interpreter's stack.
+
+### Changed
+
+- A std function that the native backend does not implement (for example `json.parse`) now fails the build with "`json.parse` is not supported by the native backend yet", so `yidi run` falls back to the interpreter instead of running a binary that returns 0.
+
 ## [0.2.0] - 2026-11-15
 
 ### Added

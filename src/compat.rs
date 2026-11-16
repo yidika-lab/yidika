@@ -1508,4 +1508,13 @@ fn main() {
 "#, "refuses_json_parse").expect_err("json.parse must not build until it is implemented natively");
         assert!(err.contains("json.parse"), "{}", err);
     }
+
+    #[test]
+    fn aot_stops_on_list_index_out_of_bounds() {
+        let source = "fn main() {\n    l = [1, 2];\n    println(l[5]);\n}\n";
+        let interp = run_interp(source).expect_err("the interpreter stops on a bad index");
+        let native = run_aot(source, "list_index_out_of_bounds").expect_err("the native binary must stop instead of printing 0");
+        assert!(interp.contains("Index 5 out of bounds for list of length 2"), "{}", interp);
+        assert!(native.contains("Index 5 out of bounds for list of length 2"), "{}", native);
+    }
 }
