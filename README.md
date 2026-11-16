@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/yidika-mark.svg" width="88" alt="Yidika">
+  <img src="docs/assets/tisserin.svg" width="260" alt="The tisserin, Yidika's mascot, placing the last strand of its nest">
 </p>
 
 <h1 align="center">Yidika</h1>
@@ -12,7 +12,7 @@
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
-*Yidika* means "to design, to arrange, to put back in order" in Kikongo. The logo is that idea: loose points falling into one line. The mascot is the *tisserin*, the weaver bird that builds its nest one strand at a time.
+*Yidika* means "to design, to arrange, to put back in order" in Kikongo. The logo is the *tisserin*, the weaver bird that builds its nest one strand at a time, in order.
 
 ```yidika-file
 fn fib(n: int) -> int {
