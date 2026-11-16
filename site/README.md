@@ -12,10 +12,10 @@ Nothing is copied by hand. The navigation, grouped by need (Learn, Guides, Refer
 
 ## Design
 
-- Tokens: one table at the top of `style.css` (colors for light and dark, type scale, 4 px spacing scale, header height). Ink `#111513` on `#f7f8f6`, the strand green `#0a7a55` as accent, the tisserin yellow `#d99a00` only for signals; code blocks are dark in both themes.
-- Type: Schibsted Grotesk for headings, Instrument Sans for text, JetBrains Mono for code with ligatures off, so `->` stays two characters.
+- Tokens: one table at the top of `style.css` (colors for light and dark, type scale, 4 px spacing scale, header height). Ink `#0b0d0c` on white `#ffffff`, the strand green `#0a7a55` as accent, the tisserin yellow `#d99a00` only for signals; code blocks are dark in both themes.
+- Type: Geist for headings and text, Geist Mono for code with ligatures off, so `->` stays two characters. One family keeps the page calm; weight and size carry the hierarchy.
 - Header: 64 px (56 on phones), 24 px side padding, logo 28 px, links 15 px spaced 24, search field 240x36.
-- Background motif: a woven pattern (24 px SVG tile, 7% ink, fading out) behind the home hero only.
+- Background: pure white (#ffffff) in light mode, near black (#0b0d0c) in dark mode. No pattern: one faint green light (`--glow`, 10% accent) sits behind the hero code.
 
 ## Icons
 
