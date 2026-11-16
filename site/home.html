@@ -1,94 +1,91 @@
-<section class="hero" aria-labelledby="hero-title">
-  <div class="hero-in">
-    <div class="hero-text">
-      <svg class="hero-logo logo" viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><path class="logo-ink" data-logo-part d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" data-logo-part d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" data-logo-strand d="M3 32 C 8 40, 6 50, 12 60"/></svg>
-      <h1 id="hero-title">Yidika</h1>
-      <p class="tagline">Write it once. Run it now, or ship it native.</p>
-      <p class="lead">A statically typed language with one tool, <code>yidi</code>. It runs your program straight away in an interpreter, or compiles it through LLVM into a native binary. Both engines print the same output, and the test suite checks that they do.</p>
-      <p class="meaning"><i lang="kg">yidika</i>, Kikongo: to design, to arrange, to put back in order.</p>
-      <div class="install" data-reveal>
+<main id="main">
+<section class="hero-glow border-b border-rule" aria-labelledby="hero-title">
+  <div class="mx-auto grid max-w-[1200px] items-center gap-12 px-4 pt-12 pb-16 md:px-10 md:pt-20 md:pb-24 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:gap-16">
+    <div class="min-w-0">
+      <a class="mb-8 inline-flex items-center gap-2 rounded-full border border-rule bg-bg py-1 pr-3 pl-1 text-sm text-muted no-underline hover:border-rule-strong hover:text-ink" href="changelog.html"><span class="rounded-full bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent-ink">v{{version}}</span>Released {{released}}{{icon:arrow-right:14}}</a>
+      <h1 id="hero-title" class="m-0 text-5xl leading-[1.02] font-bold tracking-[-0.04em] text-balance md:text-7xl">Write it once. Run it now, or ship it native.</h1>
+      <p class="mt-6 mb-0 max-w-xl text-lg leading-relaxed text-muted md:text-xl">Yidika is a typed language with one tool, <code class="rounded border border-rule bg-surface px-1.5 py-0.5 text-[0.85em] text-ink">yidi</code>. Start a program at once in the interpreter, or compile it through LLVM into a native binary as fast as Rust. Both engines print the same output, and the test suite checks that they do.</p>
+      <div class="install mt-8 max-w-xl">
         <div class="tabs" role="tablist" aria-label="Install on">
           <button type="button" role="tab" id="tab-unix" aria-controls="install-unix" aria-selected="true">Linux and macOS</button>
           <button type="button" role="tab" id="tab-win" aria-controls="install-win" aria-selected="false" tabindex="-1">Windows</button>
           <button type="button" role="tab" id="tab-src" aria-controls="install-src" aria-selected="false" tabindex="-1">From source</button>
         </div>
-        <div class="tabpanel" role="tabpanel" id="install-unix" aria-labelledby="tab-unix"><div class="cmd"><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
-        <div class="tabpanel" role="tabpanel" id="install-win" aria-labelledby="tab-win" hidden><div class="cmd"><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
-        <div class="tabpanel" role="tabpanel" id="install-src" aria-labelledby="tab-src" hidden><div class="cmd"><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-unix" aria-labelledby="tab-unix"><div class="cmd flex items-center gap-3 rounded-md bg-code py-2 pr-2 pl-4 text-code-ink"><code class="min-w-0 flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap [scrollbar-width:none]"><span class="select-none text-code-muted">$ </span>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-win" aria-labelledby="tab-win" hidden><div class="cmd flex items-center gap-3 rounded-md bg-code py-2 pr-2 pl-4 text-code-ink"><code class="min-w-0 flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap [scrollbar-width:none]"><span class="select-none text-code-muted">&gt; </span>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-src" aria-labelledby="tab-src" hidden><div class="cmd flex items-center gap-3 rounded-md bg-code py-2 pr-2 pl-4 text-code-ink"><code class="min-w-0 flex-1 overflow-x-auto font-mono text-sm whitespace-nowrap [scrollbar-width:none]"><span class="select-none text-code-muted">$ </span>cargo install --git https://github.com/yidika-lab/yidika yidi</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
       </div>
-      <div class="cta">
-        <a class="button primary" href="quickstart.html">Start the quickstart{{icon:arrow-right}}</a>
-        <a class="button" href="installation.html">Installation options</a>
+      <div class="mt-6 flex flex-wrap gap-3">
+        <a class="inline-flex h-12 items-center gap-2 rounded-md bg-ink px-6 font-semibold text-bg no-underline hover:bg-accent hover:text-on-accent" href="quickstart.html">Get started{{icon:arrow-right}}</a>
+        <a class="inline-flex h-12 items-center gap-2 rounded-md border border-rule-strong bg-bg px-6 font-semibold text-ink no-underline hover:border-ink" href="learn.html">{{icon:graduation-cap}}Learn Yidika</a>
       </div>
     </div>
-    <div class="hero-code">
-      <figure class="code ordered"><figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code>{{sample}}</code></pre></figure>
-      <div class="hero-run"><code>{{icon:terminal:14}}$ yidi fib.yk</code><code class="out">9227465</code></div>
+    <div class="min-w-0">
+      <figure class="code ordered m-0 shadow-[0_40px_80px_-48px_rgba(10,40,25,0.55)]" data-lang="yidika"><figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code>{{sample}}</code></pre></figure>
+      <div class="mt-3 flex items-center justify-between gap-4 rounded-md border border-rule bg-bg px-4 py-2.5 font-mono text-sm"><span class="inline-flex items-center gap-2 text-muted">{{icon:terminal:14}}$ yidi fib.yk</span><span class="font-medium text-accent-ink">9227465 <span class="font-normal text-muted">in 0.034 s</span></span></div>
     </div>
   </div>
 </section>
 
-<section class="band" aria-labelledby="build-title">
-  <div class="band-in">
-    <div class="sec-text wide">
-      <p class="eyebrow">What you can build today</p>
-      <h2 id="build-title">Web servers, file tools and parallel programs</h2>
-      <p>The standard library covers HTTP, files, JSON, paths, regular expressions and threads, with nothing to install. Each example comes from a guide and was checked in both engines.</p>
+<section class="border-b border-rule" aria-label="Measured">
+  <dl class="mx-auto m-0 grid max-w-[1200px] grid-cols-1 divide-y divide-rule px-4 sm:grid-cols-3 sm:divide-x sm:divide-y-0 md:px-10">
+    <div class="py-8 sm:px-8 sm:first:pl-0"><dt class="text-sm text-muted">fib(35), yidi native</dt><dd class="m-0 mt-1 text-3xl font-bold tracking-tight">0.034 s</dd></div>
+    <div class="py-8 sm:px-8"><dt class="text-sm text-muted">Same function, rustc -O</dt><dd class="m-0 mt-1 text-3xl font-bold tracking-tight">0.036 s</dd></div>
+    <div class="py-8 sm:px-8"><dt class="text-sm text-muted">Doc examples checked in both engines</dt><dd class="m-0 mt-1 text-3xl font-bold tracking-tight">All of them</dd></div>
+  </dl>
+</section>
+
+<section class="border-b border-rule" aria-labelledby="build-title">
+  <div class="mx-auto max-w-[1200px] px-4 py-20 md:px-10 md:py-28">
+    <div class="mb-10 max-w-3xl">
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">What you can build today</p>
+      <h2 id="build-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight text-balance md:text-5xl">Web servers, file tools and parallel programs</h2>
+      <p class="mt-5 mb-0 text-lg leading-relaxed text-muted">HTTP, files, JSON, paths, regular expressions and threads come with the language. Nothing to install, nothing to configure.</p>
     </div>
-    <div class="build" data-reveal>{{build}}</div>
+    <div class="build max-w-4xl" data-reveal>{{build}}</div>
   </div>
 </section>
 
-<section class="band" aria-labelledby="speed-title">
-  <div class="band-in split">
-    <div class="sec-text">
-      <p class="eyebrow">Speed</p>
-      <h2 id="speed-title">Native speed, measured</h2>
-      <p><code>yidi run</code> compiles the program above through LLVM, caches the binary and runs it. The same function built with <code>rustc -O</code> takes the same time.</p>
-      <p class="note">Best of three runs on an AMD Ryzen 5 4500U, Linux. <a href="{{repo}}/blob/main/benchmarks/fib/run.sh">Run the benchmark yourself</a>.</p>
+<section class="border-b border-rule bg-surface" aria-labelledby="speed-title">
+  <div class="mx-auto grid max-w-[1200px] items-center gap-12 px-4 py-20 md:px-10 md:py-28 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+    <div>
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">Speed</p>
+      <h2 id="speed-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight md:text-5xl">Native speed, measured</h2>
+      <p class="mt-5 mb-4 text-lg leading-relaxed text-muted"><code class="text-[0.9em]">yidi run</code> compiles the program through LLVM, caches the binary and runs it. The same function built with <code class="text-[0.9em]">rustc -O</code> takes the same time.</p>
+      <p class="m-0 text-sm text-muted">Best of three runs on an AMD Ryzen 5 4500U, Linux. <a href="{{repo}}/blob/main/benchmarks/fib/run.sh">Run the benchmark yourself</a>.</p>
     </div>
-    <dl class="bars" data-bars>
-      <div class="bar-row"><dt>yidi, native</dt><dd><span class="track"><span class="fill native" style="--w: 0.30"></span></span><span class="val" data-value="0.034">0.034 s</span></dd></div>
-      <div class="bar-row"><dt>Rust, rustc -O</dt><dd><span class="track"><span class="fill rust" style="--w: 0.32"></span></span><span class="val" data-value="0.036">0.036 s</span></dd></div>
-      <div class="bar-row"><dt>yidi, interpreter</dt><dd><span class="track"><span class="fill interp" style="--w: 100"></span></span><span class="val" data-value="11.3">11.3 s</span></dd></div>
-      <p class="scale-note">Bars to scale: the native run is 330 times shorter than the interpreter run.</p>
+    <dl class="bars m-0 grid gap-6 rounded-lg border border-rule bg-bg p-6 md:p-8" data-bars>
+      <div class="bar-row"><dt class="mb-2 text-[0.9375rem] font-medium">yidi, native</dt><dd class="m-0 grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4"><span class="track block h-3.5 overflow-hidden rounded-sm bg-surface"><span class="fill block h-full rounded-sm bg-accent" style="--w: 0.30"></span></span><span class="val text-right font-mono text-[0.9375rem] font-medium tabular-nums" data-value="0.034">0.034 s</span></dd></div>
+      <div class="bar-row"><dt class="mb-2 text-[0.9375rem] font-medium">Rust, rustc -O</dt><dd class="m-0 grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4"><span class="track block h-3.5 overflow-hidden rounded-sm bg-surface"><span class="fill block h-full rounded-sm bg-muted" style="--w: 0.32"></span></span><span class="val text-right font-mono text-[0.9375rem] font-medium tabular-nums" data-value="0.036">0.036 s</span></dd></div>
+      <div class="bar-row"><dt class="mb-2 text-[0.9375rem] font-medium">yidi, interpreter</dt><dd class="m-0 grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-4"><span class="track block h-3.5 overflow-hidden rounded-sm bg-surface"><span class="fill block h-full rounded-sm bg-signal" style="--w: 100"></span></span><span class="val text-right font-mono text-[0.9375rem] font-medium tabular-nums" data-value="11.3">11.3 s</span></dd></div>
+      <p class="m-0 text-sm text-muted">Bars to scale: the native run is 330 times shorter than the interpreter run.</p>
     </dl>
   </div>
 </section>
 
-<section class="band" aria-labelledby="toolkit-title">
-  <div class="band-in split">
-    <div class="sec-text">
-      <p class="eyebrow">One tool</p>
-      <h2 id="toolkit-title">Everything goes through <code>yidi</code></h2>
-      <p>Running, compiling, watching, projects, packages and upgrades are one command. There is no build file to write, and a built program needs no runtime installed next to it.</p>
-      <p><a href="cli.html">Every command</a></p>
+<section class="border-b border-rule" aria-labelledby="toolkit-title">
+  <div class="mx-auto grid max-w-[1200px] gap-12 px-4 py-20 md:px-10 md:py-28 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+    <div>
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">One tool</p>
+      <h2 id="toolkit-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight md:text-5xl">Everything goes through yidi</h2>
+      <p class="mt-5 mb-4 text-lg leading-relaxed text-muted">Running, compiling, watching, projects, packages and upgrades are one command. No build file to write, and a built program needs no runtime installed next to it.</p>
+      <a class="inline-flex items-center gap-1.5 font-medium no-underline hover:underline" href="cli.html">Every command{{icon:arrow-right:14}}</a>
     </div>
-    <dl class="toolkit" data-reveal>
-      <div><dt><code>yidi app.yk</code></dt><dd>Type-check, compile to native code, cache and run.</dd></div>
-      <div><dt><code>yidi app.yk --watch</code></dt><dd>Run again each time a file of the program is saved.</dd></div>
-      <div><dt><code>yidi build app.yk</code></dt><dd>Write a standalone executable next to the source.</dd></div>
-      <div><dt><code>yidi run app.yk --interp</code></dt><dd>Start at once in the interpreter, no compiler needed.</dd></div>
-      <div><dt><code>yidi init</code>, <code>yidi add</code></dt><dd>Create a project and add packages, pinned in <code>yidi.lock</code>.</dd></div>
-      <div><dt><code>yidi upgrade</code></dt><dd>Install the latest release after checking its SHA-256.</dd></div>
+    <dl class="m-0 grid border-t border-rule sm:grid-cols-2" data-reveal>
+      <div class="border-b border-rule py-5 sm:pr-8"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi app.yk</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Type-check, compile to native code, cache and run.</dd></div>
+      <div class="border-b border-rule py-5"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi app.yk --watch</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Run again each time a file of the program is saved.</dd></div>
+      <div class="border-b border-rule py-5 sm:pr-8"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi build app.yk</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Write a standalone executable next to the source.</dd></div>
+      <div class="border-b border-rule py-5"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi run app.yk --interp</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Start at once in the interpreter, no compiler needed.</dd></div>
+      <div class="border-b border-rule py-5 sm:pr-8"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi init</code>, <code class="text-[0.9375rem] font-medium text-accent-ink">yidi add</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Create a project and add packages, pinned in <code>yidi.lock</code>.</dd></div>
+      <div class="border-b border-rule py-5"><dt><code class="text-[0.9375rem] font-medium text-accent-ink">yidi upgrade</code></dt><dd class="m-0 mt-1 text-[0.9375rem] text-muted">Install the latest release after checking its SHA-256.</dd></div>
     </dl>
   </div>
 </section>
 
-<section class="band" aria-labelledby="engines-title">
-  <div class="band-in split reverse">
-    <div class="sec-text">
-      <p class="eyebrow">Two engines</p>
-      <h2 id="engines-title">One program, two ways to run it, the same output</h2>
-      <ol class="steps" data-reveal>
-        <li><b>Checked first.</b> <code>yidi</code> parses and type-checks the whole program. An error stops here, with the file, line and column.</li>
-        <li><b>Native when it can.</b> The program is compiled to LLVM IR, linked and cached; the next run starts the cached binary.</li>
-        <li><b>Interpreter otherwise.</b> If the native backend does not support something yet, <code>yidi run</code> says so and runs the interpreter instead of a wrong binary.</li>
-      </ol>
-      <p><a href="engines.html">How the two engines are kept in step</a></p>
-    </div>
-    <figure class="engines" data-engines>
-      <svg viewBox="0 0 540 200" role="img" aria-labelledby="engines-desc">
+<section class="border-b border-rule" aria-labelledby="engines-title">
+  <div class="mx-auto grid max-w-[1200px] items-center gap-12 px-4 py-20 md:px-10 md:py-28 lg:grid-cols-[minmax(0,7fr)_minmax(0,5fr)] lg:gap-16">
+    <figure class="engines m-0 rounded-lg border border-rule bg-surface px-6 py-8" data-engines>
+      <svg class="block h-auto w-full overflow-visible" viewBox="0 0 540 200" role="img" aria-labelledby="engines-desc">
         <desc id="engines-desc">app.yk goes either through the interpreter or through LLVM to native code, and both give the same output.</desc>
         <path class="wire" d="M120 100 C 160 100, 160 44, 200 44"/>
         <path class="wire" d="M120 100 C 160 100, 160 156, 200 156"/>
@@ -100,45 +97,52 @@
         <rect class="node key" data-engines-out x="420" y="76" width="110" height="48" rx="6"/><text x="475" y="105">same output</text>
       </svg>
     </figure>
+    <div>
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">Two engines</p>
+      <h2 id="engines-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight text-balance md:text-5xl">One program, two ways to run it</h2>
+      <ol class="mt-6 mb-6 grid list-none gap-4 p-0 [counter-reset:step]" data-reveal>
+        <li class="relative pl-8 leading-relaxed [counter-increment:step] before:absolute before:top-0 before:left-0 before:font-mono before:text-sm before:leading-7 before:font-semibold before:text-accent-ink before:content-[counter(step)]"><b class="font-semibold">Checked first.</b> <span class="text-muted">yidi parses and type-checks the whole program. An error stops here, with the file, line and column.</span></li>
+        <li class="relative pl-8 leading-relaxed [counter-increment:step] before:absolute before:top-0 before:left-0 before:font-mono before:text-sm before:leading-7 before:font-semibold before:text-accent-ink before:content-[counter(step)]"><b class="font-semibold">Native when it can.</b> <span class="text-muted">The program is compiled to LLVM IR, linked and cached; the next run starts the cached binary.</span></li>
+        <li class="relative pl-8 leading-relaxed [counter-increment:step] before:absolute before:top-0 before:left-0 before:font-mono before:text-sm before:leading-7 before:font-semibold before:text-accent-ink before:content-[counter(step)]"><b class="font-semibold">Interpreter otherwise.</b> <span class="text-muted">If the native backend does not support something yet, yidi run says so and runs the interpreter instead of a wrong binary.</span></li>
+      </ol>
+      <a class="inline-flex items-center gap-1.5 font-medium no-underline hover:underline" href="engines.html">How the two engines are kept in step{{icon:arrow-right:14}}</a>
+    </div>
   </div>
 </section>
 
-<section class="band" aria-labelledby="tour-title">
-  <div class="band-in">
-    <div class="sec-text wide">
-      <p class="eyebrow">The language</p>
-      <h2 id="tour-title">What the code looks like</h2>
-      <p>Static types with inference, classes and interfaces, enums with <code>match</code>, <code>Result</code> with <code>?</code>, and real threads. Each example below is a test: it runs in both engines and must print what is shown.</p>
+<section class="border-b border-rule" aria-labelledby="tour-title">
+  <div class="mx-auto max-w-[1200px] px-4 py-20 md:px-10 md:py-28">
+    <div class="mb-10 max-w-3xl">
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">The language</p>
+      <h2 id="tour-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight md:text-5xl">Reads like the languages you know</h2>
+      <p class="mt-5 mb-0 text-lg leading-relaxed text-muted">Static types with inference, classes and interfaces, enums with <code class="text-[0.9em]">match</code>, <code class="text-[0.9em]">Result</code> with <code class="text-[0.9em]">?</code>, and real threads. Each example is a test: it runs in both engines and must print what is shown.</p>
     </div>
-    <div class="tour" data-reveal>{{tabs}}</div>
+    <div class="tour max-w-4xl" data-reveal>{{tabs}}</div>
   </div>
 </section>
 
-<section class="band" aria-labelledby="from-title">
-  <div class="band-in">
-    <div class="sec-text wide">
-      <p class="eyebrow">Coming from another language</p>
-      <h2 id="from-title">Start from what you already know</h2>
-      <p>Each page maps the habits of one language to Yidika, side by side, and lists what will surprise you.</p>
+<section class="border-b border-rule bg-surface" aria-labelledby="from-title">
+  <div class="mx-auto max-w-[1200px] px-4 py-20 md:px-10 md:py-28">
+    <div class="mb-10 flex flex-wrap items-end justify-between gap-6">
+      <div class="max-w-2xl">
+        <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">Coming from another language</p>
+        <h2 id="from-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight md:text-5xl">Start from what you already know</h2>
+      </div>
+      <a class="inline-flex items-center gap-1.5 font-medium no-underline hover:underline" href="learn.html">All learning paths{{icon:arrow-right:14}}</a>
     </div>
-    <ul class="from-links" data-reveal>
-      <li><a href="from-javascript.html"><b>JavaScript and TypeScript{{icon:arrow-right}}</b><span><code>Promise.all</code> becomes <code>spawn</code> and <code>await</code> on real threads.</span></a></li>
-      <li><a href="from-python.html"><b>Python{{icon:arrow-right}}</b><span>Same <code>f"..."</code> strings, braces instead of indentation, no global lock.</span></a></li>
-      <li><a href="from-rust.html"><b>Rust{{icon:arrow-right}}</b><span><code>Result</code> and <code>?</code> as you know them, without lifetimes to write.</span></a></li>
-      <li><a href="from-go.html"><b>Go{{icon:arrow-right}}</b><span><code>?</code> replaces <code>if err != nil</code>; enums come with <code>match</code>.</span></a></li>
-    </ul>
+    <div class="grid gap-4 md:grid-cols-2" data-reveal>{{languages}}</div>
   </div>
 </section>
 
-<section class="band" aria-labelledby="packages-title">
-  <div class="band-in split">
-    <div class="sec-text">
-      <p class="eyebrow">Packages</p>
-      <h2 id="packages-title">Packages from git, checked by hash</h2>
-      <p>A package is a git repository with a tag. The <a href="{{registry}}">registry</a> records which commit is which version and the SHA-256 to expect; <code>yidi.lock</code> pins both. One cache serves every project, so a second install needs no network.</p>
-      <p><a href="packages.html">Packages and the registry</a></p>
+<section class="border-b border-rule" aria-labelledby="packages-title">
+  <div class="mx-auto grid max-w-[1200px] items-center gap-12 px-4 py-20 md:px-10 md:py-28 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-16">
+    <div>
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">Packages</p>
+      <h2 id="packages-title" class="m-0 text-4xl leading-[1.08] font-bold tracking-tight md:text-5xl">Packages from git, checked by hash</h2>
+      <p class="mt-5 mb-4 text-lg leading-relaxed text-muted">A package is a git repository with a tag. The <a href="{{registry}}">registry</a> records which commit is which version and the SHA-256 to expect; <code class="text-[0.9em]">yidi.lock</code> pins both. One cache serves every project, so a second install needs no network.</p>
+      <a class="inline-flex items-center gap-1.5 font-medium no-underline hover:underline" href="packages.html">Packages and the registry{{icon:arrow-right:14}}</a>
     </div>
-    <figure class="code" data-reveal><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code><span class="tk-comment"># new project, then a dependency from the registry or from git</span>
+    <figure class="code m-0" data-lang="sh" data-reveal><figcaption><span>terminal</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code><span class="tk-comment"># new project, then a dependency from the registry or from git</span>
 yidi init my-app
 yidi add greet
 yidi add github:user/repo
@@ -149,27 +153,14 @@ yidi publish</code></pre></figure>
   </div>
 </section>
 
-<section class="band" aria-labelledby="status-title">
-  <div class="band-in split">
-    <div class="sec-text">
-      <p class="eyebrow">Status</p>
-      <h2 id="status-title">Where Yidika stands</h2>
-      <p>Version {{version}}, released {{released}}. Yidika is young: some constructs are missing, such as <code>break</code>, and some programs only run in the interpreter so far. Both lists are kept up to date, with an issue for each item.</p>
+<section aria-labelledby="cta-title">
+  <div class="mx-auto max-w-[1200px] px-4 py-20 text-center md:px-10 md:py-28">
+    <h2 id="cta-title" class="mx-auto m-0 max-w-3xl text-4xl leading-[1.08] font-bold tracking-tight text-balance md:text-6xl">Install Yidika and run your first program in a minute</h2>
+    <p class="mx-auto mt-5 mb-8 max-w-2xl text-lg text-muted">Version {{version}}, released {{released}}. Yidika is young: read the <a href="limits.html">known limits</a> before you build something large, and <a href="{{repo}}/issues">report what breaks</a>.</p>
+    <div class="flex flex-wrap justify-center gap-3">
+      <a class="inline-flex h-12 items-center gap-2 rounded-md bg-ink px-6 font-semibold text-bg no-underline hover:bg-accent hover:text-on-accent" href="installation.html">Install Yidika{{icon:arrow-right}}</a>
+      <a class="inline-flex h-12 items-center gap-2 rounded-md border border-rule-strong bg-bg px-6 font-semibold text-ink no-underline hover:border-ink" href="{{repo}}">{{icon:github:18}}Star on GitHub</a>
     </div>
-    <ul class="status-links" data-reveal>
-      <li><a href="limits.html">{{icon:circle-alert:20}}<b>Known limits</b><span>What does not work yet, and what to write instead</span></a></li>
-      <li><a href="changelog.html">{{icon:history:20}}<b>Changelog</b><span>Every fix and feature, release by release</span></a></li>
-      <li><a href="{{repo}}/issues">{{icon:bug:20}}<b>Issues</b><span>Report a bug with the program and both outputs</span></a></li>
-    </ul>
   </div>
 </section>
-
-<section class="band" aria-labelledby="docmap-title">
-  <div class="band-in">
-    <div class="sec-text wide">
-      <p class="eyebrow">Documentation</p>
-      <h2 id="docmap-title">Where to go next</h2>
-    </div>
-    <div class="docmap" data-reveal>{{docmap}}</div>
-  </div>
-</section>
+</main>

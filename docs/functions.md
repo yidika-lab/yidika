@@ -10,11 +10,11 @@ fn add(a: int, b: int) -> int {
 }
 
 fn greet(name: str) {
-    println("hello " + name);
+    print("hello " + name);
 }
 
 fn main() {
-    println(add(2, 3));
+    print(add(2, 3));
     greet("Ada");
 }
 ```
@@ -32,8 +32,8 @@ fn first<T>(a: T, b: T) -> T {
 }
 
 fn main() {
-    println(first("left", "right"));
-    println(first(1, 2));
+    print(first("left", "right"));
+    print(first(1, 2));
 }
 ```
 
@@ -54,9 +54,9 @@ fn apply(f: fn(int) -> int, v: int) -> int {
 }
 
 fn main() {
-    println(apply(twice, 21));
-    println(apply((x) => x + 1, 41));
-    println(apply(fn(y: int) -> int { return y * y; }, 7));
+    print(apply(twice, 21));
+    print(apply((x) => x + 1, 41));
+    print(apply(fn(y: int) -> int { return y * y; }, 7));
 }
 ```
 
@@ -87,10 +87,10 @@ fn main() {
     next = counter();
     next();
     next();
-    println(next());
+    print(next());
 
     add5 = adder(5);
-    println(add5(10));
+    print(add5(10));
 }
 ```
 

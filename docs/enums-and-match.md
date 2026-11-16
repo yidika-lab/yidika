@@ -14,9 +14,9 @@ fn name(n: int) -> str {
 }
 
 fn main() {
-    println(name(0), name(1), name(7));
+    print(name(0), name(1), name(7));
     lang = "yk";
-    println(match lang { "rs" => "Rust", "yk" => "Yidika", _ => "?" });
+    print(match lang { "rs" => "Rust", "yk" => "Yidika", _ => "?" });
 }
 ```
 
@@ -45,7 +45,7 @@ fn kind(s: Shape) -> str {
 }
 
 fn main() {
-    println(kind(Shape::Circle(2)), kind(Shape::Square(3)), kind(Shape::Empty));
+    print(kind(Shape::Circle(2)), kind(Shape::Square(3)), kind(Shape::Empty));
 }
 ```
 
@@ -62,9 +62,9 @@ Binding the carried value in a pattern (`Circle(r) => r * r`) does not work in t
 ```yidika
 fn main() {
     x: int | str = 42;
-    println(x);
+    print(x);
     x = "forty-two";
-    println(x);
+    print(x);
 }
 ```
 

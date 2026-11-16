@@ -6,7 +6,7 @@ Create `hello.yk`:
 
 ```yidika
 fn main() {
-    println("Hello, Yidika!");
+    print("Hello, Yidika!");
 }
 ```
 
@@ -37,8 +37,8 @@ fn main() {
     for (i in 0..9) {
         line = line + str(fib(i)) + " ";
     }
-    println(line + "...");
-    println("fib(20) =", fib(20));
+    print(line + "...");
+    print("fib(20) =", fib(20));
 }
 ```
 
@@ -47,7 +47,7 @@ fn main() {
 fib(20) = 6765
 ```
 
-`println` prints its arguments separated by spaces and ends the line; `str()` turns any value into a string. `0..9` includes both ends.
+`print` prints its arguments separated by spaces and ends the line; `str()` turns any value into a string. `0..9` includes both ends.
 
 ## A project
 

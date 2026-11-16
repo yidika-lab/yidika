@@ -8,11 +8,15 @@ python site/build.py          # writes site/dist
 python -m http.server -d site/dist
 ```
 
+CSS comes from Tailwind CSS v4.3.4. `build.py` downloads the standalone CLI for the current platform into `site/.cache` (gitignored), checks its SHA-256 against the table in `build.py` (copied from the release's `sha256sums.txt`), and stops if it differs. It then writes `dist/style.css`, minified, with only the classes used in `layout.html`, `home.html`, `doc.html`, `learn.html`, `learn-page.html`, `build.py` and `site.js`.
+
+The pages listed under "Coming from" in `docs/README.md` are built with `learn-page.html` instead of the docs layout: no sidebar, a language switcher, and a code block in another language followed by a Yidika block is shown side by side. `learn.html` is the hub the Learn button opens.
+
 Nothing is copied by hand. The navigation, grouped by need (Learn, Guides, Reference, Understand), comes from `docs/README.md`; highlighted keywords from `src/syntax/lexer.rs`; the version from `Cargo.toml`; the home page sample from `benchmarks/fib/fib.yk`; the four language examples on the home page from the first tested example under a heading of the tour pages (`HOME_TABS` in `build.py`). The build also writes `changelog.html` from `CHANGELOG.md`, `search.json` (pages, headings and inline code names, searched with `/` or Ctrl+K), `llms.txt`, `llms-full.txt`, a Markdown copy of each page, and `404.html`.
 
 ## Design
 
-- Tokens: one table at the top of `style.css` (colors for light and dark, type scale, 4 px spacing scale, header height). Ink `#0b0d0c` on white `#ffffff`, the strand green `#0a7a55` as accent, the tisserin yellow `#d99a00` only for signals; code blocks are dark in both themes.
+- Tokens: one table at the top of `tailwind.css`. Colors are CSS variables on `:root`, redefined for dark mode, and exposed to Tailwind through `@theme inline`, so a utility such as `bg-surface` or `text-muted` follows the theme without `dark:` variants. The `@layer components` block styles the HTML that `build.py` generates from Markdown (code blocks, tables, callouts, sidebar, side-by-side comparisons). Ink `#0b0d0c` on white `#ffffff`, the strand green `#0a7a55` as accent, the tisserin yellow `#d99a00` only for signals; code blocks are dark in both themes.
 - Type: Geist for headings and text, Geist Mono for code with ligatures off, so `->` stays two characters. One family keeps the page calm; weight and size carry the hierarchy.
 - Header: 64 px (56 on phones), 24 px side padding, logo 28 px, links 15 px spaced 24, search field 240x36.
 - Background: pure white (#ffffff) in light mode, near black (#0b0d0c) in dark mode. No pattern: one faint green light (`--glow`, 10% accent) sits behind the hero code.

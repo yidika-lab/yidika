@@ -1,7 +1,10 @@
 import hashlib
 import html
 import json
+import platform
 import re
+import subprocess
+import urllib.request
 import shutil
 import sys
 from pathlib import Path
@@ -16,6 +19,18 @@ REGISTRY = "https://yidika-lab.github.io/registry/"
 BASE = "https://yidika-lab.github.io/yidika/"
 ANIME = ("anime-4.5.0.esm.min.js", "a19015a1a92d52025a2fb6703b6d67eadd1cc2aeaf880770e96e04cf6aa07be1")
 ICONS = SITE / "icons"
+TAILWIND_VERSION = "4.3.4"
+TAILWIND_SHA256 = {
+    "linux-x64": "149a8ece5b855587a9c10de6da9dcbcfad0e47c4ed5dca219f721b3eae39d817",
+    "linux-arm64": "f6d7baae1d350ed3a2defe98d0b5cc58e37400c0173b2e38d42f690ccc4bbfe1",
+    "macos-arm64": "a516a11b439bfbb5ecd4a2d13b75e6cdcc284dc710aed8731e31d2e5c03895a4",
+    "macos-x64": "7ec771593a1fb8bbd204f70429361b0158f7989e4136bc68d04513bf543a15ba",
+    "windows-x64.exe": "ad84612696f3be102fa005d4827f0df84c7b4570d31c06865ce5fde0311478af",
+}
+TAILWIND_CACHE = SITE / ".cache"
+LANGUAGE_GROUP = "Coming from"
+WIDE_HEADER = "max-w-[1440px]"
+NARROW_HEADER = "max-w-[1200px]"
 GROUP_ICONS = {"Learn": "graduation-cap", "Build": "hammer", "Coming from": "arrow-right-left", "Tools": "wrench",
                "Reference": "library", "Understand": "lightbulb"}
 CALLOUTS = {"NOTE": ("info", "Note"), "TIP": ("lightbulb", "Tip"), "WARNING": ("triangle-alert", "Warning")}
@@ -137,9 +152,9 @@ def copy_button(label):
             f'{icon("copy", 14)}{icon("check", 14)}<span class="copy-label">Copy</span></button>')
 
 
-def code_figure(label, body):
+def code_figure(label, body, lang=""):
     return (
-        f'<figure class="code"><figcaption><span>{html.escape(label)}</span>'
+        f'<figure class="code" data-lang="{html.escape(lang)}"><figcaption><span>{html.escape(label)}</span>'
         f'{copy_button("Copy code")}</figcaption>'
         f'<pre><code>{body}</code></pre></figure>'
     )
@@ -154,7 +169,7 @@ def fence_html(info, code, keywords):
     if lang == "output":
         return output_figure(code)
     body = highlight_yidika(code, keywords) if lang in YIDIKA_FENCES else html.escape(code)
-    return code_figure(FENCE_LABELS.get(lang, lang or "text"), body)
+    return code_figure(FENCE_LABELS.get(lang, lang or "text"), body, "yidika" if lang in YIDIKA_FENCES else lang)
 
 
 def make_renderer(keywords, toc):
@@ -169,6 +184,8 @@ def make_renderer(keywords, toc):
         slug = slugify(text)
         if token.tag in ("h2", "h3"):
             toc.append((token.tag, text, slug))
+        if token.tag in ("h2", "h3"):
+            return f'<{token.tag} id="{slug}"><a class="anchor" href="#{slug}" aria-label="Link to this section">{icon("hash", 16)}</a>'
         return f'<{token.tag} id="{slug}">'
 
     def link_open(self, tokens, idx, options, env):
@@ -180,7 +197,7 @@ def make_renderer(keywords, toc):
         return self.renderToken(tokens, idx, options, env)
 
     def table_open(self, tokens, idx, options, env):
-        return '<div class="table"><table>'
+        return '<div class="table-wrap"><table>'
 
     def table_close(self, tokens, idx, options, env):
         return "</table></div>"
@@ -204,9 +221,13 @@ def nav_item_html(item, current):
 
 def nav_html(nav, current):
     return "".join(
-        f'<h2>{html.escape(group["title"])}</h2><ul>{"".join(nav_item_html(item, current) for item in group["items"])}</ul>'
+        f'<h2>{group_icon(group["title"], 16)}{html.escape(group["title"])}</h2><ul>{"".join(nav_item_html(item, current) for item in group["items"])}</ul>'
         for group in nav
     )
+
+
+def group_icon(title, size):
+    return icon(GROUP_ICONS[title], size) if title in GROUP_ICONS else ""
 
 
 def toc_html(toc):
@@ -260,18 +281,33 @@ def with_callouts(rendered):
     return re.sub(r"<blockquote>\s*<p>\[!(NOTE|TIP|WARNING)\]\s*(.*?)</blockquote>", callout_html, rendered, flags=re.S)
 
 
+FIGURE = r'<figure class="code" data-lang="{lang}">.*?</figure>'
+OUTPUT = r'(?:\s*<figure class="output">.*?</figure>)?'
+SIDE_BY_SIDE = re.compile(f"({FIGURE.format(lang='(?!yidika)[a-z]+')})\\s*({FIGURE.format(lang='yidika')}{OUTPUT})", re.S)
+
+
+def with_compare(rendered):
+    return SIDE_BY_SIDE.sub(r'<div class="compare"><div>\1</div><div>\2</div></div>', rendered)
+
+
 def render_markdown(markdown, keywords):
     toc = []
-    return with_callouts(make_renderer(keywords, toc).render(markdown)), toc
+    return with_compare(with_callouts(make_renderer(keywords, toc).render(markdown))), toc
 
 
 def write_page(out, name, layout, values):
     (out / name).write_text(fill(layout, values))
 
 
+def template(name):
+    return (SITE / name).read_text()
+
+
 def doc_values(meta, nav, current, title, toc, content):
-    return dict(meta, page_title=f"{html.escape(title)} | Yidika", nav=nav_html(nav, current), toc=toc_html(toc),
-                content=content, body_class="doc")
+    values = dict(meta, page_title=f"{html.escape(title)} | Yidika", nav=nav_html(nav, current), toc=toc_html(toc),
+                  content=content, body_class="doc", header_width=WIDE_HEADER)
+    values["main"] = fill(template("doc.html"), values)
+    return values
 
 
 def build_doc(name, group, layout, nav, order, keywords, meta, out):
@@ -349,8 +385,7 @@ def docmap_html(nav):
     for group in nav:
         links = "".join(nav_item_html(dict(item, nested=False), "") if "file" in item else nav_item_html(item, "")
                         for item in group["items"])
-        group_icon = icon(GROUP_ICONS[group["title"]], 18) if group["title"] in GROUP_ICONS else ""
-        columns.append(f'<div><h3>{group_icon}{html.escape(group["title"])}</h3><ul>{links}</ul></div>')
+        columns.append(f'<div><h3>{group_icon(group["title"], 18)}{html.escape(group["title"])}</h3><ul>{links}</ul></div>')
     return "".join(columns)
 
 
@@ -358,14 +393,75 @@ def build_home(layout, nav, keywords, meta, out):
     sample = (ROOT / "benchmarks" / "fib" / "fib.yk").read_text()
     values = dict(meta, sample=highlight_yidika(sample, keywords), docmap=docmap_html(nav),
                   tabs=tabs_html("tour", TOUR_TABS, "Language examples", keywords),
-                  build=tabs_html("build", BUILD_TABS, "Programs you can build", keywords))
-    content = fill((SITE / "home.html").read_text(), values)
+                  build=tabs_html("build", BUILD_TABS, "Programs you can build", keywords),
+                  languages=language_cards(nav))
     write_page(out, "index.html", layout, dict(meta, page_title="Yidika, a typed language that runs now or compiles to native code",
-                                                 nav=nav_html(nav, ""), toc="", content=content, body_class="home"))
+                                                 main=fill(template("home.html"), values), body_class="home",
+                                                 header_width=NARROW_HEADER))
+
+
+def language_pages(nav):
+    group = next(group for group in nav if group["title"] == LANGUAGE_GROUP)
+    return [(item["title"], item["file"]) for item in group["items"] if "file" in item]
+
+
+def first_paragraph(markdown):
+    return next(block for block in markdown.split("\n\n")[1:] if block.strip() and not block.startswith("#")).strip()
+
+
+def inline_markdown(text):
+    return MarkdownIt("commonmark").renderInline(text)
+
+
+def language_cards(nav):
+    cards = []
+    for title, name in language_pages(nav):
+        intro = first_paragraph((DOCS / name).read_text()).split(". ")[0] + "."
+        cards.append(
+            f'<a class="group flex flex-col gap-3 rounded-lg border border-rule bg-bg p-6 text-ink no-underline hover:border-accent" href="{name[:-3]}.html">'
+            f'<span class="flex items-center justify-between text-sm font-semibold text-muted">Coming from'
+            f'<span class="text-faint group-hover:text-accent-ink">{icon("arrow-right", 18)}</span></span>'
+            f'<b class="text-2xl font-bold tracking-tight">{html.escape(title)}</b>'
+            f'<span class="text-[0.9375rem] leading-relaxed text-muted">{inline_markdown(intro)}</span></a>')
+    return "".join(cards)
+
+
+def language_switch(nav, current):
+    links = []
+    for title, name in language_pages(nav):
+        state = ' aria-current="page"' if name == current else ""
+        links.append(f'<a class="rounded-full border border-rule-strong bg-bg px-3.5 py-1.5 text-sm font-medium text-ink no-underline hover:border-ink '
+                     f'aria-[current=page]:border-ink aria-[current=page]:bg-ink aria-[current=page]:text-bg" href="{name[:-3]}.html"{state}>{html.escape(title)}</a>')
+    return "".join(links)
+
+
+def without_title_and_intro(markdown):
+    intro = first_paragraph(markdown)
+    return re.sub(r"^# .+\n", "", markdown, count=1, flags=re.M).replace(intro, "", 1)
+
+
+def build_learn_page(name, layout, nav, keywords, meta, out):
+    markdown = (DOCS / name).read_text()
+    body, toc = render_markdown(without_title_and_intro(markdown), keywords)
+    title = page_title(markdown)
+    values = dict(meta, title=html.escape(title), intro=inline_markdown(first_paragraph(markdown)), content=body,
+                  toc=toc_html(toc), languages=language_switch(nav, name))
+    write_page(out, f"{name[:-3]}.html", layout, dict(meta, page_title=f"{html.escape(title)} | Learn Yidika",
+                                                   main=fill(template("learn-page.html"), values), body_class="learn",
+                                                   header_width=NARROW_HEADER))
+    shutil.copy(DOCS / name, out / name)
+    return search_entries(markdown, title, f"{name[:-3]}.html", "Learn")
+
+
+def build_learn(layout, nav, meta, out):
+    values = dict(meta, languages=language_cards(nav))
+    write_page(out, "learn.html", layout, dict(meta, page_title="Learn Yidika", main=fill(template("learn.html"), values),
+                                             body_class="learn", header_width=NARROW_HEADER))
+    return [{"t": "Learn Yidika", "s": "Learn", "u": "learn.html"}]
 
 
 def build_not_found(layout, nav, meta, out):
-    content = ('<div class="not-found"><h1>This page does not exist</h1>'
+    content = ('<div class="py-16"><h1>This page does not exist</h1>'
                '<p>It may have moved when the documentation was reorganised. Search with <kbd>/</kbd>, '
                'or start from the <a href="quickstart.html">Quickstart</a>.</p></div>')
     values = doc_values(meta, nav, "", "Not found", [], content)
@@ -397,10 +493,37 @@ def copy_vendor(out):
     (out / "vendor" / name).write_bytes(data)
 
 
+def tailwind_platform():
+    system = {"Linux": "linux", "Darwin": "macos", "Windows": "windows"}[platform.system()]
+    arch = "arm64" if platform.machine().lower() in ("arm64", "aarch64") else "x64"
+    return f"{system}-{arch}" + (".exe" if system == "windows" else "")
+
+
+def tailwind_binary():
+    name = tailwind_platform()
+    expected = TAILWIND_SHA256[name]
+    path = TAILWIND_CACHE / f"tailwindcss-{TAILWIND_VERSION}-{name}"
+    if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+        url = f"https://github.com/tailwindlabs/tailwindcss/releases/download/v{TAILWIND_VERSION}/tailwindcss-{name}"
+        data = urllib.request.urlopen(url, timeout=60).read()
+        actual = hashlib.sha256(data).hexdigest()
+        if actual != expected:
+            raise SystemExit(f"{url}: SHA-256 is {actual}, expected {expected}")
+        TAILWIND_CACHE.mkdir(exist_ok=True)
+        path.write_bytes(data)
+        path.chmod(0o755)
+    return path
+
+
+def build_css(out):
+    subprocess.run([str(tailwind_binary()), "--input", str(SITE / "tailwind.css"), "--output", str(out / "style.css"),
+                    "--minify"], check=True, cwd=SITE, capture_output=True)
+
+
 def copy_static(out):
     shutil.copytree(DOCS / "assets", out / "assets")
-    for name in ("style.css", "site.js"):
-        shutil.copy(SITE / name, out / name)
+    shutil.copy(SITE / "site.js", out / "site.js")
+    build_css(out)
     copy_vendor(out)
     (out / ".nojekyll").write_text("")
 
@@ -416,8 +539,13 @@ def build(out):
     meta = {"version": version, "released": read_release_date(version), "repo": REPO, "registry": REGISTRY, "base": BASE, "head_extra": ""}
     layout = (SITE / "layout.html").read_text()
     search = []
+    learn = {name for _, name in language_pages(nav)}
     for _, name, group in order:
-        search.extend(build_doc(name, group, layout, nav, order, keywords, meta, out))
+        if name in learn:
+            search.extend(build_learn_page(name, layout, nav, keywords, meta, out))
+        else:
+            search.extend(build_doc(name, group, layout, nav, order, keywords, meta, out))
+    search.extend(build_learn(layout, nav, meta, out))
     search.extend(build_changelog(layout, nav, keywords, meta, out))
     build_home(layout, nav, keywords, meta, out)
     build_not_found(layout, nav, meta, out)

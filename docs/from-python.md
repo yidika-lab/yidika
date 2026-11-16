@@ -13,7 +13,7 @@ Yidika keeps much of what makes Python pleasant: no variable keyword, `f"..."` s
 | `f"{name} is {age}"` | `f"{name} is {age}"` |
 | `def add(a: int, b: int) -> int:` | `fn add(a: int, b: int) -> int {` |
 | `lambda x: x + 1` | `(x) => x + 1` |
-| `print(a, b)` | `println(a, b);` |
+| `print(a, b)` | `print(a, b);` |
 | `for x in items:` | `for (x: items) {` |
 | `for i in range(5):` | `for (i in 5) {` |
 | `and`, `or`, `not` | `&&`, `\|\|`, `!` |
@@ -48,7 +48,7 @@ fn size(x: int) -> str {
 }
 
 fn main() {
-    println(size(500), size(50), size(5));
+    print(size(500), size(50), size(5));
 }
 ```
 
@@ -65,7 +65,7 @@ fn main() {
     count = 10;
     ratio: real = 2.5;
     name = "Ada";
-    println(count * 2, ratio * 2.0, f"{name} has {len(name)} letters");
+    print(count * 2, ratio * 2.0, f"{name} has {len(name)} letters");
 }
 ```
 
@@ -84,7 +84,7 @@ Two habits to change:
 fn main() {
     total = 0;
     for (i in 1..4) { total += i; }
-    println(total, 7 / 2, -7 / 2, 7.0 / 2.0, 2 ** 10);
+    print(total, 7 / 2, -7 / 2, 7.0 / 2.0, 2 ** 10);
 }
 ```
 
@@ -109,12 +109,12 @@ class Counter:
 ```yidika
 class Counter(start: int) {
     fn get(self) -> int { return self.start; }
-    init { println("counter created"); }
+    init { print("counter created"); }
 }
 
 fn main() {
     c = Counter(99);
-    println(c.get());
+    print(c.get());
 }
 ```
 
@@ -139,8 +139,8 @@ fn next_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(next_port("8080"));
-    println(next_port(""));
+    print(next_port("8080"));
+    print(next_port(""));
 }
 ```
 
@@ -167,7 +167,7 @@ fn main() {
     b = spawn work(2000);
     x = await a;
     y = await b;
-    println(x + y);
+    print(x + y);
 }
 ```
 
@@ -177,7 +177,6 @@ fn main() {
 
 ## Things that will surprise you
 
-- `print` and `println` both end the line for now.
 - Assigning a `str` or a list to another variable, or passing it to a function you wrote, moves it: the old name cannot be used afterwards. See [Moves](variables-and-types.md#moves).
 - `for (x in list)` gives the indices; `for (x: list)` gives the items.
 - There are no list comprehensions, and lists have no `map` or `filter` yet; write the loop.

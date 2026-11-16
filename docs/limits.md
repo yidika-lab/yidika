@@ -31,7 +31,7 @@ They run without an error but do not do what they say ([#100](https://github.com
 
 - Strings: no `indexOf`, no `for` over the characters.
 - Lists and sets: no `contains`, `map`, `filter` yet ([#55](https://github.com/yidika-lab/yidika/issues/55)).
-- `print` and `println` both end the line.
+- `print` ends the line. `println` is an older name for the same function.
 
 ## Native code ([#96](https://github.com/yidika-lab/yidika/issues/96))
 

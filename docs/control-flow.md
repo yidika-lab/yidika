@@ -16,7 +16,7 @@ fn size(x: int) -> str {
 }
 
 fn main() {
-    println(size(500), size(50), size(5));
+    print(size(500), size(50), size(5));
 }
 ```
 
@@ -30,7 +30,7 @@ large medium small
 fn main() {
     x = 5;
     label = if (x > 3) { "big" } else { "small" };
-    println(label);
+    print(label);
 }
 ```
 
@@ -46,7 +46,7 @@ fn main() {
     while (n < 100) {
         n = n * 3;
     }
-    println(n);
+    print(n);
 }
 ```
 
@@ -62,15 +62,15 @@ fn main() {
 fn main() {
     total = 0;
     for (i in 1..4) { total += i; }
-    println(total);
+    print(total);
 
     down = "";
     for (i in 3..1) { down = down + str(i); }
-    println(down);
+    print(down);
 
     count = 0;
     for (i in 5) { count += 1; }
-    println(count);
+    print(count);
 }
 ```
 
@@ -86,7 +86,7 @@ To walk the items of a list, write `for (x: list)`:
 fn main() {
     sum = 0;
     for (x: [10, 20, 30]) { sum += x; }
-    println(sum);
+    print(sum);
 }
 ```
 
@@ -108,7 +108,7 @@ fn first_square_over(limit: int) -> int {
 }
 
 fn main() {
-    println(first_square_over(50));
+    print(first_square_over(50));
 }
 ```
 

@@ -9,8 +9,8 @@ use { sqrt } from "math";
 use { base64 } from "std";
 
 fn main() {
-    println(sqrt(16.0));
-    println(base64.encode("hello"));
+    print(sqrt(16.0));
+    print(base64.encode("hello"));
 }
 ```
 
@@ -39,7 +39,7 @@ export fn shout(s: str) -> str {
 use { shout } from "./text";
 
 fn main() {
-    println(shout("hello"));
+    print(shout("hello"));
 }
 ```
 

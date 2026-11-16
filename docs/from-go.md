@@ -11,7 +11,7 @@ Go and Yidika share goals: a static type system that stays out of the way, one t
 | `const limit = 100` | `limit: const<int> = 100;` |
 | `int`, `float64`, `bool`, `string` | `int`, `real`, `bool`, `str` |
 | `fmt.Sprintf("%s is %d", name, age)` | `f"{name} is {age}"` |
-| `fmt.Println(a, b)` | `println(a, b);` |
+| `fmt.Println(a, b)` | `print(a, b);` |
 | `func add(a, b int) int` | `fn add(a: int, b: int) -> int` |
 | `if x > 3 {` | `if (x > 3) {` |
 | `for i := 0; i < n; i++` | `for (i in n)` |
@@ -36,7 +36,7 @@ fn main() {
     for (x: [10, 20, 30]) { sum += x; }
     n = 1;
     while (n < 100) { n = n * 3; }
-    println(total, sum, n);
+    print(total, sum, n);
 }
 ```
 
@@ -70,8 +70,8 @@ fn next_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(next_port("8080"));
-    println(next_port(""));
+    print(next_port("8080"));
+    print(next_port(""));
 }
 ```
 
@@ -99,7 +99,7 @@ fn render(d: Drawable) -> str {
 }
 
 fn main() {
-    println(render(Circle { r: 2 }));
+    print(render(Circle { r: 2 }));
 }
 ```
 
@@ -130,7 +130,7 @@ fn main() {
     b = spawn work(2000);
     x = await a;
     y = await b;
-    println(x + y);
+    print(x + y);
 }
 ```
 

@@ -11,8 +11,8 @@ fn parse_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(parse_port("8080"));
-    println(parse_port(""));
+    print(parse_port("8080"));
+    print(parse_port(""));
 }
 ```
 
@@ -37,8 +37,8 @@ fn next_port(s: str) -> Result<int, str> {
 }
 
 fn main() {
-    println(next_port("8080"));
-    println(next_port(""));
+    print(next_port("8080"));
+    print(next_port(""));
 }
 ```
 
@@ -62,10 +62,10 @@ fn find(id: int) -> User? {
 }
 
 fn main() {
-    println(find(1)?.name ?: "nobody");
-    println(find(2)?.name ?: "nobody");
+    print(find(1)?.name ?: "nobody");
+    print(find(2)?.name ?: "nobody");
     n: int? = null;
-    println(n ?: -1);
+    print(n ?: -1);
 }
 ```
 

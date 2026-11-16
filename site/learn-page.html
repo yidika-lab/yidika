@@ -1,0 +1,16 @@
+<main id="main">
+  <div class="border-b border-rule bg-surface">
+    <div class="mx-auto max-w-[1200px] px-4 pt-10 pb-12 md:px-10 md:pt-14 md:pb-16">
+      <nav class="crumbs" aria-label="Breadcrumb"><a class="text-muted no-underline hover:text-ink" href="learn.html">Learn</a><span aria-hidden="true">/</span><span>Coming from</span></nav>
+      <h1 class="mt-5 mb-4 max-w-3xl text-4xl leading-[1.08] font-bold tracking-tight text-balance md:text-5xl">{{title}}</h1>
+      <p class="lead m-0 max-w-3xl text-lg leading-relaxed text-muted">{{intro}}</p>
+      <nav class="mt-8 flex flex-wrap gap-2" aria-label="Other languages">{{languages}}</nav>
+    </div>
+  </div>
+  <div class="mx-auto grid max-w-[1200px] gap-12 px-4 py-12 md:px-10 xl:grid-cols-[minmax(0,1fr)_208px]">
+    <article class="doc-content min-w-0">{{content}}</article>
+    <aside class="hidden xl:block" aria-label="On this page">
+      <div class="sticky top-[calc(var(--header)+2.5rem)]">{{toc}}</div>
+    </aside>
+  </div>
+</main>

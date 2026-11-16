@@ -1,0 +1,47 @@
+<main id="main">
+  <section class="border-b border-rule" aria-labelledby="learn-title">
+    <div class="mx-auto max-w-[1200px] px-4 pt-14 pb-16 md:px-10 md:pt-20 md:pb-20">
+      <p class="m-0 mb-4 text-sm font-semibold text-accent-ink">Learn</p>
+      <h1 id="learn-title" class="m-0 max-w-3xl text-4xl leading-[1.05] font-bold tracking-tight text-balance md:text-6xl">Learn Yidika, from your first line to a native server</h1>
+      <p class="mt-6 mb-0 max-w-2xl text-lg leading-relaxed text-muted">Follow the path in order, or jump to the page for the language you already know. Every example runs in both engines and prints what the page shows.</p>
+    </div>
+  </section>
+
+  <section class="border-b border-rule" aria-labelledby="path-title">
+    <div class="mx-auto grid max-w-[1200px] gap-10 px-4 py-16 md:px-10 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-16">
+      <div>
+        <h2 id="path-title" class="m-0 text-3xl font-bold tracking-tight">Start here</h2>
+        <p class="mt-4 mb-0 text-muted">Four steps. Each one assumes only the steps before it.</p>
+      </div>
+      <ol class="m-0 list-none border-t border-rule p-0" data-reveal>
+        <li><a class="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-5 text-ink no-underline" href="installation.html"><span class="font-mono text-sm leading-7 text-accent-ink">01</span><span><b class="block text-lg font-semibold">Install yidi</b><span class="text-muted">One command on Linux, macOS and Windows.</span></span><span class="mt-1 text-faint group-hover:text-accent-ink">{{icon:arrow-right:18}}</span></a></li>
+        <li><a class="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-5 text-ink no-underline" href="quickstart.html"><span class="font-mono text-sm leading-7 text-accent-ink">02</span><span><b class="block text-lg font-semibold">Write and run a program</b><span class="text-muted">Your first file, <code class="text-sm">yidi run</code>, and a project with <code class="text-sm">yidi init</code>.</span></span><span class="mt-1 text-faint group-hover:text-accent-ink">{{icon:arrow-right:18}}</span></a></li>
+        <li><a class="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-5 text-ink no-underline" href="variables-and-types.html"><span class="font-mono text-sm leading-7 text-accent-ink">03</span><span><b class="block text-lg font-semibold">Take the language tour</b><span class="text-muted">Types, strings, control flow, functions, classes, <code class="text-sm">match</code>, errors, threads and modules, in ten short pages.</span></span><span class="mt-1 text-faint group-hover:text-accent-ink">{{icon:arrow-right:18}}</span></a></li>
+        <li><a class="group grid grid-cols-[2.5rem_minmax(0,1fr)_auto] items-start gap-x-4 border-b border-rule py-5 text-ink no-underline" href="web-server.html"><span class="font-mono text-sm leading-7 text-accent-ink">04</span><span><b class="block text-lg font-semibold">Build something real</b><span class="text-muted">A web server, a file and JSON tool, a computation split across threads. Each guide ends with an exercise.</span></span><span class="mt-1 text-faint group-hover:text-accent-ink">{{icon:arrow-right:18}}</span></a></li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="border-b border-rule bg-surface" aria-labelledby="from-title">
+    <div class="mx-auto max-w-[1200px] px-4 py-16 md:px-10">
+      <h2 id="from-title" class="m-0 text-3xl font-bold tracking-tight">Coming from another language</h2>
+      <p class="mt-4 mb-10 max-w-2xl text-muted">Each page puts your habits next to their Yidika form, then lists what will surprise you.</p>
+      <div class="grid gap-4 md:grid-cols-2" data-reveal>{{languages}}</div>
+    </div>
+  </section>
+
+  <section aria-labelledby="ref-title">
+    <div class="mx-auto grid max-w-[1200px] gap-10 px-4 py-16 md:px-10 lg:grid-cols-[minmax(0,4fr)_minmax(0,8fr)] lg:gap-16">
+      <div>
+        <h2 id="ref-title" class="m-0 text-3xl font-bold tracking-tight">Keep at hand</h2>
+        <p class="mt-4 mb-0 text-muted">The pages you come back to once you write Yidika every day.</p>
+      </div>
+      <ul class="m-0 grid list-none gap-x-10 p-0 sm:grid-cols-2">
+        <li><a class="flex items-center justify-between border-b border-rule py-4 text-ink no-underline hover:text-accent-ink" href="standard-library.html"><span><b class="block font-semibold">Standard library</b><span class="text-sm text-muted">Every module and function.</span></span>{{icon:arrow-right}}</a></li>
+        <li><a class="flex items-center justify-between border-b border-rule py-4 text-ink no-underline hover:text-accent-ink" href="cli.html"><span><b class="block font-semibold">Command line</b><span class="text-sm text-muted">Everything <code class="text-xs">yidi</code> can do.</span></span>{{icon:arrow-right}}</a></li>
+        <li><a class="flex items-center justify-between border-b border-rule py-4 text-ink no-underline hover:text-accent-ink" href="limits.html"><span><b class="block font-semibold">Known limits</b><span class="text-sm text-muted">What does not work yet, and what to write instead.</span></span>{{icon:arrow-right}}</a></li>
+        <li><a class="flex items-center justify-between border-b border-rule py-4 text-ink no-underline hover:text-accent-ink" href="engines.html"><span><b class="block font-semibold">Interpreter and native code</b><span class="text-sm text-muted">How one program gets two engines.</span></span>{{icon:arrow-right}}</a></li>
+      </ul>
+    </div>
+  </section>
+</main>

@@ -21,3 +21,4 @@ __pycache__/
 **/test_*.exe
 
 site/dist/
+site/.cache/
