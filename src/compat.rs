@@ -214,6 +214,11 @@ pub(crate) mod tests {
         );
     }
 
+    fn check_compat_prints(source: &str, test_name: &str, expected: &str) {
+        check_compat(source, test_name);
+        assert_eq!(normalize(&run_interp(source).expect("interpreter failed")), normalize(expected), "compat_{}: unexpected output", test_name);
+    }
+
     fn check_compat_approx(source: &str, test_name: &str) {
         let interp_out = run_interp(source).expect("interpreter failed");
         let aot_out = run_aot(source, test_name).expect("AOT build/run failed");
@@ -1605,5 +1610,52 @@ fn main() {
     println(depth(400));
 }
 "#, "deep_recursion_runs_in_both_engines");
+    }
+
+    #[test]
+    fn compat_top_level_statements_run_without_main() {
+        check_compat_prints(r#"x = 20;
+fn twice(n: int) -> int { return n * 2; }
+print(twice(x) + 2);
+"#, "top_level_statements_run_without_main", "42");
+    }
+
+    #[test]
+    fn compat_functions_read_and_write_top_level_variables() {
+        check_compat_prints(r#"count = 0;
+label: str = "total";
+fn bump(n: int) { count = count + n; }
+fn show() -> str { return label + " " + str(count); }
+bump(3);
+bump(4);
+print(show());
+"#, "functions_read_and_write_top_level_variables", "total 7");
+    }
+
+    #[test]
+    fn compat_top_level_code_runs_before_main() {
+        check_compat_prints(r#"greeting = "hello";
+print("top");
+fn main() {
+    print(greeting, "from main");
+}
+"#, "top_level_code_runs_before_main", "top\nhello from main");
+    }
+
+    #[test]
+    fn compat_a_function_can_call_one_defined_below() {
+        check_compat_prints(r#"fn main() {
+    print(later(2));
+}
+fn later(n: int) -> int { return n + 40; }
+"#, "a_function_can_call_one_defined_below", "42");
+    }
+
+    #[test]
+    fn compat_top_level_constants_are_visible_in_functions() {
+        check_compat_prints(r#"const LIMIT: int = 10;
+fn over(n: int) -> bool { return n > LIMIT; }
+print(over(11), over(3));
+"#, "top_level_constants_are_visible_in_functions", "true false");
     }
 }

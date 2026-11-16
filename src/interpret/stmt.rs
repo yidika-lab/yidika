@@ -30,7 +30,7 @@ impl Interpreter {
                 if *is_const || matches!(&value.value, Expr::AsConst(_)) {
                     self.const_vars.insert(name.clone());
                 }
-                self.frames.last_mut().unwrap().insert(name.clone(), val);
+                self.bind_new(name, val);
                 Ok(None)
             }
             Stmt::Expr(e) => {

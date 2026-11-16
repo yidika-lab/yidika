@@ -267,6 +267,7 @@ pub struct Module {
     pub imports: Vec<Import>,
     pub exports: Vec<String>,
     pub items: Vec<ItemNode>,
+    pub globals: Vec<String>,
 }
 
 pub fn substitute_type(te: &TypeExpr, type_args: &HashMap<String, TypeExpr>) -> TypeExpr {

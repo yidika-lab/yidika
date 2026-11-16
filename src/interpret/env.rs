@@ -337,6 +337,9 @@ impl Interpreter {
                 self.const_vars.insert(name.clone());
             }
         }
+        for name in &module.globals {
+            self.globals.entry(name.clone()).or_insert(Value::None_);
+        }
     }
 
     pub fn run_main(&mut self) -> Result<String> {
@@ -523,12 +526,23 @@ impl Interpreter {
             *slot = val;
             return Ok(());
         }
-        if let Some(current) = self.frames.last_mut() {
-            current.insert(name.to_string(), val);
-            return Ok(());
-        }
-        self.globals.insert(name.to_string(), val);
+        self.bind_new(name, val);
         Ok(())
+    }
+
+    pub(crate) fn bind_new(&mut self, name: &str, val: Value) {
+        if self.at_top_level() && self.globals.contains_key(name) {
+            self.globals.insert(name.to_string(), val);
+            return;
+        }
+        match self.frames.last_mut() {
+            Some(current) => { current.insert(name.to_string(), val); }
+            None => { self.globals.insert(name.to_string(), val); }
+        }
+    }
+
+    fn at_top_level(&self) -> bool {
+        self.fn_bases.is_empty() && self.frames.len() <= 2
     }
 
     fn frame_base(&self) -> usize {

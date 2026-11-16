@@ -14,6 +14,7 @@ pub struct TypeChecker<'a> {
     env: &'a mut Env,
     types: HashMap<String, TypeExpr>,
     vars: HashMap<String, VarInfo>,
+    global_vars: HashMap<String, VarInfo>,
     local_fns: HashMap<String, FnSig>,
     fn_generics: HashMap<String, Vec<String>>,
     builtin_modules: std::collections::HashSet<String>,
@@ -123,7 +124,7 @@ fn is_copy_type(t: &TypeExpr) -> bool {
 impl<'a> TypeChecker<'a> {
     pub fn new(env: &'a mut Env) -> Self {
         let types = env.types.clone();
-        Self { env, types, vars: HashMap::new(), local_fns: HashMap::new(), fn_generics: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, error: None, current_fn_ret_type: None }
+        Self { env, types, vars: HashMap::new(), global_vars: HashMap::new(), local_fns: HashMap::new(), fn_generics: HashMap::new(), builtin_modules: std::collections::HashSet::new(), std_imported: false, error: None, current_fn_ret_type: None }
     }
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
@@ -182,8 +183,12 @@ impl<'a> TypeChecker<'a> {
                 self.types.insert(name.clone(), TypeExpr::Named(name.clone()));
             }
         }
+        self.declare_functions(&module.items);
+        self.declare_constants(&module.items);
+        let entry_first = self.check_top_level_entry(module, &exported);
         // Pass 2: check all items (classes can now validate interface implementations)
-        for item in &module.items {
+        for item in module.items.iter().filter(|item| !entry_first || !Self::is_entry(item)) {
+            if self.error.is_some() { break; }
             if let Err(e) = self.check_item(item, &exported) {
                 self.error = Some(e);
                 break;
@@ -194,6 +199,49 @@ impl<'a> TypeChecker<'a> {
         } else {
             Ok(())
         }
+    }
+
+    fn is_entry(item: &ItemNode) -> bool {
+        matches!(&item.value, ItemKind::Fn { name, .. } if name == crate::syntax::entry::ENTRY_FN)
+    }
+
+    fn declare_functions(&mut self, items: &[ItemNode]) {
+        for item in items {
+            if let ItemKind::Fn { name, params, ret_type, .. } = &item.value {
+                let sig = FnSig {
+                    params: params.iter().map(|p| self.resolve_type(&p.type_expr.value)).collect(),
+                    ret_type: ret_type.as_ref().map(|r| self.resolve_type(&r.value)).unwrap_or(TypeExpr::Infer),
+                    self_is_ref: params.first().map(|p| p.is_ref).unwrap_or(false),
+                };
+                self.local_fns.insert(name.clone(), sig);
+            }
+        }
+    }
+
+    fn declare_constants(&mut self, items: &[ItemNode]) {
+        for item in items {
+            if let ItemKind::Const { name, type_expr, .. } = &item.value {
+                let t = self.resolve_type(&type_expr.value);
+                self.global_vars.insert(name.clone(), VarInfo { type_expr: t, is_const: true, moved: false });
+            }
+        }
+    }
+
+    fn check_top_level_entry(&mut self, module: &Module, exported: &std::collections::HashSet<&str>) -> bool {
+        if module.globals.is_empty() {
+            return false;
+        }
+        let Some(entry) = module.items.iter().find(|item| Self::is_entry(item)) else { return false };
+        if let Err(e) = self.check_item(entry, exported) {
+            self.error = Some(e);
+            return true;
+        }
+        for name in &module.globals {
+            if let Some(info) = self.vars.get(name) {
+                self.global_vars.insert(name.clone(), VarInfo { moved: false, ..info.clone() });
+            }
+        }
+        true
     }
 
     fn fail<T>(&mut self, kind: ErrorKind, span: crate::diagnostics::span::Span, msg: impl Into<String>) -> Result<T> {
@@ -219,7 +267,7 @@ impl<'a> TypeChecker<'a> {
                 if is_exported {
                     self.env.add_fn(name.clone(), sig);
                 }
-                self.vars.clear();
+                self.vars = self.global_vars.clone();
                 for p in params {
                     let t = self.resolve_type(&p.type_expr.value);
                     self.vars.insert(p.name.clone(), VarInfo { type_expr: t, is_const: false, moved: false });
