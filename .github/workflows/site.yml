@@ -1,0 +1,46 @@
+name: Site
+
+on:
+  push:
+    branches: [main]
+    paths: [docs/**, site/**, benchmarks/fib/**, Cargo.toml, CHANGELOG.md, src/syntax/lexer.rs, .github/workflows/site.yml]
+  pull_request:
+    paths: [docs/**, site/**, .github/workflows/site.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install markdown-it-py==3.0.0
+      - run: python site/build.py site/dist
+      - name: No AI-tell characters
+        run: "! grep -rnP '[\\x{2013}\\x{2014}\\x{2018}\\x{2019}\\x{201C}\\x{201D}\\x{2026}\\x{2192}\\x{00A0}\\x{200B}]' site/dist --include=*.html"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

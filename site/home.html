@@ -1,0 +1,55 @@
+<section class="intro">
+  <img class="mark" src="assets/yidika-mark.svg" alt="" width="72" height="72">
+  <div>
+    <h1>Yidika</h1>
+    <p class="meaning"><i>yidika</i>, Kikongo: to design, to arrange, to put back in order.</p>
+    <p class="lead">A statically typed language that runs your program straight away in an interpreter, or arranges it into native code through LLVM. Both engines must print the same output, and the test suite checks that they do.</p>
+    <p class="status">v{{version}}, released {{released}}. <a href="{{repo}}/blob/main/CHANGELOG.md">Changelog</a>. <a href="limits.html">Known limits</a>.</p>
+  </div>
+</section>
+
+<section class="bench" aria-labelledby="bench-title">
+  <figure class="code">
+    <figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption>
+    <pre><code>{{sample}}</code></pre>
+  </figure>
+  <div class="bench-result">
+    <h2 id="bench-title">fib(35), best of three</h2>
+    <dl class="bars">
+      <div><dt>yidi run (native)</dt><dd><span class="bar" style="--w: 0.30%"></span>0.034 s</dd></div>
+      <div><dt>Rust, rustc -O</dt><dd><span class="bar alt" style="--w: 0.32%"></span>0.036 s</dd></div>
+      <div><dt>yidi run --interp</dt><dd><span class="bar slow" style="--w: 100%"></span>11.3 s</dd></div>
+    </dl>
+    <p class="note">AMD Ryzen 5 4500U, Linux. Bars to scale: the native runs are 330 times shorter than the interpreter run. <a href="{{repo}}/blob/main/benchmarks/fib/run.sh">Reproduce</a></p>
+  </div>
+</section>
+
+<section class="install" aria-labelledby="install-title">
+  <div>
+    <h2 id="install-title">Install</h2>
+    <div class="tabs" role="tablist" aria-label="Operating system">
+      <button type="button" role="tab" id="tab-unix" aria-controls="panel-unix" aria-selected="true">Linux and macOS</button>
+      <button type="button" role="tab" id="tab-win" aria-controls="panel-win" aria-selected="false" tabindex="-1">Windows</button>
+      <button type="button" role="tab" id="tab-src" aria-controls="panel-src" aria-selected="false" tabindex="-1">From source</button>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="panel-unix" aria-labelledby="tab-unix">
+      <figure class="code"><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code></pre></figure>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="panel-win" aria-labelledby="tab-win" hidden>
+      <figure class="code"><figcaption><span>powershell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code></pre></figure>
+    </div>
+    <div class="tabpanel" role="tabpanel" id="panel-src" aria-labelledby="tab-src" hidden>
+      <figure class="code"><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code></pre></figure>
+    </div>
+    <p>The script checks the release's SHA-256, installs <code>yidi</code> in <code>~/.yidi/bin</code> and adds it to your <code>PATH</code>. Then read the <a href="quickstart.html">Quickstart</a>.</p>
+  </div>
+  <figure class="mascot">
+    <img src="assets/tisserin.svg" alt="The tisserin, a weaver bird, placing the last strand of its nest" width="320" height="272">
+    <figcaption>The tisserin builds its nest one strand at a time, in order. It is Yidika's mascot.</figcaption>
+  </figure>
+</section>
+
+<section class="docmap" aria-labelledby="docmap-title">
+  <h2 id="docmap-title">Documentation</h2>
+  <div class="docmap-grid">{{docmap}}</div>
+</section>

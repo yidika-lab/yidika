@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::process::{Command, Stdio};
     use std::sync::Mutex;
     use std::io::{Read, Write};
@@ -112,7 +112,7 @@ mod tests {
         )
     }
 
-    fn run_interp(source: &str) -> Result<String, String> {
+    pub(crate) fn run_interp(source: &str) -> Result<String, String> {
         crate::syntax::ast::reset_ids();
         let module = crate::syntax::parser::Parser::parse(source)
             .map_err(|e| e.to_string())?;
@@ -126,7 +126,7 @@ mod tests {
         interp.run_main().map_err(|e| e.msg)
     }
 
-    fn run_aot(source: &str, test_name: &str) -> Result<String, String> {
+    pub(crate) fn run_aot(source: &str, test_name: &str) -> Result<String, String> {
         let exe_path = build_aot(source, test_name)?;
         let dir = exe_path.parent().unwrap().to_path_buf();
         let output = Command::new(&exe_path)
@@ -178,7 +178,7 @@ mod tests {
     }
 
     /// Normalize line endings and trim whitespace
-    fn normalize(s: &str) -> String {
+    pub(crate) fn normalize(s: &str) -> String {
         s.replace("\r\n", "\n").replace("\r", "").trim().to_string()
     }
 
