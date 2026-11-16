@@ -51,6 +51,10 @@ docs: update type system reference
 test: add test for recursive function calls
 ```
 
+## Changelog and releases
+
+A pull request that changes what a user sees adds a line under `## [Unreleased]` in `CHANGELOG.md`. How versions are chosen, tagged and published is in [RELEASING.md](RELEASING.md).
+
 ## Code of Conduct
 
 All contributors must follow our [Code of Conduct](CODE_OF_CONDUCT.md).

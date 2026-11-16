@@ -92,6 +92,7 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 - `compat_*` runs on Windows (MSVC toolchain) and on Linux and macOS (`clang++`). On Linux it takes about 15 s once the runtime is cached, against about 5 min on the Windows runner. Tests that need WinHTTP or the GUI engine are ignored outside Windows (#65).
 - `cargo fmt --check` **fails on `main`**, so the `format` job is `continue-on-error`. Running `cargo fmt` reformats the whole tree into a huge diff; do it in its own commit, never inside a feature change (issue #2).
 - Zero Rust warnings is a hard project rule (`CONTRIBUTING.md` + clippy `-D warnings`). Keep it.
+- Releases follow `RELEASING.md` (semver, Keep a Changelog, tag from `main` only); the release workflow refuses a tag that breaks those rules. Every user-visible PR adds a line under `## [Unreleased]` in `CHANGELOG.md`.
 - `.github/workflows/release.yml`: pushing a tag `vX.Y.Z` equal to the `Cargo.toml` version builds and publishes `yidi-<target>.tar.gz|zip` + `.sha256` for Linux, macOS and Windows. `install.sh` / `install.ps1` download from `releases/latest/download/`, so asset names must stay version-less.
 
 ### Test gotchas

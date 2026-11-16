@@ -1,6 +1,6 @@
 [package]
 name = "yidi"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Compiler, interpreter and toolchain for the Yidika programming language"
 license = "MIT"
