@@ -726,6 +726,22 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn compat_net_server_listens_on_a_port_number() {
+        let source = route_server("/hello", "\"on a port number\"", 19890).replace("app.serve(\"127.0.0.1:19890\")", "app.serve(19890)");
+        let server = AotServer::start("net_server_port_number", &source, 19890);
+        let exchange = server.exchange(&get_request("/hello"));
+        assert!(exchange.response.contains("on a port number"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+    }
+
+    #[test]
+    fn compat_net_server_unknown_route_says_not_found() {
+        let server = AotServer::start("net_server_not_found_body", &route_server("/hello", "\"hi\"", 19891), 19891);
+        let exchange = server.exchange(&get_request("/missing"));
+        assert!(exchange.response.starts_with("HTTP/1.1 404"), "got: {:?}", exchange.response);
+        assert!(exchange.response.ends_with("\r\n\r\nNot Found"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+    }
+
+    #[test]
     fn compat_net_server_wildcard_route() {
         let server = AotServer::start("net_server_wildcard_route", &route_server("/hello/{name}", "\"Hello, \" + req.path", 19877), 19877);
         let exchange = server.exchange(&get_request("/hello/world"));

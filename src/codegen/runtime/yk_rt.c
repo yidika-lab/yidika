@@ -359,6 +359,16 @@ void yk_string_init_ptr(yk_string* s, const char* data, int64_t len) {
     s->len = len;
 }
 
+yk_string* yk_listen_addr_from_port(int64_t port) {
+    char buf[32];
+    int n = snprintf(buf, sizeof(buf), "0.0.0.0:%lld", (long long)port);
+    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    s->data = (char*)malloc(n + 1);
+    memcpy(s->data, buf, n + 1);
+    s->len = n;
+    return s;
+}
+
 yk_string* yk_string_from_int(int64_t v) {
     char buf[64];
     int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
@@ -2438,7 +2448,10 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
         body_ptr = (char*)resp.body;
         body_len = resp.body_len;
     } else {
+        static char not_found[] = "Not Found";
         status = 404;
+        body_ptr = not_found;
+        body_len = sizeof(not_found) - 1;
         yk_log("no route: %s %s (404)", c->method, c->path);
     }
 

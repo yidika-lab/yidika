@@ -11,6 +11,8 @@ pub const SUBMODULES: &[(&str, &[&str])] = &[
     ("gui",      &["window","div","text","button","style","set_text","append","remove","on","run","refresh","quit","auto_exit","dump","synthetic_click","synthetic_hover","node_x","node_y","node_w","node_h"]),
 ];
 
+pub const DEFAULT_SERVER_PORT: u16 = 8080;
+
 pub fn list_submodules() -> impl Iterator<Item = &'static str> {
     SUBMODULES.iter().map(|(name, _)| *name)
 }

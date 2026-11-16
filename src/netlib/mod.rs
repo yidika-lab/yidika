@@ -1422,7 +1422,7 @@ pub fn call_net_method(method: &str, raw_args: &[ExprNode], args: &[Value], rece
                     let addr = match args.first() {
                         Some(Value::Int(port)) => format!("0.0.0.0:{}", port),
                         Some(Value::Str(a)) => a.clone(),
-                        _ => "0.0.0.0:8080".into(),
+                        _ => format!("0.0.0.0:{}", crate::stdlib::DEFAULT_SERVER_PORT),
                     };
                     srv.addr = addr.clone();
                     addr

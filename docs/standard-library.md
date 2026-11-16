@@ -97,7 +97,7 @@ false
 
 ## net
 
-An HTTP server. A route handler is a string, a function or a block:
+An HTTP server. A route handler is a string, a function or a block whose value is the response:
 
 ```yidika-file
 use { Server } from "net";
@@ -110,7 +110,7 @@ fn main() {
     app: Server = Server();
     app.get("/", "Static text");
     app.get("/hello", hello);
-    app.get("/ping") { return "pong"; }
+    app.get("/ping") { "pong" }
     app.serve(3000);
 }
 ```
