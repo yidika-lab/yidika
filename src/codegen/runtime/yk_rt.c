@@ -1175,6 +1175,7 @@ typedef struct yk_route_node {
     char method[8];               // "GET", "POST", etc.
     void (*handler)(void*,void*,char*,int64_t);
     int is_ws;
+    struct yk_route_node* next_method;
 } yk_route_node;
 
 static yk_route_node* yk_route_node_new(void) {
@@ -1267,7 +1268,17 @@ static void yk_route_insert(yk_route_node* root, const char* pattern, const char
         }
         cur = match;
     }
-    // Set handler at leaf
+    while (cur->is_leaf && strncmp(cur->method, method, 7) != 0) {
+        if (!cur->next_method) {
+            yk_route_node* other = yk_route_node_new();
+            other->segment = cur->segment;
+            other->segment_len = cur->segment_len;
+            other->is_param = cur->is_param;
+            other->param_is_int = cur->param_is_int;
+            cur->next_method = other;
+        }
+        cur = cur->next_method;
+    }
     cur->is_leaf = 1;
     cur->handler = handler;
     cur->is_ws = is_ws;
@@ -1307,13 +1318,11 @@ static yk_route_node* yk_route_match_node(yk_route_node* root, const char* path,
         cur = exact ? exact : param;
         if (!cur) return NULL;
     }
-    // Check method match
-    if (cur && cur->is_leaf) {
-        if (strcmp(cur->method, method) == 0 || strcmp(cur->method, "*") == 0) {
-            return cur;
-        }
-        // For WebSocket, client sends GET but route is WS
-        if (cur->is_ws && strcmp(method, "GET") == 0) return cur;
+    for (yk_route_node* leaf = cur; leaf && leaf->is_leaf; leaf = leaf->next_method) {
+        if (strcmp(leaf->method, method) == 0 || strcmp(leaf->method, "*") == 0) return leaf;
+    }
+    for (yk_route_node* leaf = cur; leaf && leaf->is_leaf; leaf = leaf->next_method) {
+        if (leaf->is_ws && strcmp(method, "GET") == 0) return leaf;
     }
     return NULL;
 }
