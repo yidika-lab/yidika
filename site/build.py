@@ -15,6 +15,8 @@ REPO = "https://github.com/yidika-lab/yidika"
 REGISTRY = "https://yidika-lab.github.io/registry/"
 BASE = "https://yidika-lab.github.io/yidika/"
 ANIME = ("anime-4.5.0.esm.min.js", "a19015a1a92d52025a2fb6703b6d67eadd1cc2aeaf880770e96e04cf6aa07be1")
+ICONS = SITE / "icons"
+GROUP_ICONS = {"Learn": "graduation-cap", "Guides": "compass", "Reference": "library", "Understand": "lightbulb"}
 YIDIKA_FENCES = {"yidika", "yidika-file"}
 FENCE_LABELS = {"yidika": "yidika", "yidika-file": "yidika", "sh": "shell", "powershell": "powershell", "toml": "toml", "text": "text"}
 HOME_TABS = [
@@ -91,6 +93,10 @@ def highlight_yidika(code, keywords):
     return "".join(out)
 
 
+def plain_heading(text):
+    return re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text).replace("`", "")
+
+
 def slugify(text):
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
@@ -107,10 +113,26 @@ def rewrite_link(href):
     return f"{REPO}/blob/main/docs/{path}{suffix}"
 
 
+def icon(name, size=16):
+    path = ICONS / f"{name}.svg"
+    if not path.exists():
+        raise SystemExit(f"site/icons/{name}.svg is missing: copy it from lucide-static (see site/README.md)")
+    svg = re.sub(r"<!--.*?-->", "", path.read_text(), flags=re.S)
+    svg = re.sub(r'\s*class="[^"]*"', "", svg)
+    svg = re.sub(r'width="24"\s*height="24"', f'width="{size}" height="{size}"', svg)
+    svg = svg.replace("<svg", f'<svg class="icon" aria-hidden="true" focusable="false"', 1)
+    return re.sub(r">\s+<", "><", re.sub(r"\s+", " ", svg)).strip()
+
+
+def copy_button(label):
+    return (f'<button type="button" class="copy" aria-label="{label}">'
+            f'{icon("copy", 14)}{icon("check", 14)}<span class="copy-label">Copy</span></button>')
+
+
 def code_figure(label, body):
     return (
         f'<figure class="code"><figcaption><span>{html.escape(label)}</span>'
-        f'<button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption>'
+        f'{copy_button("Copy code")}</figcaption>'
         f'<pre><code>{body}</code></pre></figure>'
     )
 
@@ -135,7 +157,7 @@ def make_renderer(keywords, toc):
 
     def heading_open(self, tokens, idx, options, env):
         token = tokens[idx]
-        text = tokens[idx + 1].content
+        text = plain_heading(tokens[idx + 1].content)
         slug = slugify(text)
         if token.tag in ("h2", "h3"):
             toc.append((token.tag, text, slug))
@@ -191,8 +213,8 @@ def pager_html(order, current):
     if current not in names:
         return ""
     i = names.index(current)
-    prev_link = f'<a class="prev" href="{names[i - 1][:-3]}.html"><small>Previous</small>{html.escape(order[i - 1][0])}</a>' if i > 0 else "<span></span>"
-    next_link = f'<a class="next" href="{names[i + 1][:-3]}.html"><small>Next</small>{html.escape(order[i + 1][0])}</a>' if i + 1 < len(names) else "<span></span>"
+    prev_link = f'<a class="prev" href="{names[i - 1][:-3]}.html"><small>{icon("arrow-left", 14)}Previous</small>{html.escape(order[i - 1][0])}</a>' if i > 0 else "<span></span>"
+    next_link = f'<a class="next" href="{names[i + 1][:-3]}.html"><small>Next{icon("arrow-right", 14)}</small>{html.escape(order[i + 1][0])}</a>' if i + 1 < len(names) else "<span></span>"
     return f'<nav class="pager" aria-label="Pages">{prev_link}{next_link}</nav>'
 
 
@@ -202,15 +224,16 @@ def page_title(markdown):
 
 
 def fill(template, values):
-    return re.sub(r"\{\{(\w+)\}\}", lambda m: values[m.group(1)], template)
+    with_icons = re.sub(r"\{\{icon:([a-z-]+)(?::(\d+))?\}\}", lambda m: icon(m.group(1), int(m.group(2) or 16)), template)
+    return re.sub(r"\{\{(\w+)\}\}", lambda m: values[m.group(1)], with_icons)
 
 
 def page_actions(stem, edit_path):
     return (
         '<div class="page-actions">'
-        f'<button type="button" class="copy-page" data-src="{stem}.md">Copy page</button>'
-        f'<a href="{stem}.md">View as Markdown</a>'
-        f'<a href="{REPO}/edit/main/{edit_path}">Edit on GitHub</a></div>'
+        f'<button type="button" class="copy-page" data-src="{stem}.md">{icon("copy", 14)}{icon("check", 14)}<span class="copy-label">Copy page</span></button>'
+        f'<a href="{stem}.md">{icon("file-text", 14)}View as Markdown</a>'
+        f'<a href="{REPO}/edit/main/{edit_path}">{icon("pencil", 14)}Edit on GitHub</a></div>'
     )
 
 
@@ -262,7 +285,7 @@ def search_entries(markdown, title, url, group):
     for line in markdown.splitlines():
         head = re.match(r"^##+ (.+)$", line)
         if head:
-            heading = head.group(1).strip()
+            heading = plain_heading(head.group(1).strip())
             anchor = "#" + slugify(heading)
             entries.append({"t": heading, "s": title, "u": url + anchor})
             continue
@@ -306,7 +329,8 @@ def docmap_html(nav):
     for group in nav:
         links = "".join(nav_item_html(dict(item, nested=False), "") if "file" in item else nav_item_html(item, "")
                         for item in group["items"])
-        columns.append(f'<div><h3>{html.escape(group["title"])}</h3><ul>{links}</ul></div>')
+        group_icon = icon(GROUP_ICONS[group["title"]], 18) if group["title"] in GROUP_ICONS else ""
+        columns.append(f'<div><h3>{group_icon}{html.escape(group["title"])}</h3><ul>{links}</ul></div>')
     return "".join(columns)
 
 

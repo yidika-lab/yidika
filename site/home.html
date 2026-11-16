@@ -11,18 +11,18 @@
           <button type="button" role="tab" id="tab-win" aria-controls="install-win" aria-selected="false" tabindex="-1">Windows</button>
           <button type="button" role="tab" id="tab-src" aria-controls="install-src" aria-selected="false" tabindex="-1">From source</button>
         </div>
-        <div class="tabpanel" role="tabpanel" id="install-unix" aria-labelledby="tab-unix"><div class="cmd"><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
-        <div class="tabpanel" role="tabpanel" id="install-win" aria-labelledby="tab-win" hidden><div class="cmd"><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
-        <div class="tabpanel" role="tabpanel" id="install-src" aria-labelledby="tab-src" hidden><div class="cmd"><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code><button type="button" class="copy" aria-label="Copy the install command">Copy</button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-unix" aria-labelledby="tab-unix"><div class="cmd"><code>curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-win" aria-labelledby="tab-win" hidden><div class="cmd"><code>irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
+        <div class="tabpanel" role="tabpanel" id="install-src" aria-labelledby="tab-src" hidden><div class="cmd"><code>cargo install --git https://github.com/yidika-lab/yidika yidi</code><button type="button" class="copy" aria-label="Copy the install command">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></div></div>
       </div>
       <div class="cta">
-        <a class="button primary" href="quickstart.html">Start the quickstart</a>
+        <a class="button primary" href="quickstart.html">Start the quickstart{{icon:arrow-right}}</a>
         <a class="button" href="installation.html">Installation options</a>
       </div>
     </div>
     <div class="hero-code">
-      <figure class="code ordered"><figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code>{{sample}}</code></pre></figure>
-      <div class="hero-run"><code>$ yidi fib.yk</code><code class="out">9227465</code></div>
+      <figure class="code ordered"><figcaption><span>fib.yk</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code>{{sample}}</code></pre></figure>
+      <div class="hero-run"><code>{{icon:terminal:14}}$ yidi fib.yk</code><code class="out">9227465</code></div>
     </div>
   </div>
 </section>
@@ -91,7 +91,7 @@
       <p>A package is a git repository with a tag. The <a href="{{registry}}">registry</a> records which commit is which version and the SHA-256 to expect; <code>yidi.lock</code> pins both. One cache serves every project, so a second install needs no network.</p>
       <p><a href="packages.html">Packages and the registry</a></p>
     </div>
-    <figure class="code" data-reveal><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">Copy</button></figcaption><pre><code><span class="tk-comment"># new project, then a dependency from the registry or from git</span>
+    <figure class="code" data-reveal><figcaption><span>shell</span><button type="button" class="copy" aria-label="Copy code">{{icon:copy:14}}{{icon:check:14}}<span class="copy-label">Copy</span></button></figcaption><pre><code><span class="tk-comment"># new project, then a dependency from the registry or from git</span>
 yidi init my-app
 yidi add greet
 yidi add github:user/repo
@@ -110,9 +110,9 @@ yidi publish</code></pre></figure>
       <p>Version {{version}}, released {{released}}. Yidika is young: some constructs are missing, such as <code>break</code>, and some programs only run in the interpreter so far. Both lists are kept up to date, with an issue for each item.</p>
     </div>
     <ul class="status-links" data-reveal>
-      <li><a href="limits.html"><b>Known limits</b><span>What does not work yet, and what to write instead</span></a></li>
-      <li><a href="changelog.html"><b>Changelog</b><span>Every fix and feature, release by release</span></a></li>
-      <li><a href="{{repo}}/issues"><b>Issues</b><span>Report a bug with the program and both outputs</span></a></li>
+      <li><a href="limits.html">{{icon:circle-alert:20}}<b>Known limits</b><span>What does not work yet, and what to write instead</span></a></li>
+      <li><a href="changelog.html">{{icon:history:20}}<b>Changelog</b><span>Every fix and feature, release by release</span></a></li>
+      <li><a href="{{repo}}/issues">{{icon:bug:20}}<b>Issues</b><span>Report a bug with the program and both outputs</span></a></li>
     </ul>
   </div>
 </section>
