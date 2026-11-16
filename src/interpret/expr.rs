@@ -1494,12 +1494,6 @@ impl Interpreter {
                 self.task_rxs.insert(tid, rx);
                 Ok(EvalResult::Value(Value::Int(tid as i64)))
             }
-            Expr::AsConst(i) => {
-                Ok(EvalResult::Value(match self.eval_expr(i)? {
-                    EvalResult::Value(v) => v,
-                    EvalResult::Return(v) => return Ok(EvalResult::Return(v)),
-                }))
-            }
             Expr::Await(i) => {
                 let val = eval!(i);
                 match val {

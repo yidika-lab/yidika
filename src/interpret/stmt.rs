@@ -27,7 +27,7 @@ impl Interpreter {
                     EvalResult::Return(v) => return Ok(Some(v)),
                 };
                 self.mark_moved_expr(value, &val);
-                if *is_const || matches!(&value.value, Expr::AsConst(_)) {
+                if *is_const {
                     self.const_vars.insert(name.clone());
                 }
                 self.bind_new(name, val);

@@ -311,12 +311,12 @@ pub(crate) mod tests {
 
     #[test]
     fn compat_const_syntax() {
-        check_compat("fn main() { x: const<int> = 42; print(x); }", "const_syntax");
+        check_compat("fn main() { const x: int = 42; print(x); }", "const_syntax");
     }
 
     #[test]
     fn compat_const_as_const() {
-        check_compat("fn main() { x: int = 42 as const; print(x); }", "const_as_const");
+        check_compat("fn main() { const x = 42; print(x); }", "const_as_const");
     }
 
     #[test]
@@ -1461,7 +1461,7 @@ fn main() {
     #[test]
     fn compat_set_literal_drops_duplicates() {
         check_compat(r#"fn main() {
-    s: set[int] = {1, 2, 2, 3, 1};
+    s: Set<int> = {1, 2, 2, 3, 1};
     print(s.len());
 }
 "#, "set_literal_drops_duplicates");
@@ -1502,11 +1502,11 @@ fn main() {
 
     #[test]
     fn compat_collections_keep_element_type() {
-        check_compat(r#"fn first(xs: list[str]) -> str { return xs[0]; }
+        check_compat(r#"fn first(xs: str[]) -> str { return xs[0]; }
 fn main() {
     l = [1, 2, 3];
     print(l);
-    s: set[int] = {3, 1, 3};
+    s: Set<int> = {3, 1, 3};
     print(s);
     print(s.len());
     n = ["a", "b"];
@@ -1523,7 +1523,7 @@ fn main() {
     w.push("y");
     print(w);
     print(w[1]);
-    t: set[str] = {"a", "b", "a"};
+    t: Set<str> = {"a", "b", "a"};
     print(t);
 }
 "#, "collections_keep_element_type");
@@ -1657,5 +1657,17 @@ fn later(n: int) -> int { return n + 40; }
 fn over(n: int) -> bool { return n > LIMIT; }
 print(over(11), over(3));
 "#, "top_level_constants_are_visible_in_functions", "true false");
+    }
+
+    #[test]
+    fn compat_constants_with_and_without_a_type() {
+        check_compat_prints(r#"const limit = 10;
+const label: str = "max";
+fn over(n: int) -> bool { return n > limit; }
+fn main() {
+    const step = 3;
+    print(label, limit, over(limit + step));
+}
+"#, "constants_with_and_without_a_type", "max 10 true");
     }
 }

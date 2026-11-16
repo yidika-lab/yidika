@@ -220,8 +220,11 @@ impl<'a> TypeChecker<'a> {
 
     fn declare_constants(&mut self, items: &[ItemNode]) {
         for item in items {
-            if let ItemKind::Const { name, type_expr, .. } = &item.value {
-                let t = self.resolve_type(&type_expr.value);
+            if let ItemKind::Const { name, type_expr, value } = &item.value {
+                let t = match &type_expr.value {
+                    TypeExpr::Infer => self.check_expr(value).unwrap_or(TypeExpr::Infer),
+                    written => self.resolve_type(written),
+                };
                 self.global_vars.insert(name.clone(), VarInfo { type_expr: t, is_const: true, moved: false });
             }
         }
@@ -400,8 +403,8 @@ impl<'a> TypeChecker<'a> {
                 self.types.insert(name.clone(), ty);
                 Ok(())
             }
-            ItemKind::Const { name, type_expr, value: _ } => {
-                let t = self.resolve_type(&type_expr.value);
+            ItemKind::Const { name, .. } => {
+                let t = self.global_vars.get(name).map(|v| v.type_expr.clone()).unwrap_or(TypeExpr::Infer);
                 if is_exported {
                     self.env.add_type(name.clone(), t.clone());
                 }
@@ -434,7 +437,6 @@ impl<'a> TypeChecker<'a> {
             Expr::Variant(_, _, args) => {
                 for arg in args { self.mark_moved(arg, &TypeExpr::Infer); }
             }
-            Expr::AsConst(inner) => self.mark_moved(inner, ty),
             _ => {}
         }
     }
@@ -478,9 +480,7 @@ impl<'a> TypeChecker<'a> {
                         inferred
                     }
                 };
-                let type_implies_const = type_expr.as_ref().map_or(false, |te| matches!(&te.value, TypeExpr::Const(_)));
-                let actual_const = *is_const || matches!(&value.value, Expr::AsConst(_)) || type_implies_const;
-                self.vars.insert(name.clone(), VarInfo { type_expr: t.clone(), is_const: actual_const, moved: false });
+                self.vars.insert(name.clone(), VarInfo { type_expr: t.clone(), is_const: *is_const, moved: false });
                 Ok(t)
             }
             Stmt::Expr(e) => self.check_expr(e),
@@ -879,7 +879,6 @@ impl<'a> TypeChecker<'a> {
             Expr::ResultOk(i) => { self.check_expr(i)?; Ok(TypeExpr::Named("auto".into())) }
             Expr::ResultErr(i) => { self.check_expr(i)?; Ok(TypeExpr::Named("auto".into())) }
             Expr::Spawn(i) => self.check_expr(i),
-            Expr::AsConst(i) => self.check_expr(i),
             Expr::PostInc(i) | Expr::PostDec(i) => self.check_expr(i),
             Expr::LitComplex(r, im) => {
                 let rt = self.check_expr(r)?;
@@ -1073,7 +1072,6 @@ impl<'a> TypeChecker<'a> {
                     self.env.get_type(name).cloned()
                         .unwrap_or_else(|| TypeExpr::Named(name.clone()))
                 }),
-            TypeExpr::Const(inner) => self.resolve_type(inner),
             other => other.clone(),
         }
     }

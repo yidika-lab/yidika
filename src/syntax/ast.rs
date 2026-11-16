@@ -53,7 +53,6 @@ pub enum TypeExpr {
     Fn(Vec<TypeExpr>, Box<TypeExpr>),
     Generic(String, Vec<TypeExpr>),
     Nullable(Box<TypeExpr>),
-    Const(Box<TypeExpr>),
     Null, None_, Infer,
 }
 
@@ -93,7 +92,6 @@ impl fmt::Display for TypeExpr {
             TypeExpr::None_ => write!(f, "null"),
             TypeExpr::Infer => write!(f, "auto"),
             TypeExpr::Nullable(inner) => write!(f, "{}?", inner),
-            TypeExpr::Const(inner) => write!(f, "const<{}>", inner),
         }
     }
 }
@@ -139,7 +137,6 @@ pub enum Expr {
     Variant(String, String, Vec<ExprNode>),
     SafeCall(Box<ExprNode>, String),
     Elvis(Box<ExprNode>, Box<ExprNode>),
-    AsConst(Box<ExprNode>),
     As(Box<ExprNode>, TypeNode),
 }
 
@@ -348,7 +345,6 @@ pub fn substitute_in_expr(expr: &ExprNode, type_args: &HashMap<String, TypeExpr>
             Box::new(substitute_in_expr(inner, type_args)),
             substitute_type_node(target_type, type_args),
         ),
-        Expr::AsConst(inner) => Expr::AsConst(Box::new(substitute_in_expr(inner, type_args))),
         Expr::BinOp(l, op, r) => Expr::BinOp(
             Box::new(substitute_in_expr(l, type_args)),
             *op,

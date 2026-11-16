@@ -8,7 +8,7 @@ Go and Yidika share goals: a static type system that stays out of the way, one t
 |---|---|
 | `count := 10` | `count = 10;` |
 | `var name string = "Ada"` | `name: str = "Ada";` |
-| `const limit = 100` | `limit: const<int> = 100;` |
+| `const limit = 100` | `const limit = 100;` |
 | `int`, `float64`, `bool`, `string` | `int`, `real`, `bool`, `str` |
 | `fmt.Sprintf("%s is %d", name, age)` | `f"{name} is {age}"` |
 | `fmt.Println(a, b)` | `print(a, b);` |
@@ -17,7 +17,7 @@ Go and Yidika share goals: a static type system that stays out of the way, one t
 | `for i := 0; i < n; i++` | `for (i in n)` |
 | `for _, x := range items` | `for (x: items)` |
 | `switch` | `match` |
-| `[]int`, `map[string]int` | `int[]`, `map[str, int]` |
+| `[]int`, `map[string]int` | `int[]`, `Map<str, int>` |
 | `(value, error)` and `if err != nil` | `Result<T, E>` and `?` |
 | `nil` | `null`, on `T?` types only |
 | `go f()` with a channel or `WaitGroup` | `spawn f()` and `await` |

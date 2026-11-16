@@ -17,6 +17,8 @@ Each construct now has one spelling. Programs using a removed form get a parse o
 - `mut` and `ref` as keywords; they meant nothing (`ref` was another way to write `&`).
 - `a ? b : c`, which could never be reached because `?` after a value is the error operator: use `if (a) b else c`.
 - Native code no longer accepts `string`, `integer`, `float`, `double` or `boolean` as type names; the type checker already refused them.
+- Constants have one form, as in JavaScript: `const limit = 100;` or `const limit: int = 100;`, in a function or at the top of a file. `limit: const<int> = 100`, `limit: const = 100` and `100 as const` are removed.
+- Collection types are written as in TypeScript: `int[]`, `Set<int>`, `Map<str, int>`. `list[int]`, `[int]`, `List<int>`, `set[int]` and `map[str, int]` are removed; the parse error names the form to write.
 
 ## [0.3.0] - 2026-11-16
 

@@ -386,7 +386,16 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                 Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Object { name: n, fields, methods, init_body }))
             }
             Token::Type => { self.advance(); let n=self.ident()?; self.eat(Token::Eq)?; let t=self.type_()?; self.opt_semicolon(); Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::TypeAlias{name:n,type_expr:t})) }
-            Token::Const => { self.advance(); let n=self.ident()?; self.eat(Token::Colon)?; let t=self.type_()?; self.eat(Token::Eq)?; let v=self.expr(0)?; self.opt_semicolon(); Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Const{name:n,type_expr:t,value:v})) }
+            Token::Const => {
+                let span = self.span();
+                self.advance();
+                let n = self.ident()?;
+                let t = if self.tok() == &Token::Colon { self.advance(); self.type_()? } else { TypeNode::new(fresh_id(), span, TypeExpr::Infer) };
+                self.eat(Token::Eq)?;
+                let v = self.expr(0)?;
+                self.opt_semicolon();
+                Ok(ItemNode::new(fresh_id(),Span::new(0,0),ItemKind::Const{name:n,type_expr:t,value:v}))
+            }
             _ => Err(error::err(ErrorKind::Syntax, self.span(), format!("Expected item, found {:?}", self.tok()))),
         }
     }
@@ -596,46 +605,20 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::TSymbol => TypeNode::new(fresh_id(),span,TypeExpr::Symbol),
             Token::TVector => TypeNode::new(fresh_id(),span,TypeExpr::Vector(Box::new(TypeExpr::Infer))),
             Token::TMatrix => TypeNode::new(fresh_id(),span,TypeExpr::Matrix(Box::new(TypeExpr::Infer))),
-            Token::TMap => {
-                if self.tok() == &Token::LBracket {
-                    self.advance();
-                    let k = self.type_()?;
-                    self.eat(Token::Comma)?;
-                    let v = self.type_()?;
-                    self.eat(Token::RBracket)?;
-                    TypeNode::new(fresh_id(), span, TypeExpr::Map(Box::new(k.value), Box::new(v.value)))
-                } else {
-                    TypeNode::new(fresh_id(), span, TypeExpr::Map(Box::new(TypeExpr::Str), Box::new(TypeExpr::Infer)))
-                }
-            }
-            Token::LBracket => { let inner = self.type_()?; self.eat(Token::RBracket)?; TypeNode::new(fresh_id(),span,TypeExpr::List(Box::new(inner.value))) }
+            Token::TMap => return Err(error::err(ErrorKind::Syntax, span, "A map type is written Map<K, V>")),
+            Token::LBracket => return Err(error::err(ErrorKind::Syntax, span, "A list type is written T[], for example int[]")),
             Token::Ident(s) => {
                 if s == "auto" {
                     TypeNode::new(fresh_id(),span,TypeExpr::Infer)
                 } else if s == "set" && self.tok() == &Token::LBracket {
-                    self.advance();
-                    let inner = self.type_()?;
-                    self.eat(Token::RBracket)?;
-                    TypeNode::new(fresh_id(), span, TypeExpr::Set(Box::new(inner.value)))
+                    return Err(error::err(ErrorKind::Syntax, span, "A set type is written Set<T>"));
                 } else if s == "list" && self.tok() == &Token::LBracket {
-                    self.advance();
-                    let inner = self.type_()?;
-                    self.eat(Token::RBracket)?;
-                    TypeNode::new(fresh_id(), span, TypeExpr::List(Box::new(inner.value)))
+                    return Err(error::err(ErrorKind::Syntax, span, "A list type is written T[], for example int[]"));
                 } else {
                     TypeNode::new(fresh_id(),span,TypeExpr::Named(s))
                 }
             }
-            Token::Const => {
-                if self.tok() == &Token::Lt {
-                    self.advance();
-                    let inner = self.type_()?;
-                    self.eat_gt()?;
-                    TypeNode::new(fresh_id(), span, TypeExpr::Const(Box::new(inner.value)))
-                } else {
-                    TypeNode::new(fresh_id(), span, TypeExpr::Const(Box::new(TypeExpr::Infer)))
-                }
-            }
+            Token::Const => return Err(error::err(ErrorKind::Syntax, span, "A constant is written const name = value; (const name: T = value; with a type)")),
             _ => return Err(error::err(ErrorKind::Syntax, span, format!("Expected type, found {:?}", tok))),
         };
         // Suffix '[]' for list type: str[] = [str], int[][] = [[int]]
@@ -655,8 +638,8 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             }
             self.eat_gt()?;
             match &first.value {
-                TypeExpr::Named(n) if n == "List" && args.len() == 1 => {
-                    TypeNode::new(fresh_id(), first.span, TypeExpr::List(Box::new(args.into_iter().next().unwrap())))
+                TypeExpr::Named(n) if n == "List" => {
+                    return Err(error::err(ErrorKind::Syntax, first.span, "A list type is written T[], for example int[]"));
                 }
                 TypeExpr::Named(n) if n == "Set" && args.len() == 1 => {
                     TypeNode::new(fresh_id(), first.span, TypeExpr::Set(Box::new(args.into_iter().next().unwrap())))
@@ -716,6 +699,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
 
     fn stmt(&mut self) -> Result<StmtNode> {
         match self.tok() {
+            Token::Const => self.const_stmt(),
             Token::If => self.if_stmt(),
             Token::For => self.for_stmt(),
             Token::While => { self.advance(); self.eat(Token::LParen)?; let c=self.expr(0)?; self.eat(Token::RParen)?; let b=self.block_stmts()?; Ok(StmtNode::new(fresh_id(),Span::new(0,0),Stmt::While(c,b))) }
@@ -788,35 +772,25 @@ fn item_name(kind: &ItemKind) -> Option<String> {
     }
 
     fn decl_stmt(&mut self, name: String, start_span: Span) -> Result<StmtNode> {
-        let is_const: bool;
-        let type_expr: Option<TypeNode>;
+        let type_expr = Some(self.type_()?);
+        self.finish_decl(name, type_expr, false, start_span)
+    }
 
-        if self.tok() == &Token::Const {
-            self.advance();
-            is_const = true;
-            if self.tok() == &Token::Lt {
-                self.advance();
-                let inner = self.type_()?;
-                self.eat_gt()?;
-                type_expr = Some(inner);
-            } else {
-                type_expr = None;
-            }
-        } else {
-            is_const = false;
-            type_expr = Some(self.type_()?);
+    fn const_stmt(&mut self) -> Result<StmtNode> {
+        let start_span = self.span();
+        self.eat(Token::Const)?;
+        let name = self.ident()?;
+        let type_expr = if self.tok() == &Token::Colon { self.advance(); Some(self.type_()?) } else { None };
+        if self.tok() != &Token::Eq {
+            return Err(error::err(ErrorKind::Syntax, self.span(), format!("A constant needs a value: const {} = ...;", name)));
         }
+        self.finish_decl(name, type_expr, true, start_span)
+    }
 
+    fn finish_decl(&mut self, name: String, type_expr: Option<TypeNode>, is_const: bool, start_span: Span) -> Result<StmtNode> {
         if self.tok() == &Token::Eq {
             self.advance();
-            let mut value = self.expr(0)?;
-
-            if self.tok() == &Token::As {
-                self.advance();
-                self.eat(Token::Const)?;
-                value = ExprNode::new(fresh_id(), value.span, Expr::AsConst(Box::new(value)));
-            }
-
+            let value = self.expr(0)?;
             self.opt_semicolon();
             let span = start_span.merge(value.span);
             Ok(StmtNode::new(fresh_id(), span, Stmt::Decl { name, type_expr, value, is_const }))
@@ -949,13 +923,8 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             // 'as const' / 'as Type' inside the infix loop so the loop continues after
             if allow_as && self.tok() == &Token::As {
                 self.advance();
-                if self.tok() == &Token::Const {
-                    self.advance();
-                    lhs = ExprNode::new(fresh_id(), lhs.span, Expr::AsConst(Box::new(lhs)));
-                } else {
-                    let target_type = self.type_()?;
-                    lhs = ExprNode::new(fresh_id(), lhs.span, Expr::As(Box::new(lhs), target_type));
-                }
+                let target_type = self.type_()?;
+                lhs = ExprNode::new(fresh_id(), lhs.span, Expr::As(Box::new(lhs), target_type));
                 continue;
             }
             let op = match self.tok() {

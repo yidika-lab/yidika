@@ -8,7 +8,7 @@ Yidika keeps much of what makes Python pleasant: no variable keyword, `f"..."` s
 |---|---|
 | `count = 10` | `count = 10;` |
 | `name: str = "Ada"` | `name: str = "Ada";` |
-| `LIMIT: Final = 100` | `limit: const<int> = 100;` |
+| `LIMIT: Final = 100` | `const limit = 100;` |
 | `int`, `float`, `bool`, `str` | `int`, `real`, `bool`, `str` |
 | `f"{name} is {age}"` | `f"{name} is {age}"` |
 | `def add(a: int, b: int) -> int:` | `fn add(a: int, b: int) -> int {` |

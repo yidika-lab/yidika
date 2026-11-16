@@ -2,7 +2,7 @@
 
 ## Lists
 
-`[a, b, c]` makes a list; `list[T]` or `T[]` is its type.
+`[a, b, c]` makes a list of type `T[]`, a set has type `Set<T>` and a map `Map<K, V>`.
 
 ```yidika
 fn main() {
@@ -32,7 +32,7 @@ fn main() {
 Lists hold any type, and keep it:
 
 ```yidika
-fn first(xs: list[str]) -> str {
+fn first(xs: str[]) -> str {
     return xs[0];
 }
 
@@ -57,7 +57,7 @@ A set keeps one copy of each value.
 
 ```yidika
 fn main() {
-    s: set[int] = {3, 1, 3, 2};
+    s: Set<int> = {3, 1, 3, 2};
     print(s, s.len());
 }
 ```

@@ -7,7 +7,7 @@ Yidika reads much like TypeScript with types checked for real: braces, `(x) => x
 | JavaScript / TypeScript | Yidika |
 |---|---|
 | `let count = 10` | `count = 10;` |
-| `const limit = 100` | `limit: const<int> = 100;` |
+| `const limit = 100` | `const limit = 100;` |
 | `let name: string = "Ada"` | `name: str = "Ada";` |
 | `number` | `int` for whole numbers, `real` for decimals |
 | `` `${name} is ${age}` `` | `f"{name} is {age}"` |
