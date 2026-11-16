@@ -2,35 +2,61 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+{{head_extra}}
 <title>{{page_title}}</title>
-<meta name="description" content="Yidika: a statically typed language with an interpreter and a native LLVM backend that print the same output.">
+<meta name="description" content="Yidika is a statically typed language: run a program straight away in the interpreter, or compile it to native code through LLVM, with the same output.">
+<meta name="theme-color" content="#f7f8f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0f0e" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="assets/yidika-logo.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Schibsted+Grotesk:wght@600;700;800&display=swap">
 <link rel="stylesheet" href="style.css">
+<script type="module" src="site.js"></script>
 </head>
 <body class="{{body_class}}">
 <a class="skip" href="#main">Skip to content</a>
 <header class="top">
-  <a class="brand" href="index.html"><img src="assets/yidika-logo.svg" alt="" width="30" height="30"><span>Yidika</span></a>
-  <span class="version">v{{version}}</span>
-  <nav class="top-links" aria-label="Site">
-    <a href="quickstart.html">Docs</a>
-    <a href="{{registry}}">Packages</a>
-    <a href="{{repo}}" aria-label="Yidika on GitHub"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
-  </nav>
+  <div class="top-in">
+    <a class="brand" href="index.html" aria-label="Yidika home">
+      <svg class="logo" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>
+      <span>Yidika</span>
+    </a>
+    <span class="ver">v{{version}}</span>
+    <nav class="links" aria-label="Site">
+      <a href="quickstart.html">Docs</a>
+      <a href="{{registry}}">Packages</a>
+      <a class="wide" href="changelog.html">Changelog</a>
+    </nav>
+    <button type="button" class="search-open" aria-label="Search the documentation" aria-keyshortcuts="/">
+      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12.6 12.6 17 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <span class="search-label">Search</span><kbd>/</kbd>
+    </button>
+    <a class="gh" href="{{repo}}" aria-label="Yidika on GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+  </div>
 </header>
 <div class="frame">
   <aside class="sidebar" aria-label="Documentation">{{nav}}</aside>
-  <details class="contents"><summary>Contents</summary><nav aria-label="Documentation">{{nav}}</nav></details>
+  <details class="contents"><summary>Documentation</summary><nav aria-label="Documentation">{{nav}}</nav></details>
   <main id="main">{{content}}</main>
   {{toc}}
 </div>
 <footer class="foot">
-  <p>Yidika {{version}}, MIT license. Every code example on this site is run by the test suite in both engines.</p>
+  <div class="foot-in">
+    <p class="foot-brand"><svg class="logo" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true"><path class="logo-ink" d="M27 14 C 34 6, 50 6, 57 16 C 63 26, 60 42, 50 50 L 44 60 L 30 60 L 32 46 C 26 44, 23 40, 22 36 Z"/><path class="logo-ink" d="M24 22 L 2 31 L 24 38 Z"/><circle class="logo-eye" cx="38" cy="24" r="4.2"/><path class="logo-strand" d="M3 32 C 8 40, 6 50, 12 60"/></svg>Yidika {{version}}, MIT license.</p>
+    <nav aria-label="Footer"><a href="quickstart.html">Docs</a><a href="{{registry}}">Packages</a><a href="changelog.html">Changelog</a><a href="{{repo}}">GitHub</a><a href="llms.txt">llms.txt</a></nav>
+    <p class="foot-note">Every example on this site is run by the test suite in both engines, on Linux, macOS and Windows.</p>
+  </div>
 </footer>
-<script src="site.js"></script>
+<dialog class="search" aria-label="Search the documentation">
+  <form method="dialog" class="search-box" role="search">
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12.6 12.6 17 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+    <input id="search-input" type="search" placeholder="Search pages, sections, functions" autocomplete="off" spellcheck="false" aria-controls="search-results" aria-autocomplete="list">
+    <button type="submit" class="search-close" aria-label="Close search">Esc</button>
+  </form>
+  <ul id="search-results" class="search-results" role="listbox" aria-label="Results"></ul>
+  <p class="search-empty" hidden>No match. Try a function name such as <code>split</code>, or a topic such as <code>match</code>.</p>
+</dialog>
 </body>
 </html>
