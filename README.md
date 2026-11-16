@@ -1,285 +1,99 @@
-# Yidika (yidi)
+<p align="center">
+  <img src="docs/assets/yidika-mark.svg" width="88" alt="Yidika">
+</p>
 
-A **modern systems programming language** designed for **hardware-aware computing** - blending the safety and expressiveness of Rust with the ergonomics of modern scripting languages.
+<h1 align="center">Yidika</h1>
 
-> **Status**: MVP / Experimental - parsing, type checking, and an interpreter are functional.
+<p align="center">
+  A statically typed language you can run straight away or compile to native code.<br>
+  <a href="https://yidika-lab.github.io/yidika/">Documentation</a> |
+  <a href="docs/quickstart.md">Quickstart</a> |
+  <a href="https://yidika-lab.github.io/registry/">Packages</a> |
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
 
----
+*Yidika* means "to design, to arrange, to put back in order" in Kikongo. The logo is that idea: loose points falling into one line. The mascot is the *tisserin*, the weaver bird that builds its nest one strand at a time.
 
-## Features
+```yidika-file
+fn fib(n: int) -> int {
+    if (n < 2) { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
 
-- **Mutable by default** - variables are mutable unless declared `const`
-- **Strong, static typing** with type inference
-- **Algebraic data types** - structs, unions, type aliases, generics
-- **Pattern matching** (`match`) with guards
-- **Async/await & spawn** (parsed; synchronous runtime for now)
-- **Module system** with relative path imports
-- **FFI** - import C/C++/Rust symbols via `use from "lang:path"`
-- **Built-in collections** - lists, maps, sets (interpreter support in progress)
-- **Rich type system** - `int`, `rint`, `real`, `bool`, `str`, `symbol`, `null`, `None`, vectors, matrices
+fn main() {
+    println("fib(35) =", fib(35));
+}
+```
 
----
+```sh
+$ yidi fib.yk
+fib(35) = 9227465
+```
 
-## Quick Start
+`yidi` type-checks the program, compiles it to native code through LLVM, caches the binary and runs it. On a Ryzen 5 4500U, `fib(35)` takes 0.034 s, against 0.036 s for the same function built with `rustc -O` ([reproduce](benchmarks/fib/run.sh)). When something cannot be compiled yet, the same program runs in the interpreter instead, with the same output. Both engines are checked against each other by the test suite on Linux, macOS and Windows.
 
-### Install
-
-Prebuilt binaries are published on [GitHub Releases](https://github.com/yidika-lab/yidika/releases) for every tagged version. The install scripts pick the right one for your machine, check its SHA-256 checksum and put `yidi` in `~/.yidi/bin`. Nothing outside your home folder is changed and no admin rights are needed.
-
-| OS | Architectures | Requirements |
-|---|---|---|
-| Windows | x86_64; ARM64 runs the x86_64 build through Windows 11 emulation | Windows 10 or 11, PowerShell 5.1 or later |
-| macOS | Apple Silicon (arm64), Intel (x86_64) | macOS 11 or later |
-| Linux | x86_64, aarch64 | glibc 2.35 or later (Ubuntu 22.04, Debian 12, Fedora 36 and newer) |
-
-#### Linux and macOS
+## Install
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yidika-lab/yidika/main/install.sh | sh
 ```
 
-#### Windows (PowerShell, no administrator rights needed)
+On Windows, in PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/yidika-lab/yidika/main/install.ps1 | iex
 ```
 
-That is the whole install. The script then:
+The script checks the SHA-256 of the release, installs `yidi` in `~/.yidi/bin` and adds it to your `PATH`; no administrator rights. Native compilation also needs a C++ compiler (`clang`, the Xcode Command Line Tools, or LLVM with the Visual Studio Build Tools). [More options](docs/installation.md).
 
-1. checks the download against its SHA-256 checksum;
-2. runs a test program with the installed `yidi` and prints `self-test passed: Hello from Yidika!`;
-3. adds `~/.yidi/bin` to your `PATH` for future terminals: in `~/.zshrc`, `~/.bashrc` (plus `~/.bash_profile` on macOS), fish's `conf.d` or `~/.profile` depending on your shell, and in the user `PATH` on Windows;
-4. makes `yidi` usable right away. On Windows it works in the same PowerShell window. On Linux and macOS a script piped into `sh` cannot change the shell that started it, so the installer opens a new shell where `yidi` is ready; type `exit` to go back.
+## What is in the language
 
-Then write your first program (on Windows, create `hello.yk` with any editor and run the second line):
+- Static types with inference: `int`, `real`, `bool`, `str`, `complex`, nullable `T?`, unions `A | B`, generics.
+- Structs, classes with inheritance, interfaces, objects, enums and `match`.
+- Lambdas and closures that capture their scope: `(x) => x + n`.
+- `Result<T, E>` with `Ok`, `Error` and the `?` operator; `?.` and `?:` for `null`.
+- Lists, sets, maps, tuples; `spawn` and `await` on real threads.
+- A standard library for math, JSON, regex, base64, paths, files, time and HTTP (server, client, TCP).
 
-```sh
-printf 'fn main() {\n    print("Hello, Yidika!");\n}\n' > hello.yk
-yidi hello.yk
+```yidika-file
+use { Server } from "net";
+
+fn main() {
+    app: Server = Server();
+    app.get("/hello") { return "Hello from Yidika"; }
+    app.serve(3000);
+}
 ```
 
-#### Options, updates and removal
+Yidika is young: some constructs are missing (`break`, for one) and some only run in the interpreter so far. The [known limits](docs/limits.md) page lists them all.
 
-| Task | Linux and macOS | Windows (PowerShell) |
-|---|---|---|
-| Install a specific version | `curl -fsSL .../install.sh \| YIDI_VERSION=v0.1.0 sh` | `$env:YIDI_VERSION='v0.1.0'; irm .../install.ps1 \| iex` |
-| Leave my shell profile alone | `curl -fsSL .../install.sh \| YIDI_NO_MODIFY_PATH=1 sh` | Not needed: only the user `PATH` is changed |
-| Do not open a new shell at the end | `curl -fsSL .../install.sh \| YIDI_NO_SHELL=1 sh` | Not applicable |
-| Install somewhere else | `YIDI_HOME=/opt/yidi` before `sh` | `$env:YIDI_HOME='D:\tools\yidi'` before `irm` |
-| Update | `yidi upgrade` (or run the install command again) | `yidi upgrade` (or run the install command again) |
-| Check for an update | `yidi upgrade --check` | `yidi upgrade --check` |
-| Uninstall | `rm -rf ~/.yidi`, then delete the `# yidi` line and the line below it in your shell profile | `Remove-Item -Recurse $HOME\.yidi`, then remove the entry from your user `PATH` |
-
-Prefer not to pipe a script into your shell? Download the archive for your platform from the [latest release](https://github.com/yidika-lab/yidika/releases/latest), check it against its `.sha256` file (`sha256sum -c`, `shasum -a 256 -c` or `Get-FileHash`), extract it and put `yidi` (or `yidi.exe` with its `yk_ffi_gui.dll`) in a folder on your `PATH`.
-
-#### What works on each platform
-
-The interpreter (`yidi run --interp`) works on every platform above. Native compilation (`yidi build`, `yidi run`) needs `clang++` on Linux and macOS (`sudo apt install clang`, `xcode-select --install`), and LLVM with the Visual Studio Build Tools on Windows.
-
-`yidi run` compiles the program once, caches the binary in `~/.cache/yidi/run`, and runs it at native speed: `fib(35)` takes 0.03 s, the same as `rustc -O`, against about 14 s in the interpreter. A program the compiler cannot build yet (closures, GUI, FFI), or a machine without a C++ compiler, uses the interpreter instead. `yidi run --interp` forces the interpreter.
-
-### Build from source
-
-Requires [Rust](https://www.rust-lang.org/) stable (via `rustup`) and a C toolchain: `build-essential` on Debian/Ubuntu, Xcode Command Line Tools (`xcode-select --install`) on macOS, Visual Studio Build Tools on Windows.
+## Packages
 
 ```sh
-cargo install --git https://github.com/yidika-lab/yidika yidi
+yidi init my-app
+yidi add greet               # from the registry
+yidi add github:user/repo    # or any git repository
+yidi sync                    # install exactly what yidi.lock records
+yidi publish                 # tag a release and add it to the registry
 ```
 
-Or from a clone:
+Packages live in `@yidi/<name>/` and are imported by name: `use { hello } from "greet";`. Every download is checked against the SHA-256 recorded in `yidi.lock`, and one cache is shared by all projects, so a second install takes about a millisecond. [Packages and the registry](docs/packages.md).
+
+## Documentation
+
+The [documentation](https://yidika-lab.github.io/yidika/) is also in [`docs/`](docs/README.md). Every example in it is run by the test suite in both engines, so it cannot drift from what the language does.
+
+## Building from source
 
 ```sh
 git clone https://github.com/yidika-lab/yidika.git
 cd yidika
 cargo build --release
+cargo test --lib -- --skip compat   # fast; `cargo test` also runs the native parity tests
 ```
 
-### Usage
-
-```sh
-# Run a .yk file (interpreter - quiet, just output)
-yidi test.yk
-
-# Restart on every save of test.yk or a module it imports (about 0.2 s on Linux)
-yidi test.yk --watch
-
-# Build for production
-yidi build test.yk
-
-# Projects and packages
-yidi init my-app             # new project in ./my-app
-yidi init                    # asks for the name; "." means the current folder
-yidi add greet               # from the registry, recorded as greet = "^x.y.z"
-yidi add greet@^1.2
-yidi add github:user/greet   # straight from a git repository
-yidi sync                    # install exactly what yidi.lock records
-yidi update [greet]          # move to the newest versions the ranges allow
-yidi remove greet            # also drops what only greet needed
-```
-
-A package is a git repository whose releases are tags such as `v1.2.0` (a repository without tags follows its default branch). Its own `project.toml` lists its dependencies, which are installed too.
-
-`yidi.lock` records the exact commit and a SHA-256 of every package; commit it. Downloads go to one cache shared by all projects (`~/.cache/yidi/packages` on Linux), checked against the lock, and `@yidi/<name>/` is made of hard links into it, so a second project or a fresh checkout installs without the network. GitHub packages come as one HTTPS archive instead of a `git clone`. On Linux, with the cache warm, reinstalling from scratch took 1 ms and a `yidi sync` with nothing to do 0 ms. `yidi init` adds `@yidi/` to `.gitignore`.
-
-#### Publishing
-
-```sh
-yidi publish --dry-run       # check everything, print the registry entry
-yidi publish                 # tag v<version>, push it, open the registry pull request
-```
-
-The registry is the git repository [`yidika-lab/registry`](https://github.com/yidika-lab/registry): one small file per package, `packages/<name>.toml`, with the source repository and, for each release, its commit and SHA-256. `yidi add greet` reads that one file over HTTPS instead of listing the repository's tags, and refuses a download whose hash differs from the registry. `yidi publish` needs a `[package]` section with `name` and `version`, a clean working tree, an `https` (or GitHub SSH) `origin`, and a `<name>.yk` or `main.yk` that type-checks; with the GitHub CLI (`gh`) logged in it opens the pull request itself, otherwise it prints a link that pre-fills it. Set `YIDI_REGISTRY` to another URL or to a local folder to use a mirror or a private registry.
-
-Import by package name, as with Node or Python:
-
-```rust
-use {hello} from "greet";        // @yidi/greet/greet.yk, or @yidi/greet/main.yk
-use upper from "greet/text";     // @yidi/greet/text.yk
-```
-
-The search starts in the importing file's folder and walks up to the first `@yidi/greet/`, so files in subfolders and inside packages resolve the same way. A package only exposes what it declares with `export fn`. Package names may not be std module names (`math`, `io`, ...).
-
-### Hello World
-
-Create `hello.yk`:
-```rust
-fn main() {
-    print("Hello, Yidika!");
-}
-```
-
-Run it:
-```sh
-yidi hello.yk
-```
-
-### More examples
-
-Variables and mutability:
-```rust
-fn main() {
-    x: int = 10;      // mutable by default
-    x = 6;            // OK
-
-    name: const = "Alice";  // immutable
-    // name = "Bob";        // ERROR
-}
-```
-
-Functions and control flow:
-```rust
-fn factorial(n: int) -> int {
-    if (n <= 1) { return 1; }
-    return n * factorial(n - 1);
-}
-
-fn main() {
-    result: int = factorial(5);
-    print(result);  // 120
-
-    for (i in 0..5) {
-        print(i);
-    }
-}
-```
-
-Structs:
-```rust
-struct Person {
-    name: str;
-    age: int;
-}
-
-fn main() {
-    p: auto = Person { name: "Alice", age: 30 };
-    print(p.name);
-}
-```
-
----
-
-## Project Structure
-
-```
-src/
-├── cli/           # CLI argument parsing & command execution
-├── diagnostics/   # Error types & source-span tracking
-├── interpret/     # Tree-walking interpreter
-├── module/        # Module loader (resolve imports, detect cycles)
-├── semantic/      # Type checker & environment
-│   ├── env.rs     # Symbol table (types & function signatures)
-│   └── typeck.rs  # Type inference & checking
-└── syntax/        # Lexer, parser, AST, tokens
-    ├── ast.rs     # AST node definitions
-    ├── lexer.rs   # Tokenizer
-    ├── parser.rs  # Recursive-descent Pratt parser
-    └── token.rs   # Token enum
-```
-
----
-
-## Language Specification
-
-Detailed specs are in [`docs/dev/`](docs/dev/):
-- [MVP Specification](docs/dev/SPEC_MVP.md) - complete language reference
-- [Architecture](docs/dev/ARCHITECTURE.md) - compiler pipeline & MLIR/LLVM strategy
-- [Type System](docs/dev/TYPE_SYSTEM.md)
-- [Memory Model](docs/dev/MEMORY_MODEL.md)
-- [Module System](docs/dev/MODULE_SYSTEM.md)
-- [FFI / ABI](docs/dev/FFI_ABI.md)
-- [Execution Model](docs/dev/EXECUTION_MODEL.md)
-- [Syntax Tree](docs/dev/SYNTAX_TREE.md)
-
-Comparisons with other languages:
-- [Yidika vs Rust, TypeScript/TSX, Python and Kotlin](docs/COMPARISON.md)
-- [Python syntax comparison](docs/comparison-python.md)
-- [TypeScript syntax comparison](docs/comparison-ts.md)
-
----
-
-## Testing
-
-```sh
-cargo test                    # Run all tests
-cargo test --lib              # Unit tests only
-cargo check --tests           # Verify tests compile (no linker needed)
-cargo clippy                  # Lint checks
-cargo run -- test.yk          # Run a .yk file
-cargo run -- build test.yk    # Build a .yk file
-cargo run -- test.yk --watch  # Watch mode
-```
-
----
-
-## Roadmap
-
-- [x] Lexer & Pratt parser
-- [x] AST with span tracking
-- [x] Type checker (env + type inference)
-- [x] Module loader (import resolution, cycle detection)
-- [x] Tree-walking interpreter
-- [ ] Code generation (MLIR dialect -> LLVM IR)
-- [ ] Full async runtime
-- [ ] GPU/NPU backend
-- [ ] Package manager
-- [ ] Language server (LSP)
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
----
+[CONTRIBUTING.md](CONTRIBUTING.md) explains the rules, the first of which is that a feature is done only when it gives the same output in both engines.
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
-
-Copyright (c) 2022 Espoir LOEMBA
-
-
-yidika dans a été designer et crée dans ses première version en 2022 par Espoir LOEMBA
-
-dont la première version était écrit en Clang comme MVP
-et écrit totalement en Rust en 2026
+MIT, see [LICENSE](LICENSE). Yidika was designed by Espoir LOEMBA in 2022, first prototyped in C, and rewritten in Rust in 2026.

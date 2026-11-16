@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 170" role="img" aria-label="Tisserin, the Yidika mascot: a weaver bird placing the last strand of its nest">
+  <path d="M8 34 C 60 22, 130 20, 196 30" fill="none" stroke="#7a5a2e" stroke-width="6" stroke-linecap="round"/>
+  <path d="M150 27 L162 14 M120 24 L112 10" stroke="#7a5a2e" stroke-width="4" stroke-linecap="round"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M28 31 C 14 52, 14 92, 40 108 C 62 120, 84 108, 88 84 C 92 60, 82 40, 70 31" stroke="#c99a4a" stroke-width="5"/>
+    <path d="M36 32 C 26 54, 28 88, 46 100 C 62 108, 78 98, 80 80 C 82 60, 76 44, 66 32" stroke="#b5853a" stroke-width="4"/>
+    <path d="M22 60 C 40 54, 66 54, 88 62" stroke="#c99a4a" stroke-width="4"/>
+    <path d="M20 78 C 40 72, 68 72, 90 80" stroke="#b5853a" stroke-width="4"/>
+    <path d="M26 96 C 42 92, 66 92, 84 98" stroke="#c99a4a" stroke-width="4"/>
+    <ellipse cx="54" cy="94" rx="11" ry="9" fill="#5a3f1c" stroke="none"/>
+  </g>
+  <path d="M90 62 C 100 60, 108 62, 114 66" fill="none" stroke="#0b6e4f" stroke-width="4" stroke-linecap="round"/>
+  <path d="M168 104 L192 122 L184 98 Z" fill="#7a5a2e"/>
+  <ellipse cx="148" cy="94" rx="32" ry="25" fill="#f2b21b"/>
+  <path d="M132 88 C 146 74, 172 80, 180 100 C 164 103, 144 102, 132 88 Z" fill="#c98a0a"/>
+  <g stroke="#7a5a2e" stroke-width="2" fill="none" stroke-linecap="round">
+    <path d="M146 88 L170 95"/>
+    <path d="M143 95 L166 101"/>
+  </g>
+  <circle cx="126" cy="66" r="21" fill="#f2b21b"/>
+  <path d="M107 60 C 111 49, 126 45, 139 53 C 139 66, 130 78, 115 80 C 108 74, 105 67, 107 60 Z" fill="#1d1b18"/>
+  <path d="M109 64 L 96 66 L 110 72 Z" fill="#1d1b18"/>
+  <circle cx="122" cy="61" r="3.8" fill="#e2483a"/>
+  <circle cx="122" cy="61" r="1.7" fill="#1d1b18"/>
+  <g stroke="#7a5a2e" stroke-width="3" stroke-linecap="round">
+    <path d="M142 118 L140 134"/>
+    <path d="M156 118 L158 134"/>
+  </g>
+  <path d="M120 136 C 150 130, 176 130, 196 138" fill="none" stroke="#7a5a2e" stroke-width="5" stroke-linecap="round"/>
+</svg>

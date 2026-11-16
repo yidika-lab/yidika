@@ -6,9 +6,11 @@
 |---|---|---|
 | How | walks the program's syntax tree | emits LLVM IR, compiled with `clang` and linked |
 | Start | immediate | a compile on the first run, then a cached binary |
-| Speed | `fib(35)` in about 14 s | `fib(35)` in 0.03 s, the same as `rustc -O` |
+| `fib(35)` on a Ryzen 5 4500U | 11.3 s | 0.034 s (`rustc -O`: 0.036 s) |
 | Needs | nothing | a C++ compiler (see [Installation](installation.md)) |
 | Covers | the whole language | most of it, growing (see [Known limits](limits.md)) |
+
+The timings come from [`benchmarks/fib/run.sh`](https://github.com/yidika-lab/yidika/blob/main/benchmarks/fib/run.sh), best of three runs.
 
 ## What yidi run does
 
