@@ -4,6 +4,10 @@
 
 ### Added
 
+- Native programs free their strings. A string built by `+`, `str()` or a function is released when its variable gets a new value, when the function returns, or as soon as a temporary is no longer needed, the way Rust drops a `String`. A loop that builds 3 million short strings now peaks at 4 MB instead of 379 MB, and runs in 0.42 s instead of 0.79 s. When the compiler cannot prove a string has a single owner (it went into a list, a struct or a closure), it keeps it alive, so the rule never frees memory still in use.
+
+- `YIDI_KEEP_IR=1` keeps the generated `.ll` file next to the program, and `YIDI_SANITIZE=address` builds it with AddressSanitizer. `YK_PEAK_MEMORY=1` makes a native program print its peak memory to stderr.
+
 - A shared Rust runtime library, `yk_runtime`, linked into every native program and shipped beside `yidi` in each release archive. Features that need the same code in both engines (JSON, the HTTP client for `fetch`) will live there, so they behave the same on Linux, macOS and Windows. A program that does not use it keeps its size.
 
 - `yidi` shows its progress the way uv does: a bar with the current step for `yidi build`, a line while `yidi run` compiles a program that is not cached yet, a byte count for downloads in `yidi add`, `yidi sync`, `yidi update` and `yidi upgrade`, then one colored line such as `Built fib.yk in 1.21s`. Colors and bars only appear in a terminal; piped output is plain text.

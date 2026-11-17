@@ -142,6 +142,15 @@ pub(crate) mod tests {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    pub(crate) fn peak_memory_kb(source: &str, test_name: &str) -> i64 {
+        let exe_path = build_aot(source, test_name).expect("native build");
+        let output = Command::new(&exe_path).env("YK_PEAK_MEMORY", "1").output().expect("run native program");
+        let _ = std::fs::remove_dir_all(exe_path.parent().unwrap());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        stderr.lines().find_map(|l| l.strip_prefix("yk-peak-memory-kb ")).and_then(|v| v.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no peak memory report in: {}", stderr))
+    }
+
     fn build_aot(source: &str, test_name: &str) -> Result<std::path::PathBuf, String> {
         let _lock = aot_lock();
         let dir = std::env::temp_dir().join(format!("yk_compat_{}", test_name));
@@ -1669,5 +1678,82 @@ fn main() {
     print(label, limit, over(limit + step));
 }
 "#, "constants_with_and_without_a_type", "max 10 true");
+    }
+
+    const MANY_STRINGS: &str = r#"fn make(i: int) -> str { return "item-" + str(i); }
+i = 0;
+total = 0;
+while (i < 3000000) {
+    s = make(i);
+    total = total + len(s);
+    i = i + 1;
+}
+print(total);
+"#;
+
+    #[test]
+    fn compat_strings_built_in_a_loop() {
+        check_compat_prints(MANY_STRINGS, "strings_built_in_a_loop", "34888890");
+    }
+
+    #[test]
+    fn native_strings_are_freed_after_their_last_use() {
+        let peak = peak_memory_kb(MANY_STRINGS, "strings_are_freed");
+        assert!(peak < 10_000, "3 million short strings peaked at {} KB", peak);
+    }
+
+    pub(crate) const OWNERSHIP_CASES: &str = r#"struct User { name: str; }
+
+fn shout(s: str) -> str { return s + "!"; }
+fn same(s: str) -> str { return s; }
+fn label(n: int) -> str {
+    t = "n=" + str(n);
+    if (n > 2) { return t + " big"; }
+    t = t + " small";
+    return t;
+}
+fn first_of(xs: str[]) -> str { return xs[0]; }
+
+fn main() {
+    kept = [];
+    i = 0;
+    while (i < 3) {
+        s = "v" + str(i);
+        kept.push(s);
+        s = "w" + str(i);
+        print(s);
+        i = i + 1;
+    }
+    print(kept);
+
+    name = "Ada" + "";
+    u = User { name: name };
+    name = "Grace" + "";
+    print(u.name, name);
+
+    a = "x" + str(1);
+    b = str(a);
+    a = "y" + str(2);
+    print(a, b);
+
+    f = () => len(a);
+    a = "z" + str(30);
+    print(f());
+
+    c = "c" + str(4);
+    if (len(c) > 1) { c = "long" + c; } else { c = "short" + c; }
+    print(c, shout(c + ""), same(c + ""));
+
+    print(label(1), label(5));
+    xs = ["p" + "", "q" + ""];
+    first = first_of(xs);
+    print(first);
+}
+"#;
+
+    #[test]
+    fn compat_strings_keep_their_owners() {
+        check_compat_prints(OWNERSHIP_CASES, "strings_keep_their_owners",
+            "w0\nw1\nw2\n[v0, v1, v2]\nAda Grace\ny2 x1\n3\nlongc4 longc4! longc4\nn=1 small n=5 big\np");
     }
 }
