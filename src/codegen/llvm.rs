@@ -9,6 +9,7 @@ use crate::interpret::FnDef;
 use crate::syntax::ast::*;
 
 const RUNTIME_C: &str = include_str!("runtime/yk_rt.c");
+const LOG_RESPONSE: &str = "__LogResponse";
 
 pub struct LlvmCodegen {
     output: String,
@@ -54,6 +55,7 @@ pub struct LlvmCodegen {
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
     user_fns: HashSet<String>,
+    std_aliases: HashMap<String, String>,
     owned_temps: HashSet<String>,
     freeable: HashSet<String>,
     char_vars: std::collections::HashSet<String>,
@@ -118,6 +120,7 @@ impl LlvmCodegen {
             current_fn_ret: "void".into(),
             fn_ret_types: HashMap::new(),
             user_fns: HashSet::new(),
+            std_aliases: HashMap::new(),
             owned_temps: HashSet::new(),
             freeable: HashSet::new(),
             char_vars: std::collections::HashSet::new(),
@@ -308,6 +311,7 @@ impl LlvmCodegen {
 
     fn compile_server_method(&mut self, handle: &str, field: &str, compiled_args: &[(String, String)], raw_args: &[ExprNode]) -> (String, String) {
         match field {
+            "logger" => self.set_server_logger(handle, raw_args),
             "serve" => {
                 let addr_ptr = match compiled_args.first() {
                     Some((av, at)) if at == "%yk_string" => self.string_to_ptr(av),
@@ -340,20 +344,8 @@ impl LlvmCodegen {
                         }
                         Expr::Ident(fn_name) => {
                             // Named function handler
-                            if let Some(fndef) = self.fn_defs.get(fn_name) {
-                                let hname = format!("__yk_handler_fn_{}", fn_name);
-                                if let Some(ir) = crate::codegen::llvm::generate_fn_handler_ir(&hname, fndef) {
-                                    let cleaned: String = ir.lines()
-                                        .filter(|l| !l.starts_with("target triple") && !l.starts_with("; JIT") && !l.starts_with("%YkResponse"))
-                                        .collect::<Vec<_>>()
-                                        .join("\n");
-                                    self.handler_irs.push(cleaned);
-                                    let tmp = self.fresh_label();
-                                    self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, hname));
-                                    self.ssa(&tmp)
-                                } else {
-                                    "0".into()
-                                }
+                            if let Some(fndef) = self.fn_defs.get(fn_name).cloned() {
+                                self.route_handler(&format!("__yk_handler_fn_{}", fn_name), &fndef)
                             } else {
                                 if let Some((hv, _)) = compiled_args.get(1) {
                                     hv.clone()
@@ -366,35 +358,13 @@ impl LlvmCodegen {
                             let fn_body = vec![Node::new(0, Span::new(0, 0), Stmt::Return(Some(*body.clone())))];
                             let fndef = FnDef::new(params.clone(), fn_body);
                             let hname = format!("__yk_handler_closure_{}", self.fresh_label());
-                            if let Some(ir) = crate::codegen::llvm::generate_fn_handler_ir(&hname, &fndef) {
-                                let cleaned: String = ir.lines()
-                                    .filter(|l| !l.starts_with("target triple") && !l.starts_with("; JIT") && !l.starts_with("%YkResponse"))
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                self.handler_irs.push(cleaned);
-                                let tmp = self.fresh_label();
-                                self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, hname));
-                                self.ssa(&tmp)
-                            } else {
-                                "0".into()
-                            }
+                            self.route_handler(&hname, &fndef)
                         }
                         Expr::Closure(params, body) => {
                             let fn_body = vec![Node::new(0, Span::new(0, 0), Stmt::Return(Some(*body.clone())))];
                             let fndef = FnDef::new(params.clone(), fn_body);
                             let hname = format!("__yk_handler_closure_{}", self.fresh_label());
-                            if let Some(ir) = crate::codegen::llvm::generate_fn_handler_ir(&hname, &fndef) {
-                                let cleaned: String = ir.lines()
-                                    .filter(|l| !l.starts_with("target triple") && !l.starts_with("; JIT") && !l.starts_with("%YkResponse"))
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-                                self.handler_irs.push(cleaned);
-                                let tmp = self.fresh_label();
-                                self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, hname));
-                                self.ssa(&tmp)
-                            } else {
-                                "0".into()
-                            }
+                            self.route_handler(&hname, &fndef)
                         }
                         _ => {
                             if let Some((hv, _)) = compiled_args.get(1) {
@@ -422,6 +392,85 @@ impl LlvmCodegen {
         let fields = vec![("status".to_string(), "i64".to_string()), ("body".to_string(), "%yk_string".to_string())];
         self.struct_defs.insert("Response".into(), fields);
         self.e_raw("%struct.Response = type { i64, %yk_string }");
+    }
+
+    fn field_type(&self, owner: &str, field: &str) -> Option<String> {
+        let fields = match owner.strip_prefix("%struct.") {
+            Some(name) => self.struct_defs.get(name),
+            None => self.class_defs.get(owner.strip_prefix("%class.")?),
+        }?;
+        fields.iter().find(|(name, _)| name == field).map(|(_, ty)| ty.clone())
+    }
+
+    fn route_handler(&mut self, hname: &str, fndef: &FnDef) -> String {
+        let Some(parts) = crate::codegen::handler::split(&fndef.body) else {
+            return "0".into();
+        };
+        if let Some(reason) = crate::codegen::handler::unsupported_reason(&parts) {
+            self.refuse(reason);
+            return "0".into();
+        }
+        let prelude = (!parts.prelude.is_empty()).then(|| self.queue_handler_prelude(hname, &fndef.params, parts.prelude.clone()));
+        let ir = generate_handler_ir(hname, parts.response, prelude.as_ref());
+        let cleaned: String = ir.lines()
+            .filter(|l| !l.starts_with("target triple") && !l.starts_with("; JIT") && !l.starts_with("%YkResponse"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.handler_irs.push(cleaned);
+        let tmp = self.fresh_label();
+        self.e(&format!("%{} = ptrtoint ptr @{} to i64", tmp, hname));
+        self.ssa(&tmp)
+    }
+
+    fn queue_handler_prelude(&mut self, hname: &str, params: &[Param], body: Vec<StmtNode>) -> HandlerPrelude {
+        let name = format!("__yk_pre_{}", hname);
+        let item = Node::new(0, Span::new(0, 0), ItemKind::Fn {
+            name: name.clone(),
+            params: params.to_vec(),
+            ret_type: None,
+            body,
+            is_async: false,
+            generics: Vec::new(),
+            is_open: false,
+            is_override: false,
+            is_final: false,
+            is_abstract_method: false,
+        });
+        let saved_ret = self.current_fn_ret.clone();
+        self.register_fn_signature(&item);
+        self.current_fn_ret = saved_ret;
+        let param_types = self.fn_param_types.get(&name).cloned().unwrap_or_default();
+        self.pending_instances.push(item);
+        HandlerPrelude { name, param_types }
+    }
+
+    fn declare_builtin_log_entry_struct(&mut self) {
+        if self.struct_defs.contains_key("LogEntry") || self.class_defs.contains_key("LogEntry") {
+            return;
+        }
+        let text = |name: &str| (name.to_string(), "%yk_string".to_string());
+        self.struct_defs.insert(LOG_RESPONSE.into(), vec![text("status"), text("body")]);
+        let response = ("response".to_string(), format!("%struct.{}", LOG_RESPONSE));
+        self.struct_defs.insert("LogEntry".into(), vec![text("method"), text("path"), text("body"), response]);
+        self.e_raw(&format!("%struct.{} = type {{ %yk_string, %yk_string }}", LOG_RESPONSE));
+        self.e_raw(&format!("%struct.LogEntry = type {{ %yk_string, %yk_string, %yk_string, %struct.{} }}", LOG_RESPONSE));
+    }
+
+    fn set_server_logger(&mut self, handle: &str, raw_args: &[ExprNode]) -> (String, String) {
+        let Some(Expr::Ident(name)) = raw_args.first().map(|a| &a.value) else {
+            self.refuse("app.logger with an inline function");
+            return ("0".into(), "void".into());
+        };
+        let mangled = self.mangle_name(name);
+        let param = self.fn_param_types.get(&mangled).and_then(|p| p.first().cloned()).unwrap_or_else(|| "%struct.LogEntry".into());
+        let ret = self.fn_ret_types.get(&mangled).cloned().unwrap_or_else(|| "void".into());
+        let wrapper = format!("__yk_logger_{}", mangled.replace('.', "_"));
+        self.handler_irs.push(format!(
+            "define void @{w}(ptr %entry) {{\n  %e = load %struct.LogEntry, ptr %entry\n  call {r} @{f}({p} %e)\n  ret void\n}}",
+            w = wrapper, r = ret, f = mangled, p = param
+        ));
+        self.e(&format!("call void @yk_server_set_logger(i64 {}, ptr @{})", handle, wrapper));
+        ("0".into(), "void".into())
     }
 
     fn value_to_string_ptr(&mut self, av: &str, at: &str) -> String {
@@ -1097,10 +1146,8 @@ impl LlvmCodegen {
                 let ot = self.expr_type_str(obj);
                 if ot == "%yk_complex" {
                     if field == "conj" { "%yk_complex".into() } else { "double".into() }
-                } else if ot == "%yk_string" {
-                    "i64".into()
                 } else {
-                    "i64".into()
+                    self.field_type(&ot, field).unwrap_or_else(|| "i64".into())
                 }
             }
             Expr::PostInc(i) | Expr::PostDec(i) => self.expr_type_str(i),
@@ -1113,6 +1160,45 @@ impl LlvmCodegen {
             Expr::As(_, target_type) => self.type_to_llvm(&target_type.value),
             Expr::Match(_, arms) => arms.first().map(|a| self.expr_type_str(&a.body)).unwrap_or("i64".into()),
             _ => "i64".into(),
+        }
+    }
+
+    fn declared_or_inferred_ret(&mut self, ret_type: Option<&TypeNode>, params: &[Param], body: &[StmtNode]) -> String {
+        match ret_type {
+            Some(t) => self.type_to_llvm(&t.value),
+            None => self.inferred_ret_type(params, body),
+        }
+    }
+
+    fn inferred_ret_type(&mut self, params: &[Param], body: &[StmtNode]) -> String {
+        let Some(value) = crate::codegen::ownership::returned_values(body).into_iter().next() else {
+            return "void".into();
+        };
+        let saved = self.var_types.clone();
+        for p in params {
+            let ty = self.type_to_llvm(&p.type_expr.value);
+            self.var_types.insert(p.name.clone(), ty);
+        }
+        let ty = self.expr_type_str(value);
+        self.var_types = saved;
+        if ty.is_empty() || ty == "void" { "i64".into() } else { ty }
+    }
+
+    fn record_std_aliases(&mut self, import: &Import) {
+        if import.lang.is_some() || !crate::stdlib::list_submodules().any(|m| m == import.source) {
+            return;
+        }
+        for (local, _) in import.names.iter().filter(|(local, _)| *local != import.source) {
+            self.std_aliases.insert(local.clone(), import.source.clone());
+        }
+    }
+
+    fn std_receiver<'a>(&self, receiver: &'a Expr) -> std::borrow::Cow<'a, Expr> {
+        match receiver {
+            Expr::Ident(name) if self.std_aliases.contains_key(name) && !self.var_types.contains_key(name) => {
+                std::borrow::Cow::Owned(Expr::Ident(self.std_aliases[name].clone()))
+            }
+            _ => std::borrow::Cow::Borrowed(receiver),
         }
     }
 
@@ -1217,6 +1303,7 @@ impl LlvmCodegen {
         // Collect FFI module names from imports
         for module in modules {
             for import in &module.imports {
+                self.record_std_aliases(import);
                 if let Some(lang) = &import.lang {
                     if lang == "rust" || lang == "c++" {
                         for (name, _) in &import.names {
@@ -1258,6 +1345,7 @@ impl LlvmCodegen {
             }
         }
         self.declare_builtin_response_struct();
+        self.declare_builtin_log_entry_struct();
         self.e_raw("");
 
         // Pre-scan: collect interface methods and class implements
@@ -1564,6 +1652,7 @@ impl LlvmCodegen {
         self.e_raw("declare i64 @yk_udp_send_to(i64, ptr, ptr)");
         self.e_raw("declare ptr @yk_udp_recv_from(i64, i64)");
         self.e_raw("declare void @yk_server_serve(i64, ptr)");
+        self.e_raw("declare void @yk_server_set_logger(i64, ptr)");
         self.e_raw("declare ptr @yk_listen_addr_from_port(i64)");
         self.e_raw("declare ptr @yk_list_new()");
         self.e_raw("declare void @yk_list_push(ptr, i64)");
@@ -1785,10 +1874,10 @@ impl LlvmCodegen {
     }
 
     fn register_fn_signature(&mut self, item: &ItemNode) {
-        let ItemKind::Fn { name, ret_type, params, .. } = &item.value else { return };
+        let ItemKind::Fn { name, ret_type, params, body, .. } = &item.value else { return };
         self.user_fns.insert(name.clone());
         let mangled = self.mangle_name(name);
-        let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
+        let ret = self.declared_or_inferred_ret(ret_type.as_ref(), params, body);
         self.current_fn_ret = ret.clone();
         self.fn_ret_types.insert(mangled.clone(), ret);
         if let Some(sig) = ret_type.as_ref().and_then(|t| self.fn_sig_of(&t.value)) {
@@ -1947,7 +2036,7 @@ impl LlvmCodegen {
         let saved_alloca = self.var_alloca.clone();
         if let ItemKind::Fn { name, params, ret_type, body, .. } = &item.value {
             let mangled = self.mangle_name(name);
-            let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
+            let ret = self.declared_or_inferred_ret(ret_type.as_ref(), params, body);
             self.current_fn_ret = ret.clone();
             self.fn_ret_types.insert(mangled.clone(), ret.clone());
             let param_types: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
@@ -2008,7 +2097,7 @@ impl LlvmCodegen {
             } else {
                 format!("__method_{}_{}_{}", module_name, class_name, mname)
             };
-            let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
+            let ret = self.declared_or_inferred_ret(ret_type.as_ref(), params, body);
             self.class_method_ret_types.insert((class_name.to_string(), mname.clone()), ret.clone());
             let saved_types = self.var_types.clone();
             let saved_alloca = self.var_alloca.clone();
@@ -2110,7 +2199,7 @@ impl LlvmCodegen {
             } else {
                 format!("__obj_method_{}_{}_{}", module_name, obj_name, mname)
             };
-            let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
+            let ret = self.declared_or_inferred_ret(ret_type.as_ref(), params, body);
             self.object_method_ret_types.insert((obj_name.to_string(), mname.clone()), ret.clone());
             let has_self = params.first().map(|p| p.name == "self").unwrap_or(false);
             if has_self {
@@ -3934,7 +4023,8 @@ impl LlvmCodegen {
                 self.call_record(&record, &sig, &arg_results)
             }
             Expr::Field(obj, field) => {
-                match (&obj.value, field.as_str()) {
+                let receiver = self.std_receiver(&obj.value);
+                match (receiver.as_ref(), field.as_str()) {
                     (Expr::Ident(mod_name), func_name) if mod_name == "math" => {
                         let tmp = self.fresh_label();
                         match func_name {
@@ -4042,19 +4132,20 @@ impl LlvmCodegen {
                     (Expr::Ident(mod_name), func_name) if mod_name == "path" => {
                         match func_name {
                             "join" => {
-                                if arg_results.len() >= 2 {
-                                    let (av1, _) = &arg_results[0];
-                                    let (av2, _) = &arg_results[1];
-                                    let p1 = self.string_to_ptr(av1);
-                                    let p2 = self.string_to_ptr(av2);
-                                    let ptr_tmp = self.fresh_label();
-                                    self.e(&format!("%{} = call ptr @yk_path_join(ptr {}, ptr {})", ptr_tmp, p1, p2));
-                                    let loaded = self.fresh_label();
-                                    self.e(&format!("%{} = load %yk_string, ptr %{}", loaded, ptr_tmp));
-                                    (self.ssa(&loaded), "%yk_string".into())
-                                } else {
-                                    ("0".into(), "%yk_string".into())
+                                let Some(((first, _), rest)) = arg_results.split_first() else {
+                                    return ("0".into(), "%yk_string".into());
+                                };
+                                let mut joined = first.clone();
+                                for (part, _) in rest {
+                                    let left = self.string_to_ptr(&joined);
+                                    let right = self.string_to_ptr(part);
+                                    let header = self.fresh_label();
+                                    self.e(&format!("%{} = call ptr @yk_path_join(ptr {}, ptr {})", header, left, right));
+                                    let header = self.ssa(&header);
+                                    let previous = std::mem::replace(&mut joined, self.take_runtime_string(&header));
+                                    self.release_temp(&previous, "%yk_string");
                                 }
+                                (joined, "%yk_string".into())
                             }
                             "dirname" | "basename" | "extension" => {
                                 if let Some((av, _)) = arg_results.first() {
@@ -4323,7 +4414,7 @@ impl LlvmCodegen {
                             return (self.ssa(&extended), "i64".into());
                         }
                         // Server method dispatch (get, post, serve)
-                        if o_ty == "i64" && matches!(field.as_str(), "get" | "post" | "put" | "delete" | "patch" | "ws" | "serve") {
+                        if o_ty == "i64" && matches!(field.as_str(), "get" | "post" | "put" | "delete" | "patch" | "ws" | "serve" | "logger") {
                             return self.compile_server_method(&o_val, field, &arg_results, args);
                         }
                         // TcpStream method dispatch (send, recv, close)
@@ -5454,10 +5545,27 @@ entry:
 /// Handler parameter `req` maps to the %req struct pointer. The struct layout:
 ///   offsets: method(0 ptr, 8 len), path(16 ptr, 24 len), body(32 ptr, 40 len)
 pub fn generate_fn_handler_ir(handler_name: &str, fndef: &crate::interpret::FnDef) -> Option<String> {
-    let body = &fndef.body;
-    let ret_expr = find_return_expr(body)?;
+    let ret_expr = find_return_expr(&fndef.body)?;
+    Some(generate_handler_ir(handler_name, ret_expr, None))
+}
+
+struct HandlerPrelude {
+    name: String,
+    param_types: Vec<String>,
+}
+
+impl HandlerPrelude {
+    fn call(&self) -> String {
+        let args: Vec<String> = self.param_types.iter().enumerate()
+            .map(|(i, ty)| if i == 0 && ty == "i64" { "i64 %req.int".to_string() } else { format!("{} zeroinitializer", ty) })
+            .collect();
+        format!("call void @{}({})", self.name, args.join(", "))
+    }
+}
+
+fn generate_handler_ir(handler_name: &str, response: &ExprNode, prelude: Option<&HandlerPrelude>) -> String {
     let mut gen = FnIrGen::new(handler_name);
-    Some(gen.gen_fn(handler_name, ret_expr))
+    gen.gen_fn(handler_name, response, prelude)
 }
 
 fn find_return_expr(body: &[StmtNode]) -> Option<&ExprNode> {
@@ -5537,7 +5645,7 @@ impl FnIrGen {
         writeln!(self.output, "  {}", s).unwrap();
     }
 
-    fn gen_fn(&mut self, handler_name: &str, ret_expr: &ExprNode) -> String {
+    fn gen_fn(&mut self, handler_name: &str, ret_expr: &ExprNode, prelude: Option<&HandlerPrelude>) -> String {
         self.output.clear();
         self.string_constants.clear();
 
@@ -5555,6 +5663,10 @@ impl FnIrGen {
             handler_name
         ));
         self.output.push_str("entry:\n");
+        if let Some(prelude) = prelude {
+            self.e("%req.int = ptrtoint ptr %req to i64");
+            self.e(&prelude.call());
+        }
 
         let parts = HandlerResult::of(ret_expr);
         let (ptr_val, len_val) = match parts.body {

@@ -1507,6 +1507,7 @@ typedef struct {
     struct io_uring ring;
 #endif
     void* handler_pool; // yk_handler_pool* for offloading handler execution
+    void (*logger)(void* entry);
 } yk_server;
 
 #ifdef YK_HAVE_URING
@@ -1560,6 +1561,41 @@ void yk_server_add_route(int64_t handle, yk_string* method, yk_string* path, voi
         (void (*)(void*,void*,char*,int64_t))(intptr_t)fn_ptr,
         (strcmp(method_buf, "WS") == 0));
     s->count++;
+}
+
+typedef struct { yk_string status; yk_string body; } yk_log_response;
+typedef struct { yk_string method; yk_string path; yk_string body; yk_log_response response; } yk_log_entry;
+
+static yk_mutex_t yk_logger_mutex = YK_MUTEX_INIT;
+
+void yk_server_set_logger(int64_t handle, void* fn_ptr) {
+    yk_server* s = (yk_server*)(intptr_t)handle;
+    s->logger = (void (*)(void*))fn_ptr;
+}
+
+static yk_string yk_borrowed_string(const char* data, int64_t len) {
+    yk_string s;
+    s.data = (char*)(data ? data : "");
+    s.len = (data && len > 0) ? len : 0;
+    s.cap = 0;
+    return s;
+}
+
+static void yk_log_exchange(yk_server* s, const char* method, int64_t method_len, const char* path, int64_t path_len, int status, const char* body, int64_t body_len) {
+    if (!s->logger) return;
+    char status_text[64];
+    int n = snprintf(status_text, sizeof(status_text), "%d %s", status, yk_status_reason(status));
+    if (n < 0) n = 0;
+    if (n >= (int)sizeof(status_text)) n = (int)sizeof(status_text) - 1;
+    yk_log_entry entry;
+    entry.method = yk_borrowed_string(method, method_len);
+    entry.path = yk_borrowed_string(path, path_len);
+    entry.body = yk_borrowed_string("", 0);
+    entry.response.status = yk_borrowed_string(status_text, n);
+    entry.response.body = yk_borrowed_string(body, body_len);
+    yk_mutex_lock(&yk_logger_mutex);
+    s->logger(&entry);
+    yk_mutex_unlock(&yk_logger_mutex);
 }
 
 // ── TcpStream (TCP client) ──
@@ -2126,6 +2162,7 @@ static void* yk_hw_worker(void* arg) {
         int status = yk_valid_status(item.resp.status);
         char* body_ptr = (char*)item.resp.body;
         int64_t body_len = item.resp.body_len;
+        yk_log_exchange(s, item._method, item.req.ml, item._path, item.req.pl, status, body_ptr, body_len);
         int keep_alive = (c->keep_alive && s->running);
 
         // Build response header into c->resp_buf
@@ -2503,6 +2540,7 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
         body_len = sizeof(not_found) - 1;
         yk_log("no route: %s %s (404)", c->method, c->path);
     }
+    yk_log_exchange(s, c->method, c->method_len, c->path, path_len, status, body_ptr, body_len);
 
     // Build response: header goes into resp_buf, body is a separate pointer (global constant)
     const char* conn_hdr = keep_alive ? "keep-alive" : "close";
@@ -2817,7 +2855,8 @@ void yk_server_serve(int64_t handle, yk_string* addr) {
     CreateIoCompletionPort((HANDLE)s->listen_fd, s->iocp, (ULONG_PTR)1, 0);
 
     s->running = 1;
-    printf("Server listening on %s:%d (IOCP, %d threads)\n", host, port, s->thread_count);
+    printf("Server listening on: %s:%d\n", host, port);
+    yk_log("backend IOCP, %d threads", s->thread_count);
     yk_log("serve start %s:%d (IOCP, %d routes, %d threads)", host, port, s->count, s->thread_count);
 
     // Start worker threads
@@ -3191,7 +3230,8 @@ void yk_server_serve(int64_t handle, yk_string* addr) {
     }
 
     s->running = 1;
-    printf("Server listening on %s:%d (io_uring, %d threads)\n", host, port, s->thread_count);
+    printf("Server listening on: %s:%d\n", host, port);
+    yk_log("backend io_uring, %d threads", s->thread_count);
     yk_log("serve start %s:%d (io_uring, %d routes, %d threads)", host, port, s->count, s->thread_count);
 
     // Start worker threads (share the same ring)
@@ -3371,7 +3411,8 @@ void yk_server_serve(int64_t handle, yk_string* addr) {
         yk_thread_t t;
         if (yk_thread_spawn(&t, yk_posix_worker, &queue)) pthread_detach(t);
     }
-    printf("Server listening on %s:%d (posix, %d threads)\n", host, port, workers);
+    printf("Server listening on: %s:%d\n", host, port);
+    yk_log("backend posix, %d threads", workers);
     fflush(stdout);
     yk_log("serve start %s:%d (posix, %d routes, %d threads)", host, port, s->count, workers);
 
