@@ -1,3 +1,5 @@
+pub const CODE_LAYOUT_FLAGS: &[&str] = &["-mllvm", "-align-all-functions=6"];
+
 pub fn host_triple() -> &'static str {
     triple_for(std::env::consts::ARCH, std::env::consts::OS)
 }

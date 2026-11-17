@@ -4,6 +4,8 @@
 
 ### Changed
 
+- Native functions start on a 64-byte boundary (`-mllvm -align-all-functions=6`). With `ld.lld`, which `yidi` prefers when installed, a hot recursive function could land across a cache line: `fib(40)` took 0.31 s against 0.28 s for the same C code linked by the default linker. It now takes 0.27-0.28 s (Rust: 0.31 s). Other benchmarks are unchanged, and a binary grows by about 32 bytes.
+
 - When a native program's output goes to a file or a pipe, `print` fills a 64 KB buffer instead of making one system call per line, and a background thread flushes it every 50 ms so output still shows up while the program runs. Printing 2 million lines to a file takes 0.12 s with 3 637 `write` calls, against 0.51 s and 2 million calls before (C: 0.11 s, Rust `println!`: 0.38 s). Output to a terminal is unchanged, and servers flush after every request.
 
 - Top-level variables that no function reads are now ordinary locals of the program instead of globals, so LLVM keeps them in registers and vectorizes the loops that use them. A 500 million iteration `while` loop at the top level drops from 0.83 s to 0.28 s, the same time as the equivalent C (`clang -O3`) and Rust (`rustc -O`) programs.
