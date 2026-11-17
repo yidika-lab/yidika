@@ -414,11 +414,8 @@ impl Interpreter {
                                         self.output.push_str(&p);
                                     }
                                 }
-                                let mut line = String::new();
-                                std::io::stdin().read_line(&mut line)
+                                let line = self.input.next_line()
                                     .map_err(|e| self.err(expr.span, format!("input error: {}", e)))?;
-                                if line.ends_with('\n') { line.pop(); }
-                                if line.ends_with('\r') { line.pop(); }
                                 Ok(EvalResult::Value(Value::Str(line)))
                             }
                             "fetch" => {
@@ -1476,6 +1473,7 @@ impl Interpreter {
                         value_pool: crate::memory::arena::ValuePool::new(),
                         fn_bases: Vec::new(),
                         source_dir: std::path::PathBuf::from("."),
+                        input: Box::new(yk_runtime::input::Stdin),
                     };
                     mini.push_frame();
                     let result = mini.eval_expr(&expr_clone);

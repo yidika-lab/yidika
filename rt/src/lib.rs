@@ -1,4 +1,5 @@
 pub mod ffi;
+pub mod input;
 pub mod regex;
 pub mod string;
 

@@ -24,20 +24,23 @@ pub unsafe fn as_str<'a>(s: *const YkString) -> Option<&'a str> {
 
 pub fn into_header(text: &str) -> *mut YkString {
     let header = unsafe { calloc(1, std::mem::size_of::<YkString>()) } as *mut YkString;
-    if header.is_null() {
-        return header;
-    }
-    let size = text.len() + 1;
-    let data = unsafe { malloc(size) } as *mut u8;
-    if data.is_null() {
-        return header;
-    }
-    unsafe {
-        std::ptr::copy_nonoverlapping(text.as_ptr(), data, text.len());
-        *data.add(text.len()) = 0;
-        *header = YkString { data, len: text.len() as i64, cap: size as i64 };
-    }
+    unsafe { write_into(header, text) };
     header
+}
+
+/// # Safety
+/// `slot` must be null or point to writable memory for one `yk_string`; its old buffer is not freed.
+pub unsafe fn write_into(slot: *mut YkString, text: &str) {
+    let Some(slot) = slot.as_mut() else { return };
+    *slot = YkString { data: std::ptr::null_mut(), len: 0, cap: 0 };
+    let size = text.len() + 1;
+    let data = malloc(size) as *mut u8;
+    if data.is_null() {
+        return;
+    }
+    std::ptr::copy_nonoverlapping(text.as_ptr(), data, text.len());
+    *data.add(text.len()) = 0;
+    *slot = YkString { data, len: text.len() as i64, cap: size as i64 };
 }
 
 #[cfg(test)]
@@ -61,6 +64,20 @@ mod tests {
         assert_eq!(unsafe { as_str(s) }, Some("hello"));
         assert_eq!(unsafe { (*s).cap }, 6);
         release(s);
+    }
+
+    #[test]
+    fn a_slot_is_filled_in_place() {
+        let mut slot = YkString { data: std::ptr::null_mut(), len: 0, cap: 0 };
+        unsafe { write_into(&mut slot, "hey") };
+        assert_eq!(unsafe { as_str(&slot) }, Some("hey"));
+        assert_eq!(slot.cap, 4);
+        unsafe { free(slot.data as *mut c_void) };
+    }
+
+    #[test]
+    fn a_null_slot_is_ignored() {
+        unsafe { write_into(std::ptr::null_mut(), "x") };
     }
 
     #[test]

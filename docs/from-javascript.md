@@ -13,6 +13,7 @@ Yidika reads much like TypeScript with types checked for real: braces, `(x) => x
 | `` `${name} is ${age}` `` | `f"{name} is {age}"` |
 | `function add(a: number, b: number): number` | `fn add(a: int, b: int) -> int` |
 | `(x) => x + 1` | `(x) => x + 1` |
+| `(x: number): number => x + 1` | `(x: int) => x + 1` |
 | `console.log(a, b)` | `print(a, b);` |
 | `for (const x of items)` | `for (x: items)` |
 | `switch` | `match` |

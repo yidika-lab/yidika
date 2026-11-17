@@ -1,6 +1,7 @@
 pub mod env;
 pub mod typeck;
 pub mod borrowck;
+pub mod builtins;
 
 #[cfg(test)]
 mod tests {
@@ -15,6 +16,17 @@ mod tests {
         let mut env = Env::new();
         let mut checker = TypeChecker::new(&mut env);
         checker.check_module(&module).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn input_returns_a_string() {
+        assert!(typed("fn main() { name = input(); print(\"hi \" + name); }").is_ok());
+    }
+
+    #[test]
+    fn a_builtin_no_backend_implements_is_rejected() {
+        let err = typed("fn main() { print(typeof(1)); }").unwrap_err();
+        assert!(err.contains("typeof"), "{}", err);
     }
 
     #[test]

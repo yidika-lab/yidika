@@ -1,4 +1,5 @@
-use crate::string::{as_str, into_header, YkString};
+use crate::input::LineSource;
+use crate::string::{as_str, into_header, write_into, YkString};
 
 /// # Safety
 /// Both arguments must be null or valid `yk_string` pointers.
@@ -19,4 +20,12 @@ pub unsafe extern "C" fn yk_re_replace(pattern: *const YkString, text: *const Yk
         _ => String::new(),
     };
     into_header(&replaced)
+}
+
+/// # Safety
+/// `out` must be null or point to writable memory for one `yk_string`.
+#[no_mangle]
+pub unsafe extern "C" fn yk_read_line_into(out: *mut YkString) {
+    let line = crate::input::Stdin.next_line().unwrap_or_default();
+    write_into(out, &line);
 }

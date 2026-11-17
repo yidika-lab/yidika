@@ -13,6 +13,7 @@ Yidika is young. This page lists what does not work yet, so you can plan around 
 | Binding an enum payload: `Circle(r) => r * r` | `Circle(_)` and keep the value elsewhere |
 | `data class` | A `class` with constructor parameters |
 | `10 as real` | `10.0`, or arithmetic with a real: `n * 1.0` |
+| `int("42")`, `real(x)`, `bool(x)`, `typeof(x)` (rejected by the type checker) | `json.parse("42")` to read a number from text (interpreter only for now) |
 | `int8`, `int64`, `real32` with literals | `int` and `real` |
 
 ## Ownership

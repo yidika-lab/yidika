@@ -540,6 +540,52 @@ fn item_name(kind: &ItemKind) -> Option<String> {
         Ok(Param { name, type_expr, is_ref: false })
     }
 
+    fn lambda_params(&mut self) -> Result<Vec<Param>> {
+        let mut params = Vec::new();
+        while self.tok() != &Token::RParen && self.tok() != &Token::Eof {
+            let name = self.ident()?;
+            let type_expr = if self.tok() == &Token::Colon {
+                self.advance();
+                self.type_()?
+            } else {
+                TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer)
+            };
+            params.push(Param { name, type_expr, is_ref: false });
+            if self.tok() != &Token::Comma { break; }
+            self.advance();
+        }
+        Ok(params)
+    }
+
+    fn closure_head_ahead(&self) -> bool {
+        let close = self.tokens[self.pos..].iter().scan(1usize, |depth, (tok, _)| {
+            match tok {
+                Token::LParen => *depth += 1,
+                Token::RParen => *depth -= 1,
+                _ => {}
+            }
+            Some(*depth)
+        }).position(|depth| depth == 0);
+        close.is_some_and(|i| matches!(self.tokens.get(self.pos + i + 1), Some((Token::FatArrow, _))))
+    }
+
+    fn closure(&mut self, span: Span) -> Result<ExprNode> {
+        let params = self.lambda_params()?;
+        self.eat(Token::RParen)?;
+        self.eat(Token::FatArrow)?;
+        let body = self.closure_body(span)?;
+        Ok(ExprNode::new(fresh_id(), span, Expr::Closure(params, Box::new(body))))
+    }
+
+    fn closure_body(&mut self, span: Span) -> Result<ExprNode> {
+        if self.tok() == &Token::LBrace {
+            let stmts = self.block_stmts()?;
+            Ok(ExprNode::new(fresh_id(), span, Expr::Block(stmts)))
+        } else {
+            self.expr(0)
+        }
+    }
+
     fn method_params(&mut self) -> Result<Vec<Param>> {
         let mut v = Vec::new();
         loop {
@@ -1085,23 +1131,11 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             Token::Bang => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::Not,Box::new(e)))) }
             Token::Tilde => { let e=self.expr_inner(13, false)?; Ok(ExprNode::new(fresh_id(),span,Expr::UnOp(UnOp::BitNot,Box::new(e)))) }
             Token::LParen => {
-                let start_span = span;
-                // Check if we have empty parentheses first
-                if self.tok() == &Token::RParen {
+                if self.closure_head_ahead() {
+                    self.closure(span)
+                } else if self.tok() == &Token::RParen {
                     self.advance();
-                    if self.tok() == &Token::FatArrow {
-                        self.advance();
-                        let body = if self.tok() == &Token::LBrace {
-                            let stmts = self.block_stmts()?;
-                            ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
-                        } else {
-                            self.expr(0)?
-                        };
-                        Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(vec![], Box::new(body))))
-                    } else {
-                        // Empty parentheses expression
-                        Ok(ExprNode::new(fresh_id(), start_span, Expr::TupleLit(vec![])))
-                    }
+                    Ok(ExprNode::new(fresh_id(), span, Expr::TupleLit(vec![])))
                 } else {
                     let e = self.expr(0)?;
                     if self.tok() == &Token::Colon {
@@ -1123,48 +1157,19 @@ fn item_name(kind: &ItemKind) -> Option<String> {
                             if self.tok() != &Token::Comma { break; }
                         }
                         self.eat(Token::RParen)?;
-                        if self.tok() == &Token::FatArrow {
-                            self.advance();
-                            let body = if self.tok() == &Token::LBrace {
-                                let stmts = self.block_stmts()?;
-                                ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
-                            } else {
-                                self.expr(0)?
-                            };
-                            let params = items.into_iter().map(|item| {
-                                let name = match &item.value { Expr::Ident(n) => n.clone(), _ => String::new() };
-                                Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }
+                        let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
+                        if all_list {
+                            let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
+                                Expr::ListLit(v) => v,
+                                _ => unreachable!(),
                             }).collect();
-                            Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(params, Box::new(body))))
+                            Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
                         } else {
-                            // Check if all items are list literals -> matrix
-                            let all_list = items.iter().all(|item| matches!(&item.value, Expr::ListLit(_)));
-                            if all_list && items.len() >= 1 {
-                                let rows: Vec<Vec<ExprNode>> = items.into_iter().map(|item| match item.value {
-                                    Expr::ListLit(v) => v,
-                                    _ => unreachable!(),
-                                }).collect();
-                                Ok(ExprNode::new(fresh_id(), span, Expr::MatrixLit(rows)))
-                            } else {
-                                Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
-                            }
+                            Ok(ExprNode::new(fresh_id(),span,Expr::TupleLit(items)))
                         }
                     } else {
                         self.eat(Token::RParen)?;
-                        if self.tok() == &Token::FatArrow {
-                            self.advance();
-                            let body = if self.tok() == &Token::LBrace {
-                                let stmts = self.block_stmts()?;
-                                ExprNode::new(fresh_id(), start_span, Expr::Block(stmts))
-                            } else {
-                                self.expr(0)?
-                            };
-                            let name = match &e.value { Expr::Ident(n) => n.clone(), _ => String::new() };
-                            let params = vec![Param { name, type_expr: TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer), is_ref: false }];
-                            Ok(ExprNode::new(fresh_id(), start_span, Expr::Closure(params, Box::new(body))))
-                        } else {
-                            Ok(e)
-                        }
+                        Ok(e)
                     }
                 }
             }
@@ -1282,24 +1287,7 @@ fn item_name(kind: &ItemKind) -> Option<String> {
             }
             Token::Fn => {
                 self.eat(Token::LParen)?;
-                let mut params = Vec::new();
-                loop {
-                    match self.tok() {
-                        Token::RParen | Token::Eof => break,
-                        _ => {
-                            let pname = self.ident()?;
-                            let type_expr = if self.tok() == &Token::Colon {
-                                self.advance();
-                                self.type_()?
-                            } else {
-                                TypeNode::new(fresh_id(), Span::new(0,0), TypeExpr::Infer)
-                            };
-                            params.push(Param { name: pname, type_expr, is_ref: false });
-                            if self.tok() == &Token::Comma { self.advance(); }
-                            else { break; }
-                        }
-                    }
-                }
+                let params = self.lambda_params()?;
                 self.eat(Token::RParen)?;
                 let ret_type = if self.tok() == &Token::Arrow { self.advance(); Some(self.type_()?) } else { None };
                 let body = fn_literal_body(self.block_stmts()?, span);
@@ -1668,4 +1656,40 @@ fn fn_literal_body(mut stmts: Vec<StmtNode>, span: Span) -> ExprNode {
         }
     }
     ExprNode::new(fresh_id(), span, Expr::Block(stmts))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn closure_params(source: &str) -> Vec<(String, TypeExpr)> {
+        match Parser::parse_expr(source).expect("parses").value {
+            Expr::Closure(params, _) => params.into_iter().map(|p| (p.name, p.type_expr.value)).collect(),
+            other => panic!("not a closure: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn a_closure_parameter_can_have_a_type() {
+        assert_eq!(closure_params("(n: int) => n + 1"), vec![("n".into(), TypeExpr::Int(0))]);
+    }
+
+    #[test]
+    fn typed_and_untyped_closure_parameters_mix() {
+        assert_eq!(closure_params("(a: str, b) => a"), vec![("a".into(), TypeExpr::Str), ("b".into(), TypeExpr::Infer)]);
+    }
+
+    #[test]
+    fn untyped_closure_forms_still_parse() {
+        assert!(closure_params("() => 1").is_empty());
+        assert_eq!(closure_params("(x) => x").len(), 1);
+        assert_eq!(closure_params("(x, y) => { return x; }").len(), 2);
+    }
+
+    #[test]
+    fn parentheses_without_an_arrow_stay_expressions() {
+        assert!(matches!(Parser::parse_expr("(1 + 2)").unwrap().value, Expr::BinOp(..)));
+        assert!(matches!(Parser::parse_expr("(1, 2)").unwrap().value, Expr::TupleLit(_)));
+        assert!(matches!(Parser::parse_expr("(1:2:3)").unwrap().value, Expr::VectorLit(_)));
+    }
 }

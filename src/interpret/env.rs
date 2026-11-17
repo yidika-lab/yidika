@@ -97,6 +97,7 @@ pub struct Interpreter {
     pub task_rxs: HashMap<u64, std::sync::mpsc::Receiver<Value>>,
     pub value_pool: crate::memory::arena::ValuePool,
     pub source_dir: std::path::PathBuf,
+    pub input: Box<dyn yk_runtime::input::LineSource>,
 }
 
 impl Interpreter {
@@ -124,6 +125,7 @@ impl Interpreter {
             value_pool: crate::memory::arena::ValuePool::new(),
             fn_bases: Vec::new(),
             source_dir: std::path::PathBuf::from("."),
+            input: Box::new(yk_runtime::input::Stdin),
         }
     }
 
@@ -151,6 +153,7 @@ impl Interpreter {
             value_pool: crate::memory::arena::ValuePool::new(),
             fn_bases: Vec::new(),
             source_dir: other.source_dir.clone(),
+            input: Box::new(yk_runtime::input::Stdin),
         }
     }
 
@@ -359,6 +362,7 @@ impl Interpreter {
         let ffi_libs = self.ffi_libs.clone();
         let source_dir = self.source_dir.clone();
         let json_files = self.json_files.clone();
+        let input = std::mem::replace(&mut self.input, Box::new(yk_runtime::input::Stdin));
         let result = builder.spawn(move || {
             let mut interp = Interpreter {
                 frames: vec![Frame::new()],
@@ -381,8 +385,9 @@ impl Interpreter {
                 next_task_id: 0,
                 task_rxs: HashMap::new(),
                 value_pool: crate::memory::arena::ValuePool::new(),
-            fn_bases: Vec::new(),
+                fn_bases: Vec::new(),
                 source_dir,
+                input,
             };
             let fndef = interp.functions.get("main").cloned();
             match fndef {

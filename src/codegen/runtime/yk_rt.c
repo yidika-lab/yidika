@@ -434,6 +434,11 @@ static void yk_string_set_bytes(yk_string* out, const char* bytes, int64_t len) 
     out->cap = len + 1;
 }
 
+void yk_write_prompt(yk_string* prompt) {
+    if (prompt && prompt->data && prompt->len > 0) fwrite(prompt->data, 1, (size_t)prompt->len, stdout);
+    fflush(stdout);
+}
+
 void yk_string_from_int_into(yk_string* out, int64_t v) {
     char buf[YK_I64_TEXT_MAX];
     yk_string_set_bytes(out, buf, yk_format_i64(buf, v));

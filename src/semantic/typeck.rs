@@ -129,7 +129,7 @@ impl<'a> TypeChecker<'a> {
 
     pub fn check_module(&mut self, module: &Module) -> Result<()> {
         // Register universally available builtins
-        for name in &["print", "len", "str", "input", "fetch", "typeof", "int", "real", "bool"] {
+        for name in crate::semantic::builtins::GLOBAL_BUILTINS {
             self.builtin_modules.insert(name.to_string());
         }
         // Register builtin module imports
@@ -648,9 +648,10 @@ impl<'a> TypeChecker<'a> {
                 }
                 match &callee.value {
                     Expr::Ident(name) => {
-                        if self.builtin_modules.contains(name.as_str()) {
+                        if let Some(ret) = crate::semantic::builtins::return_type(name) {
+                            Ok(ret)
+                        } else if self.builtin_modules.contains(name.as_str()) {
                             match name.as_str() {
-                                "print" | "input" | "typeof" => Ok(TypeExpr::None_),
                                 "cos" | "sin" | "sqrt" | "abs" | "floor" | "ceil" | "round" | "max" | "min" | "pow" | "rand" => Ok(TypeExpr::Real(0)),
                                 "now" | "utc" => Ok(TypeExpr::Str),
                                 "timestamp" => Ok(TypeExpr::Int(0)),
@@ -660,15 +661,10 @@ impl<'a> TypeChecker<'a> {
                                 "year" | "month" | "day" | "hour" | "minute" | "second" => Ok(TypeExpr::Int(0)),
                                 "join" | "dirname" | "basename" | "extension" => Ok(TypeExpr::Str),
                                 "is_absolute" => Ok(TypeExpr::Bool),
-                                "encode" | "decode" | "stringify" | "fetch" => Ok(TypeExpr::Str),
+                                "encode" | "decode" | "stringify" => Ok(TypeExpr::Str),
                                 "find" | "split" => Ok(TypeExpr::List(Box::new(TypeExpr::Str))),
                                 "replace" => Ok(TypeExpr::Str),
                                 "match" => Ok(TypeExpr::Bool),
-                                "str" => Ok(TypeExpr::Str),
-                                "int" => Ok(TypeExpr::Int(0)),
-                                "real" => Ok(TypeExpr::Real(0)),
-                                "bool" => Ok(TypeExpr::Bool),
-                                "len" => Ok(TypeExpr::Int(0)),
                                 _ => {
                                     for (a, t) in args.iter().zip(arg_types.iter()) {
                                         self.mark_moved(a, t);

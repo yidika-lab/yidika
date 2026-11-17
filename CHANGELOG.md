@@ -19,6 +19,11 @@
 
 ### Fixed
 
+- Lambda parameters can have a type: `(n: int) => n + 1`, `(who: str, times: int) => ...`. The `:` made the parser read `(n: int)` as a vector literal. All lambda forms now go through one parser function.
+- `input()` works in native programs; it was an undefined symbol. Both backends read the line with the same function in `yk_runtime`, which caps a line at 1 MiB and replaces invalid UTF-8.
+- `name = input(); "hi " + name` type-checks: `input` was typed as returning nothing.
+- `typeof`, `int`, `real` and `bool` called as functions are rejected by the type checker. No backend implemented them, so they failed only when the program ran. Global builtins and their return types now live in one table, `semantic::builtins`, read by the type checker and the native code generator.
+
 - A top-level list that a function also uses (`kept = []` then `kept.push(x)` inside `fn add`) builds natively. Its global was declared `i64` because list and set literals had no native type, so `kept.push` was compiled as a call to a function value (#125).
 - A closure whose body is a `print(...)` call, such as `f = () => print(a)`, builds natively. It was typed as returning `i64` and emitted `ret void 0` (#126).
 

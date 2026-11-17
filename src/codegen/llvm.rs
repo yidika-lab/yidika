@@ -199,7 +199,8 @@ impl LlvmCodegen {
     fn build_string_into(&mut self, func: &str, args: &str) -> String {
         let slot = self.fresh_label();
         self.e(&format!("%{} = alloca %yk_string, align 8", slot));
-        self.e(&format!("call void @{}(ptr %{}, {})", func, slot, args));
+        let rest = if args.is_empty() { String::new() } else { format!(", {}", args) };
+        self.e(&format!("call void @{}(ptr %{}{})", func, slot, rest));
         let loaded = self.fresh_label();
         self.e(&format!("%{} = load %yk_string, ptr %{}", loaded, slot));
         let value = self.ssa(&loaded);
@@ -258,6 +259,7 @@ impl LlvmCodegen {
             Expr::BinOp(_, BinOp::Add, _) => self.expr_type_str(e) == "%yk_string",
             Expr::Call(callee, args) => match &callee.value {
                 Expr::Ident(f) if f == "str" => args.len() == 1,
+                Expr::Ident(f) if f == "input" => true,
                 Expr::Ident(f) => self.user_fns.contains(f.as_str()) && self.fn_ret_types.get(&self.mangle_name(f)).is_some_and(|t| t == "%yk_string"),
                 _ => false,
             },
@@ -729,11 +731,14 @@ impl LlvmCodegen {
     fn fn_sig_of(&mut self, te: &TypeExpr) -> Option<FnSig> {
         let TypeExpr::Fn(params, ret) = te else { return None };
         let param_tys = params.iter().map(|p| self.type_to_llvm(p)).collect();
-        let ret_ty = match ret.as_ref() {
-            TypeExpr::None_ => "void".to_string(),
+        Some((param_tys, self.ret_type_to_llvm(ret)))
+    }
+
+    fn ret_type_to_llvm(&mut self, te: &TypeExpr) -> String {
+        match te {
+            TypeExpr::None_ => "void".into(),
             other => self.type_to_llvm(other),
-        };
-        Some((param_tys, ret_ty))
+        }
     }
 
     fn record_value_sig(&mut self, name: &str, value: &ExprNode) {
@@ -765,10 +770,7 @@ impl LlvmCodegen {
     fn lambda_signature(&mut self, params: &[Param], ret_type: Option<&TypeNode>, body: &ExprNode) -> FnSig {
         let param_tys: Vec<String> = params.iter().map(|p| self.type_to_llvm(&p.type_expr.value)).collect();
         if let Some(rt) = ret_type {
-            return match &rt.value {
-                TypeExpr::None_ => (param_tys, "void".into()),
-                other => (param_tys, self.type_to_llvm(other)),
-            };
+            return (param_tys, self.ret_type_to_llvm(&rt.value));
         }
         let saved = self.var_types.clone();
         for (p, ty) in params.iter().zip(&param_tys) {
@@ -1215,15 +1217,14 @@ impl LlvmCodegen {
         }
     }
 
-    fn call_type_str(&self, callee: &ExprNode) -> String {
+    fn call_type_str(&mut self, callee: &ExprNode) -> String {
         let Expr::Ident(name) = &callee.value else { return "i64".into() };
         if let Some(ret) = self.fn_ret_types.get(&self.mangle_name(name)) {
             return ret.clone();
         }
-        match name.as_str() {
-            "str" => "%yk_string".into(),
-            "print" => "void".into(),
-            _ => "i64".into(),
+        match crate::semantic::builtins::return_type(name) {
+            Some(ret) => self.ret_type_to_llvm(&ret),
+            None => "i64".into(),
         }
     }
 
@@ -1591,6 +1592,8 @@ impl LlvmCodegen {
         self.e_raw("declare ptr @yk_string_clone(ptr)");
         self.e_raw("declare void @yk_string_concat_into(ptr, ptr, ptr)");
         self.e_raw("declare void @yk_string_from_int_into(ptr, i64)");
+        self.e_raw("declare void @yk_write_prompt(ptr)");
+        self.e_raw("declare void @yk_read_line_into(ptr)");
         self.e_raw("declare void @yk_string_drop(ptr)");
         self.e_raw("declare void @yk_string_free_header(ptr)");
         self.e_raw("declare i64 @yk_string_len_ptr(ptr)");
@@ -3663,6 +3666,15 @@ impl LlvmCodegen {
     fn compile_call_with(&mut self, callee: &ExprNode, args: &[ExprNode], arg_results: Vec<(String, String)>) -> (String, String) {
         match &callee.value {
             Expr::Ident(name) => match name.as_str() {
+                "input" => {
+                    let prompt = match arg_results.first() {
+                        Some((pv, pt)) if pt == "%yk_string" => self.string_to_ptr(pv),
+                        _ => "null".into(),
+                    };
+                    self.e(&format!("call void @yk_write_prompt(ptr {})", prompt));
+                    let line = self.build_string_into("yk_read_line_into", "");
+                    (line, "%yk_string".into())
+                }
                 "print" => {
                     if arg_results.is_empty() {
                         ("0".into(), "void".into())
