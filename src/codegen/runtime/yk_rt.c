@@ -22,6 +22,7 @@
 #include <ws2tcpip.h>
 #include <direct.h>
 #include <process.h>
+#include <io.h>
 typedef SOCKET yk_socket_t;
 #define YK_INVALID_SOCKET INVALID_SOCKET
 #define yk_closesocket(fd) closesocket(fd)
@@ -94,6 +95,7 @@ static int yk_thread_spawn(yk_thread_t* out, yk_thread_ret (YK_THREAD_CALL *fn)(
     return *out != NULL;
 }
 static void yk_thread_join(yk_thread_t t) { WaitForSingleObject(t, INFINITE); CloseHandle(t); }
+static void yk_thread_detach(yk_thread_t t) { CloseHandle(t); }
 static void yk_sleep_ms(unsigned int ms) { Sleep(ms); }
 static int64_t yk_process_id(void) { return (int64_t)GetCurrentProcessId(); }
 #define yk_getcwd _getcwd
@@ -118,6 +120,7 @@ static int yk_thread_spawn(yk_thread_t* out, yk_thread_ret (*fn)(void*), void* a
     return pthread_create(out, NULL, fn, arg) == 0;
 }
 static void yk_thread_join(yk_thread_t t) { pthread_join(t, NULL); }
+static void yk_thread_detach(yk_thread_t t) { pthread_detach(t); }
 static void yk_sleep_ms(unsigned int ms) {
     struct timespec ts;
     ts.tv_sec = ms / 1000;
@@ -547,12 +550,45 @@ static void yk_report_peak_memory(void) {
     fprintf(stderr, "yk-peak-memory-kb %lld\n", (long long)yk_peak_memory_kb());
 }
 
-void yk_runtime_init(void) {
+static int yk_stdout_is_terminal(void) {
 #ifdef _WIN32
-    setvbuf(stdout, NULL, _IONBF, 0);
+    return _isatty(_fileno(stdout));
 #else
-    setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+    return isatty(fileno(stdout));
 #endif
+}
+
+#define YK_STDOUT_FLUSH_MS 50
+
+static yk_thread_ret YK_THREAD_CALL yk_stdout_flusher(void* arg) {
+    (void)arg;
+    for (;;) {
+        yk_sleep_ms(YK_STDOUT_FLUSH_MS);
+        fflush(stdout);
+    }
+    return 0;
+}
+
+static void yk_buffer_piped_stdout(void) {
+    setvbuf(stdout, NULL, _IOFBF, 1 << 16);
+    yk_thread_t flusher;
+    if (yk_thread_spawn(&flusher, yk_stdout_flusher, NULL)) {
+        yk_thread_detach(flusher);
+    } else {
+        setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+    }
+}
+
+void yk_runtime_init(void) {
+    if (!yk_stdout_is_terminal()) {
+        yk_buffer_piped_stdout();
+    } else {
+#ifdef _WIN32
+        setvbuf(stdout, NULL, _IONBF, 0);
+#else
+        setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
+#endif
+    }
     const char* report = getenv("YK_PEAK_MEMORY");
     if (report && report[0] == '1') atexit(yk_report_peak_memory);
 }
@@ -680,6 +716,7 @@ void yk_list_push_kind(yk_list* l, int64_t val, int64_t kind) {
 
 int64_t yk_list_get(yk_list* l, int64_t idx) {
     if (idx < 0 || idx >= l->len) {
+        fflush(stdout);
         fflush(stdout);
         fprintf(stderr, "error: Index %lld out of bounds for list of length %lld\n", (long long)idx, (long long)l->len);
         exit(1);
@@ -2163,6 +2200,7 @@ static void* yk_hw_worker(void* arg) {
         char* body_ptr = (char*)item.resp.body;
         int64_t body_len = item.resp.body_len;
         yk_log_exchange(s, item._method, item.req.ml, item._path, item.req.pl, status, body_ptr, body_len);
+        fflush(stdout);
         int keep_alive = (c->keep_alive && s->running);
 
         // Build response header into c->resp_buf
@@ -2541,6 +2579,7 @@ static int yk_process_request(yk_conn* c, yk_server* s) {
         yk_log("no route: %s %s (404)", c->method, c->path);
     }
     yk_log_exchange(s, c->method, c->method_len, c->path, path_len, status, body_ptr, body_len);
+    fflush(stdout);
 
     // Build response: header goes into resp_buf, body is a separate pointer (global constant)
     const char* conn_hdr = keep_alive ? "keep-alive" : "close";
