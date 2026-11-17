@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- `yidi` shows its progress the way uv does: a bar with the current step for `yidi build`, a line while `yidi run` compiles a program that is not cached yet, a byte count for downloads in `yidi add`, `yidi sync`, `yidi update` and `yidi upgrade`, then one colored line such as `Built fib.yk in 1.21s`. Colors and bars only appear in a terminal; piped output is plain text.
+
+### Changed
+
+- Status messages (`Added`, `Installed`, `Removed`, `Created`, `Published`, `Upgraded`) go to stderr, so stdout carries only a program's output, `--version` and `info`. Errors start with `error:`.
+- `yidi upgrade` messages start with their verb: `Checked yidi 0.4.0: already the latest version`, `Found yidi 0.5.0`, `Upgraded yidi from 0.4.0 to 0.5.0`.
+
 ## [0.4.0] - 2026-11-17
 
 ### Removed

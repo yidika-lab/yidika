@@ -46,6 +46,14 @@ Details on [Packages and the registry](packages.md).
 | `yidi upgrade` | Install the latest release after checking its SHA-256 |
 | `yidi upgrade --check` | Only say whether a newer release exists |
 
+## Output
+
+While `yidi` works it shows its progress on stderr: a bar with the current step for `yidi build`, a line while `yidi run` compiles a program that is not in the cache yet, the bytes received for downloads (`yidi add`, `yidi sync`, `yidi update`, `yidi upgrade`). When the work is done the bar is cleared and one line remains, such as `Built fib.yk in 1.21s`.
+
+stdout carries only what you asked for: the output of your program, `yidi --version`, `yidi info`. So `yidi run app.yk > out.txt` writes only the program's output to the file.
+
+Colors and progress bars appear only in a terminal. Piped or redirected output is plain text. `NO_COLOR=1` turns colors off in a terminal too.
+
 ## Environment
 
 | Variable | Effect |

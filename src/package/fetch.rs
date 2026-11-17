@@ -8,6 +8,7 @@ const MAX_UNPACKED_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
 
 pub fn fetch(url: &str, commit: &str, dest: &Path) -> Result<(), String> {
+    crate::ui::note(&format!("Fetching {}", url.trim_start_matches("https://")));
     match github_repo(url) {
         Some((owner, repo)) => fetch_archive(&format!("https://codeload.github.com/{}/{}/tar.gz/{}", owner, repo, commit), dest)
             .or_else(|_| fetch_git(url, commit, dest)),
@@ -24,8 +25,7 @@ fn github_repo(url: &str) -> Option<(String, String)> {
 }
 
 fn fetch_archive(url: &str, dest: &Path) -> Result<(), String> {
-    let mut response = ureq::get(url).header("User-Agent", "yidi").call().map_err(|e| format!("download of {} failed: {}", url, e))?;
-    let bytes = response.body_mut().with_config().limit(MAX_ARCHIVE_BYTES).read_to_vec().map_err(|e| format!("download of {} failed: {}", url, e))?;
+    let bytes = crate::download::get(url, "yidi", MAX_ARCHIVE_BYTES, url.trim_start_matches("https://codeload.github.com/"))?;
     let _ = fs::remove_dir_all(dest);
     unpack(&bytes, dest).inspect_err(|_| {
         let _ = fs::remove_dir_all(dest);

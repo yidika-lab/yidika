@@ -33,6 +33,12 @@ pub enum Command {
     Upgrade(bool),
 }
 
+impl Command {
+    pub fn reports_status(&self) -> bool {
+        !matches!(self, Command::Run(..) | Command::Info | Command::Version)
+    }
+}
+
 pub fn parse_args() -> Command {
     let args: Vec<String> = std::env::args().collect();
     parse_from(&args)
@@ -123,6 +129,10 @@ pub fn execute(cmd: Command) -> Result<String, String> {
         Command::Version => Ok(version_string()),
         Command::Upgrade(check_only) => upgrade::upgrade(check_only),
     }
+}
+
+pub(super) fn display_name(path: &Path) -> String {
+    path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.display().to_string())
 }
 
 fn version_string() -> String {
@@ -245,7 +255,10 @@ fn interpreter_command(path: &Path) -> Result<std::process::Command, String> {
 }
 
 pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBackend, show_info: bool) -> Result<String, String> {
+    let task = crate::ui::Task::start("Building", &display_name(path), 3);
+    task.step("Parsing");
     let files = load(path)?;
+    task.step("Checking types");
     typecheck_all(&files)?;
 
     if show_info {
@@ -258,8 +271,10 @@ pub(crate) fn build_program(path: &PathBuf, watch: bool, backend: &dyn CodegenBa
 
     let modules: Vec<&Module> = files.iter().map(|f| &f.module).collect();
     let file_paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
+    task.step("Compiling with LLVM");
     backend.compile_with_paths(&modules, &file_paths, &output_path, &hw)
         .map_err(|e| e.to_string())?;
+    task.finish("Built");
 
     if watch {
         return watch::rebuild(path, backend, show_info);

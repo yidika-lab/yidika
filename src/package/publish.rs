@@ -14,16 +14,20 @@ pub struct Prepared {
 
 pub fn publish(dry_run: bool) -> Result<String, String> {
     let root = std::env::current_dir().map_err(|e| format!("cannot read the current directory: {}", e))?;
+    let task = crate::ui::Task::start("Preparing", "the release", 1);
     let prepared = prepare(&root, &Index::default_index())?;
+    drop(task);
     let what = format!("{} {} ({})", prepared.name, prepared.version, &prepared.commit[..12]);
     if dry_run {
-        return Ok(format!("Ready to publish {}. Registry entry:\n\n{}", what, index::render(&prepared.entry)));
+        return Ok(format!("Checked {}: ready to publish. Registry entry:\n\n{}", what, index::render(&prepared.entry)));
     }
+    let task = crate::ui::Task::start("Publishing", &prepared.name, 1);
     push_tag(&root, &prepared)?;
     let submitted = match submit_with_gh(&prepared) {
         Ok(url) => format!("registry pull request: {}", url),
         Err(why) => format!("could not open the registry pull request automatically ({}).\nOpen it in the browser:\n  {}", why, manual_link(&prepared)),
     };
+    drop(task);
     Ok(format!("Published {}: tag v{} pushed; {}", what, prepared.version, submitted))
 }
 
