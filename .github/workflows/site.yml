@@ -25,6 +25,8 @@ jobs:
           python-version: "3.12"
       - run: pip install markdown-it-py==3.0.0
       - run: python site/build.py site/dist
+      - name: Every page has its stylesheet
+        run: test -s site/dist/style.css
       - name: No AI-tell characters
         run: "! grep -rnP '[\\x{2013}\\x{2014}\\x{2018}\\x{2019}\\x{201C}\\x{201D}\\x{2026}\\x{2192}\\x{00A0}\\x{200B}]' site/dist --include=*.html"
       - uses: actions/upload-pages-artifact@v3
