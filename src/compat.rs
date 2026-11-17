@@ -430,6 +430,15 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn compat_integers_format_the_same_at_the_edges() {
+        check_compat_prints(
+            "fn main() { print(0); print(7); print(-7); print(10); print(99); print(100); print(-100); print(123456789); print(9223372036854775807); print(-9223372036854775807 - 1); print(str(-42) + \"|\" + str(1000000)); }",
+            "int_format_edges",
+            "0\n7\n-7\n10\n99\n100\n-100\n123456789\n9223372036854775807\n-9223372036854775808\n-42|1000000",
+        );
+    }
+
+    #[test]
     fn compat_regex_replace() {
         check_compat(
             r#"use { regex } from "regex";
