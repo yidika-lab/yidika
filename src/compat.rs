@@ -594,6 +594,24 @@ pub(crate) mod tests {
     // ── List methods ────────────────────────────────────
 
     #[test]
+    fn compat_a_top_level_list_shared_with_a_function() {
+        check_compat_prints(
+            "kept = [];\nfn add(x: str) { kept.push(x); }\nadd(\"a\");\nkept.push(\"b\");\nprint(kept);\nprint(len(kept));\n",
+            "global_list_shared",
+            "[a, b]\n2",
+        );
+    }
+
+    #[test]
+    fn compat_a_closure_whose_body_prints() {
+        check_compat_prints(
+            "fn main() {\n    a = \"x\";\n    f = () => print(a);\n    f();\n    g = (n) => print(n + 1);\n    g(41);\n}\n",
+            "closure_body_prints",
+            "x\n42",
+        );
+    }
+
+    #[test]
     fn compat_list_push_pop() {
         check_compat(
             "fn main() { items: auto = []; items.push(1); items.push(2); items.push(3); print(items.pop()); print(items.pop()); }",

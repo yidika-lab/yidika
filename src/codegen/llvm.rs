@@ -831,7 +831,8 @@ impl LlvmCodegen {
     fn compile_deferred_fn(&mut self, d: DeferredFn) {
         let (param_types, ret) = d.sig.clone();
         self.current_fn_ret = ret.clone();
-        let body_stmts = vec![StmtNode::new(0, Span::new(0, 0), Stmt::Return(Some(d.body)))];
+        let body_stmt = if ret == "void" { Stmt::Expr(d.body) } else { Stmt::Return(Some(d.body)) };
+        let body_stmts = vec![StmtNode::new(0, Span::new(0, 0), body_stmt)];
         self.captured_here = crate::syntax::scope::names_captured_in(&body_stmts).into_iter().collect();
         let mut signature = vec!["ptr %env".to_string()];
         signature.extend(param_types.iter().enumerate().map(|(i, t)| format!("{} %p{}", t, i)));
@@ -1127,6 +1128,7 @@ impl LlvmCodegen {
             Expr::LitBool(_) => "i1".into(),
             Expr::LitStr(_) => "%yk_string".into(),
             Expr::LitSymbol(_) => "%yk_string".into(),
+            Expr::ListLit(_) | Expr::SetLit(_) => "ptr".into(),
             Expr::Ident(name) => self.var_types.get(name).cloned().unwrap_or("i64".into()),
             Expr::BinOp(l, _op, r) => {
                 let lt = self.expr_type_str(l);
@@ -1220,6 +1222,7 @@ impl LlvmCodegen {
         }
         match name.as_str() {
             "str" => "%yk_string".into(),
+            "print" => "void".into(),
             _ => "i64".into(),
         }
     }

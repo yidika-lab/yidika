@@ -19,6 +19,9 @@
 
 ### Fixed
 
+- A top-level list that a function also uses (`kept = []` then `kept.push(x)` inside `fn add`) builds natively. Its global was declared `i64` because list and set literals had no native type, so `kept.push` was compiled as a call to a function value (#125).
+- A closure whose body is a `print(...)` call, such as `f = () => print(a)`, builds natively. It was typed as returning `i64` and emitted `ret void 0` (#126).
+
 - Programs that run with `yidi file.yk` now also build with `yidi build`, in cases that used to fail with an LLVM error or that built but behaved differently:
   - a std module imported under another name (`use {p} from "path"`) is recognised natively;
   - a function with no written return type returns the type of its `return` value instead of `void`;
