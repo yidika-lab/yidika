@@ -9,7 +9,6 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
-#include <regex>
 
 // ── Platform Abstraction ────────────────────────────────────────
 #ifdef _WIN32
@@ -1134,28 +1133,6 @@ yk_string* yk_datetime_format(int64_t ts, yk_string* fmt) {
     char* buf = (char*)malloc(sz);
     strftime(buf, sz, fmt->data, &lt);
     return yk_string_from_cstr(buf);
-}
-
-extern "C" int64_t yk_re_match(yk_string* pattern, yk_string* text) {
-    try {
-        std::regex re(std::string(pattern->data, pattern->len));
-        std::string t(text->data, text->len);
-        return std::regex_search(t, re) ? 1 : 0;
-    } catch (...) { return 0; }
-}
-
-extern "C" yk_string* yk_re_replace(yk_string* pattern, yk_string* text, yk_string* replacement) {
-    try {
-        std::regex re(std::string(pattern->data, pattern->len));
-        std::string t(text->data, text->len);
-        std::string r(replacement->data, replacement->len);
-        std::string result = std::regex_replace(t, re, r);
-        yk_string* s = yk_string_header();
-        s->len = (int64_t)result.size();
-        s->data = (char*)malloc(s->len + 1);
-        memcpy(s->data, result.c_str(), s->len + 1);
-        return s;
-    } catch (...) { return yk_string_from_cstr(""); }
 }
 
 extern "C" yk_string* yk_fetch(yk_string* url, yk_string* method, yk_string* body) {

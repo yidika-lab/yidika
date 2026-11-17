@@ -1,24 +1,14 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::Arc;
 use chrono::Datelike;
 use chrono::Timelike;
-use regex::Regex;
 use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 use super::Value;
 
-static REGEX_CACHE: LazyLock<Mutex<HashMap<String, Regex>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-fn get_or_compile_regex(pattern: &str) -> Result<Regex> {
-    let mut cache = REGEX_CACHE.lock().unwrap();
-    if let Some(re) = cache.get(pattern) {
-        return Ok(re.clone());
-    }
-    let re = Regex::new(pattern)
-        .map_err(|e| error::err(ErrorKind::Runtime, Span::new(0, 0), format!("regex.match: {}", e)))?;
-    cache.insert(pattern.to_string(), re.clone());
-    Ok(re)
+fn regex_result<T>(field: &str, span: Span, result: std::result::Result<T, yk_runtime::regex::Error>) -> Result<T> {
+    result.map_err(|e| error::err(ErrorKind::Runtime, span, format!("regex.{}: {}", field, e)))
 }
 
 pub fn call_math(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
@@ -238,17 +228,15 @@ pub fn call_regex(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
             let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.match() requires 2 arguments"))?;
             let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.match() pattern must be a string")) };
             let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.match() text must be a string")) };
-            let re = get_or_compile_regex(&pattern)?;
-            Ok(Value::Bool(re.is_match(&text)))
+            Ok(Value::Bool(regex_result(field, span, yk_runtime::regex::is_match(&pattern, &text))?))
         }
         "find" => {
             let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.find() requires 2 arguments"))?;
             let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.find() requires 2 arguments"))?;
             let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.find() pattern must be a string")) };
             let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.find() text must be a string")) };
-            let re = get_or_compile_regex(&pattern)?;
-            let matches: Vec<Value> = re.find_iter(&text).map(|m| Value::Str(m.as_str().to_string())).collect();
-            Ok(Value::List(matches))
+            let matches = regex_result(field, span, yk_runtime::regex::find_all(&pattern, &text))?;
+            Ok(Value::List(matches.into_iter().map(Value::Str).collect()))
         }
         "replace" => {
             let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.replace() requires 3 arguments"))?;
@@ -257,17 +245,15 @@ pub fn call_regex(field: &str, args: Vec<Value>, span: Span) -> Result<Value> {
             let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() pattern must be a string")) };
             let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() text must be a string")) };
             let replacement = match replacement { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.replace() replacement must be a string")) };
-            let re = get_or_compile_regex(&pattern)?;
-            Ok(Value::Str(re.replace_all(&text, replacement).to_string()))
+            Ok(Value::Str(regex_result(field, span, yk_runtime::regex::replace_all(&pattern, &text, &replacement))?))
         }
         "split" => {
             let pattern = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.split() requires 2 arguments"))?;
             let text = it.next().ok_or_else(|| error::err(ErrorKind::Runtime, span, "regex.split() requires 2 arguments"))?;
             let pattern = match pattern { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.split() pattern must be a string")) };
             let text = match text { Value::Str(s) => s, _ => return Err(error::err(ErrorKind::Runtime, span, "regex.split() text must be a string")) };
-            let re = get_or_compile_regex(&pattern)?;
-            let parts: Vec<Value> = re.split(&text).map(|p| Value::Str(p.to_string())).collect();
-            Ok(Value::List(parts))
+            let parts = regex_result(field, span, yk_runtime::regex::split(&pattern, &text))?;
+            Ok(Value::List(parts.into_iter().map(Value::Str).collect()))
         }
         _ => Err(error::err(ErrorKind::Runtime, span, format!("Unknown regex function '{}'", field))),
     }
