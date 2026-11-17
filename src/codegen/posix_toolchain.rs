@@ -15,6 +15,7 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     let runtime_obj = cached_runtime_object(&compiler, runtime_c)?;
     let mut cmd = Command::new(&compiler);
     cmd.args(["-O3", "-Wno-override-module"])
+        .args(crate::codegen::target::CODE_LAYOUT_FLAGS)
         .arg(native_cpu_flag())
         .args(fast_linker_flag(&search_path()))
         .arg(dead_code_flag())

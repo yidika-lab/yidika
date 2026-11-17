@@ -1916,4 +1916,26 @@ fn main() {
         assert!(writes < 200, "20000 lines took {} write calls:\n{}", writes, summary);
     }
 
+
+    #[test]
+    #[cfg(unix)]
+    fn native_functions_start_on_a_cache_line() {
+        let Ok(probe) = Command::new("nm").arg("--version").output() else {
+            eprintln!("SKIP: nm is not installed");
+            return;
+        };
+        if !probe.status.success() {
+            eprintln!("SKIP: nm is not usable");
+            return;
+        }
+        let exe = build_aot("fn fib(n: int) -> int { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); } fn main() { print(fib(20)); }", "cache_line_align").expect("AOT build failed");
+        let symbols = Command::new("nm").arg(&exe).output().unwrap();
+        let _ = std::fs::remove_dir_all(exe.parent().unwrap());
+        let listing = String::from_utf8_lossy(&symbols.stdout);
+        let address = listing.lines().find(|l| l.ends_with("fib") && l.contains(" T "))
+            .and_then(|l| u64::from_str_radix(l.split_whitespace().next()?, 16).ok())
+            .expect("fib symbol");
+        assert_eq!(address % 64, 0, "fib starts at {:#x}", address);
+    }
+
 }

@@ -5436,7 +5436,7 @@ fn compile_to_exe_batch(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo, ex
          if errorlevel 1 exit /b 1\r\n\
          \r\n\
          :: Compile LLVM IR to object file (hardware-adaptive)\r\n\
-         \"{clang}\" -c \"{ll}\" -o \"{obj}\" -target {target} -{opt} -march={march}{features}\r\n\
+         \"{clang}\" -c \"{ll}\" -o \"{obj}\" -target {target} -{opt} -march={march}{features} {layout}\r\n\
          if errorlevel 1 exit /b 1\r\n\
          \r\n\
          :: Compile runtime C to object file\r\n\
@@ -5447,7 +5447,7 @@ fn compile_to_exe_batch(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo, ex
          link.exe /nologo \"{obj}\" \"{rto}\"{extra} /OUT:\"{exe}\" /defaultlib:libcmt.lib\r\n\
          exit /b %errorlevel%\r\n",
         vcvars=vcvars, clang=clang, ll=ll_str, obj=obj_str, target=target,
-        opt=opt_level, march=march, features=target_features,
+        opt=opt_level, march=march, features=target_features, layout=crate::codegen::target::CODE_LAYOUT_FLAGS.join(" "),
         rtc=rt_c_str, rto=rt_obj_str, extra=extra_libs_str, exe=exe_str
     );
 
