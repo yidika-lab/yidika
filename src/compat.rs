@@ -1978,6 +1978,20 @@ fn main() {
 
 
     #[test]
+    #[cfg(target_os = "linux")]
+    fn native_program_that_prints_nothing_starts_no_thread() {
+        if Command::new("strace").arg("-V").output().is_err() {
+            eprintln!("SKIP: strace is not installed");
+            return;
+        }
+        let exe = build_aot("fn main() { x = 1 + 2; }", "no_thread").expect("native build");
+        let traced = Command::new("strace").args(["-f", "-e", "trace=clone,clone3"]).arg(&exe).output().unwrap();
+        let _ = std::fs::remove_dir_all(exe.parent().unwrap());
+        let trace = String::from_utf8_lossy(&traced.stderr);
+        assert!(!trace.contains("clone"), "an empty program started a thread:\n{}", trace);
+    }
+
+    #[test]
     fn native_print_to_a_pipe_batches_its_writes() {
         if Command::new("strace").arg("-V").output().is_err() {
             eprintln!("SKIP: strace is not installed");
