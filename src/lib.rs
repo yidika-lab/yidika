@@ -4,6 +4,7 @@ pub mod codegen;
 pub mod compat;
 mod docs_examples;
 pub mod diagnostics;
+pub mod download;
 pub mod guilib;
 pub mod hardware;
 pub mod http_status;
@@ -17,6 +18,7 @@ pub mod runtime;
 pub mod semantic;
 pub mod stdlib;
 pub mod syntax;
+pub mod ui;
 #[cfg(test)]
 mod test_support;
 

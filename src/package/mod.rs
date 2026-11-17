@@ -43,25 +43,28 @@ impl Env {
 }
 
 pub fn add(spec: &str) -> Result<String, String> {
-    timed(|| add_in(&Env::standard(), &current_dir()?, spec))
+    timed("Adding", spec, || add_in(&Env::standard(), &current_dir()?, spec))
 }
 
 pub fn sync() -> Result<String, String> {
-    timed(|| sync_in(&Env::standard(), &current_dir()?))
+    timed("Syncing", "dependencies", || sync_in(&Env::standard(), &current_dir()?))
 }
 
 pub fn update(package: Option<&str>) -> Result<String, String> {
-    timed(|| update_in(&Env::standard(), &current_dir()?, package))
+    timed("Updating", package.unwrap_or("dependencies"), || update_in(&Env::standard(), &current_dir()?, package))
 }
 
 pub fn remove(package: &str) -> Result<String, String> {
-    timed(|| remove_in(&Env::standard(), &current_dir()?, package))
+    timed("Removing", package, || remove_in(&Env::standard(), &current_dir()?, package))
 }
 
-fn timed(run: impl FnOnce() -> Result<String, String>) -> Result<String, String> {
+fn timed(action: &str, subject: &str, run: impl FnOnce() -> Result<String, String>) -> Result<String, String> {
     let start = Instant::now();
+    let task = crate::ui::Task::start(action, subject, 1);
+    task.step("Resolving");
     let message = run()?;
-    Ok(format!("{} in {} ms", message, start.elapsed().as_millis()))
+    drop(task);
+    Ok(format!("{} in {}", message, crate::ui::elapsed(start.elapsed())))
 }
 
 fn current_dir() -> Result<PathBuf, String> {

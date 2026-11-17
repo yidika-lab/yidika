@@ -9,17 +9,19 @@ const NOT_INSTALLED: [&str; 2] = ["LICENSE", "README.md"];
 
 pub fn upgrade(check_only: bool) -> Result<String, String> {
     let current = env!("CARGO_PKG_VERSION");
+    let checking = crate::ui::Task::start("Checking", "for a newer yidi", 1);
     let latest = latest_version()?;
+    drop(checking);
     if !is_newer(&latest, current) {
-        return Ok(format!("yidi {} is already the latest version", current));
+        return Ok(format!("Checked yidi {}: already the latest version", current));
     }
     if check_only {
-        return Ok(format!("yidi {} is available (installed: {}). Run `yidi upgrade` to install it.", latest, current));
+        return Ok(format!("Found yidi {} (installed: {}). Run `yidi upgrade` to install it.", latest, current));
     }
     let target = target_triple(std::env::consts::OS, std::env::consts::ARCH)
         .ok_or_else(|| format!("no prebuilt yidi for {}-{}", std::env::consts::ARCH, std::env::consts::OS))?;
     install_release(&latest, &target)?;
-    Ok(format!("yidi upgraded from {} to {}", current, latest))
+    Ok(format!("Upgraded yidi from {} to {}", current, latest))
 }
 
 fn latest_version() -> Result<String, String> {
@@ -59,11 +61,8 @@ fn asset_name(target: &str) -> String {
 }
 
 fn download(url: &str, limit: u64) -> Result<Vec<u8>, String> {
-    let mut response = ureq::get(url)
-        .header("User-Agent", "yidi-upgrade")
-        .call()
-        .map_err(|e| format!("download of {} failed: {}", url, e))?;
-    response.body_mut().with_config().limit(limit).read_to_vec().map_err(|e| format!("download of {} failed: {}", url, e))
+    let label = url.rsplit('/').next().unwrap_or(url);
+    crate::download::get(url, "yidi-upgrade", limit, label)
 }
 
 fn expected_digest(checksum_file: &str) -> Option<String> {

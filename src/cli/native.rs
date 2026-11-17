@@ -39,12 +39,15 @@ fn cached_executable(root: &Path, sources: &[Source], modules: &[&Module], backe
     let staging = root.join(format!("{}.tmp-{}", key, std::process::id()));
     std::fs::create_dir_all(&staging).ok()?;
     let paths: Vec<String> = sources.iter().map(|s| s.path.to_string_lossy().to_string()).collect();
+    let task = crate::ui::Task::start("Compiling", &sources.first().map(|s| super::display_name(s.path)).unwrap_or_default(), 1);
+    task.step("LLVM");
     let built = backend.compile_with_paths(modules, &paths, &staging.join("main"), &hardware::detect());
     if built.is_err() || !executable_in(&staging).is_file() {
         let _ = std::fs::remove_dir_all(&staging);
         let _ = std::fs::write(&unsupported, b"");
         return None;
     }
+    task.finish("Compiled");
     if std::fs::rename(&staging, root.join(&key)).is_err() {
         let _ = std::fs::remove_dir_all(&staging);
     }
