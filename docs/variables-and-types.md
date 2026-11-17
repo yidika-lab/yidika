@@ -22,12 +22,13 @@ fn main() {
 
 ## Constants
 
-`const<T>` or `as const` makes a variable immutable. Assigning to it again is a type error, reported before the program runs.
+`const` makes a variable immutable, with or without a type. Assigning to it again is a type error, reported before the program runs.
 
 ```yidika
+const limit = 100;
+
 fn main() {
-    limit: const<int> = 100;
-    answer: int = 42 as const;
+    const answer: int = 42;
     print(limit, answer);
 }
 ```

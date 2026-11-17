@@ -12,7 +12,7 @@ pub fn each_child<'a>(expr: &'a ExprNode, f: &mut dyn FnMut(Child<'a>)) {
         | Expr::LitBool(_) | Expr::LitSymbol(_) | Expr::LitNull | Expr::Ident(_) => {}
         Expr::UnOp(_, a) | Expr::Field(a, _) | Expr::Loop(a) | Expr::PostInc(a) | Expr::PostDec(a)
         | Expr::Await(a) | Expr::Spawn(a) | Expr::ResultOk(a) | Expr::ResultErr(a) | Expr::Try(a)
-        | Expr::SafeCall(a, _) | Expr::AsConst(a) | Expr::As(a, _) | Expr::FnLit(_, _, a) | Expr::Closure(_, a) => e(a),
+        | Expr::SafeCall(a, _) | Expr::As(a, _) | Expr::FnLit(_, _, a) | Expr::Closure(_, a) => e(a),
         Expr::BinOp(a, _, b) | Expr::Index(a, b) | Expr::While(a, b) | Expr::Range(a, b)
         | Expr::LitComplex(a, b) | Expr::Elvis(a, b) | Expr::ForIn(_, a, b) => {
             e(a);

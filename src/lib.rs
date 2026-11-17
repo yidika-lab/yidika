@@ -73,24 +73,24 @@ mod tests {
 
     #[test]
     fn const_decl_inferred() {
-        check("fn main() { name: const = \"Alice\"; }").unwrap();
+        check("fn main() { const name = \"Alice\"; }").unwrap();
     }
 
     #[test]
-    fn const_as_const_syntax() {
-        check("fn main() { name: str = \"Alice\" as const; }").unwrap();
+    fn const_decl_typed() {
+        check("fn main() { const name: str = \"Alice\"; }").unwrap();
     }
 
     #[test]
     fn reject_assign_to_const() {
-        let r = check("fn main() { x: const = 6; x = 8; }");
+        let r = check("fn main() { const x = 6; x = 8; }");
         assert!(r.is_err(), "const var reassignment should error");
     }
 
     #[test]
     fn reject_assign_to_const_explicit() {
-        let r = check("fn main() { x: int = 5 as const; x = 10; }");
-        assert!(r.is_err(), "as const var reassignment should error");
+        let r = check("fn main() { const x: int = 5; x = 10; }");
+        assert!(r.is_err(), "typed const var reassignment should error");
     }
 
     #[test]
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn generic_fn_call() {
-        check("fn first<T>(list: List<T>) -> T { return list[0]; } fn main() { x: int = first([1, 2, 3]); }").unwrap();
+        check("fn first<T>(list: T[]) -> T { return list[0]; } fn main() { x: int = first([1, 2, 3]); }").unwrap();
         check("fn pair<T, U>(a: T, b: U) -> str { return a as str + b as str; } fn main() { x: str = pair(42, true); }").unwrap();
     }
 
@@ -349,7 +349,7 @@ mod tests {
             fn main() {
                 x: int = 10;
                 x = 6;
-                name: const = \"Alice\";
+                const name = \"Alice\";
                 counter: int = 0;
                 counter = counter + 1;
                 if (x > 10) { result: int = add(x, 5); } else { result: int = 0; }

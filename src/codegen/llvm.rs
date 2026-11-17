@@ -1788,7 +1788,10 @@ impl LlvmCodegen {
     fn declare_constants(&mut self, module: &Module) {
         for item in &module.items {
             if let ItemKind::Const { name, type_expr, value } = &item.value {
-                let ty = self.type_to_llvm(&type_expr.value);
+                let ty = match &type_expr.value {
+                    TypeExpr::Infer => self.expr_type_str(value),
+                    written => self.type_to_llvm(written),
+                };
                 self.record_fn_value(name, &type_expr.value);
                 self.record_elem_type(name, Some(&type_expr.value), Some(value));
                 self.declare_global_slot(name, ty);
@@ -2650,7 +2653,6 @@ impl LlvmCodegen {
                 self.e(&format!("%{} = load i64, ptr %{}", load_lbl, ret_ptr));
                 (self.ssa(&load_lbl), "i64".into())
             }
-            Expr::AsConst(inner) => self.compile_expr(inner),
             Expr::If(cond, then_e, else_e) => {
                 let then_label = self.fresh_label();
                 let else_label = self.fresh_label();
@@ -4842,7 +4844,6 @@ fn validate_gui_expr(
         | Expr::ResultOk(inner)
         | Expr::ResultErr(inner)
         | Expr::Try(inner)
-        | Expr::AsConst(inner)
         | Expr::As(inner, _)
         | Expr::SafeCall(inner, _) => validate_gui_expr(inner, gui_aliases, gui_funcs, fname, errors),
         Expr::Block(stmts) => {

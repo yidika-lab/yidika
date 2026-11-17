@@ -49,5 +49,28 @@ mod tests {
     fn collection_constructors_tuple_and_map_are_gone() {
         assert!(!check_error("t = tuple{1, 2};").is_empty());
         assert!(!check_error("m = map{\"a\": 1};").is_empty());
+    
+    }
+
+    #[test]
+    fn a_constant_is_written_with_const_only() {
+        assert!(check_error("const limit = 100;\nconst name: str = \"Ada\";\nprint(limit, name);").is_empty());
+        assert!(parse_error("fn main() { x: const<int> = 1; }").contains("const name = value"));
+        assert!(!parse_error("fn main() { x: int = 1 as const; }").is_empty());
+    }
+
+    #[test]
+    fn a_constant_cannot_be_assigned_again() {
+        assert!(!check_error("fn main() { const x = 5; x = 6; }").is_empty());
+    }
+
+    #[test]
+    fn collection_types_are_written_as_in_typescript() {
+        assert!(check_error("names: str[] = [\"a\"];\nids: Set<int> = {1, 2};\nprint(names, ids);").is_empty());
+        assert!(parse_error("xs: list[int] = [1];").contains("T[]"));
+        assert!(parse_error("xs: [int] = [1];").contains("T[]"));
+        assert!(parse_error("xs: List<int> = [1];").contains("T[]"));
+        assert!(parse_error("s: set[int] = {1};").contains("Set<T>"));
+        assert!(parse_error("fn f(m: map[str, int]) { }").contains("Map<K, V>"));
     }
 }

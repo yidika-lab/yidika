@@ -229,19 +229,19 @@ mod tests {
 
     #[test]
     fn const_syntax() {
-        let out = run("fn main() { x: const<int> = 42; print(x); }");
+        let out = run("fn main() { const x: int = 42; print(x); }");
         assert_eq!(out, "42\n");
     }
 
     #[test]
     fn const_as_const() {
-        let out = run("fn main() { x: int = 42 as const; print(x); }");
+        let out = run("fn main() { const x = 42; print(x); }");
         assert_eq!(out, "42\n");
     }
 
     #[test]
     fn reassign_local_const() {
-        let err = run_invalid("fn main() { x: const = 5; x = 10; }");
+        let err = run_invalid("fn main() { const x = 5; x = 10; }");
         assert!(err.contains("Cannot assign to const"), "should error: {}", err);
     }
 
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn reassign_const_local() {
-        let err = run_invalid("fn main() { x: const = 5; x = 10; }");
+        let err = run_invalid("fn main() { const x = 5; x = 10; }");
         assert!(err.contains("Cannot assign to const"), "should error: {}", err);
     }
 

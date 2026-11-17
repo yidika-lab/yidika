@@ -223,7 +223,7 @@ impl BorrowChecker {
                     self.check_stmt(s);
                 }
             }
-            Expr::AsConst(inner) | Expr::As(inner, _)
+            Expr::As(inner, _)
             | Expr::ResultOk(inner) | Expr::ResultErr(inner)
             | Expr::Try(inner) | Expr::PostInc(inner) | Expr::PostDec(inner) => {
                 self.check_expr(inner);

@@ -114,8 +114,8 @@ cargo check --tests             # tests compile; needs no MSVC/LLVM
 
 ## Language surface that trips people up
 
-- `T[]`, `list[T]`, `set[T]`, `map[K,V]` **and** `List<T>`, `Set<T>`, `Map<K,V>` all parse (`syntax/parser.rs`). Both forms are live - don't "normalize" old examples.
-- Mutable by default; `const` / `as const` is the immutable form. Reassigning a `const` is a type error.
+- Collection types are written as in TypeScript: `T[]`, `Set<T>`, `Map<K, V>`. `list[T]`, `[T]`, `List<T>`, `set[T]` and `map[K, V]` are parse errors that name the right form.
+- Mutable by default; `const x = v;` or `const x: T = v;` is the immutable form, in a function or at the top of a file. Reassigning a `const` is a type error.
 - `if (cond)` / `while (cond)` require parentheses.
 - Handler sugar the parser desugars: `app.get("/p") { body }` -> an **argumentless** `Expr::Closure` (`parser.rs:1095`). It is only enabled for `get, post, put, delete, patch, ws, serve` - `app.logger(f) { }` will not parse.
 - Handler values come in three AST shapes - `Expr::LitStr` (static body), `Expr::Ident` (function ref), `Expr::FnLit` / `Expr::Closure`. All must be handled in `compile_call`, `compile_expr` **and** the interpreter dispatch; missing one shows up only as a compat-test mismatch.

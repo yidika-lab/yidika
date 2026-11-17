@@ -7,7 +7,7 @@ Much of Yidika will look familiar: `fn`, `->`, structs, enums, `match`, `Result`
 | Rust | Yidika |
 |---|---|
 | `let mut count = 10;` | `count = 10;` |
-| `let limit = 100;` | `limit: const<int> = 100;` |
+| `let limit = 100;` | `const limit = 100;` |
 | `i64`, `f64`, `bool`, `String` | `int`, `real`, `bool`, `str` |
 | `format!("{name} is {age}")` | `f"{name} is {age}"` |
 | `println!("{} {}", a, b)` | `print(a, b);` |
@@ -18,7 +18,7 @@ Much of Yidika will look familiar: `fn`, `->`, structs, enums, `match`, `Result`
 | `Result<T, E>`, `Ok`, `Err` | `Result<T, E>`, `Ok`, `Error` |
 | `impl Point { fn ... }` | methods inside a `class` |
 | `trait` + `impl Trait for T` | `interface` + `class T implements I` |
-| `Vec<T>`, `HashMap<K, V>` | `T[]` or `list[T]`, `map[K, V]` |
+| `Vec<T>`, `HashMap<K, V>` | `T[]`, `Map<K, V>` |
 | `std::thread::spawn` + `join` | `spawn` + `await` |
 | `cargo new`, `cargo add`, `cargo run` | `yidi init`, `yidi add`, `yidi run` |
 
@@ -179,7 +179,7 @@ fn main() {
 
 ## Things that will surprise you
 
-- Variables are mutable unless declared `const<T>` or `as const`.
+- Variables are mutable unless declared with `const`.
 - A `str` or a list moves on assignment and when passed to your own function, as a `String` or `Vec` would. There is no `&` to borrow it and no `clone()` yet: pass `s + ""` or return the value ([Moves](variables-and-types.md#moves)). Structs, numbers and booleans are copied.
 - `match` arms are separated by `,` and a `match` used as a value ends with `;`.
 - There is no `break` or `continue` yet, and a `match` arm cannot use `1 | 2` or a guard on its binding ([Known limits](limits.md)).
