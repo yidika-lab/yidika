@@ -91,6 +91,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p yk_runtime --locked
       - run: cargo test --workspace --locked --lib --bins -- --skip compat
       - run: cargo run --quiet --bin yidi -- --version
 
@@ -134,6 +135,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build -p yk_ffi_gui --release
+      - run: cargo build -p yk_runtime
       - run: cargo test --lib compat -- --test-threads=1
 
   aot-compat-posix:
@@ -148,6 +150,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: clang++ --version
+      - run: cargo build -p yk_runtime
       - run: cargo test --lib compat -- --test-threads=1
 
   audit:

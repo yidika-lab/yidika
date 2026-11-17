@@ -10,7 +10,7 @@ keywords = ["language", "compiler", "interpreter", "llvm"]
 categories = ["compilers", "development-tools"]
 
 [workspace]
-members = ["gui"]
+members = ["gui", "rt"]
 
 [[bin]]
 name = "yidi"

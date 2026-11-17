@@ -4975,6 +4975,9 @@ pub fn toolchain_available() -> bool {
 }
 
 pub fn compile_to_exe_with_extra_libs(llvm_ir: &str, output_path: &Path, hw: &HardwareInfo, extra_libs: &[String]) -> Result<()> {
+    let mut extra_libs = extra_libs.to_vec();
+    extra_libs.extend(crate::codegen::runtime_lib::link_args());
+    let extra_libs = extra_libs.as_slice();
     #[cfg(windows)]
     return compile_to_exe_batch(llvm_ir, output_path, hw, extra_libs);
     #[cfg(not(windows))]
