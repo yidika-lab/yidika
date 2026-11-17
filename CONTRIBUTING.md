@@ -12,7 +12,7 @@ We welcome contributions! Here's how to get started.
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feat/my-feature`
 3. Make your changes
-4. Ensure tests pass: `cargo test`
+4. Ensure tests pass: `cargo build -p yk_runtime && cargo test`
 5. Run clippy: `cargo clippy`
 6. Submit a Pull Request
 

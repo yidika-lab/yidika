@@ -63,7 +63,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - run: cargo build --release --locked --target ${{ matrix.target }} -p yidi -p yk_ffi_gui
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p yidi -p yk_ffi_gui -p yk_runtime
 
       - name: Package
         shell: bash
@@ -73,11 +73,11 @@ jobs:
           mkdir -p "dist/${name}"
           cp LICENSE README.md "dist/${name}/"
           if [[ "${{ matrix.target }}" == *windows* ]]; then
-            cp "${out}/yidi.exe" "${out}/yk_ffi_gui.dll" "${out}/yk_ffi_gui.dll.lib" "dist/${name}/"
+            cp "${out}/yidi.exe" "${out}/yk_ffi_gui.dll" "${out}/yk_ffi_gui.dll.lib" "${out}/yk_runtime.lib" "dist/${name}/"
             (cd dist && 7z a -tzip "${name}.zip" "${name}" > /dev/null)
             archive="${name}.zip"
           else
-            cp "${out}/yidi" "dist/${name}/"
+            cp "${out}/yidi" "${out}/libyk_runtime.a" "dist/${name}/"
             tar -C dist -czf "dist/${name}.tar.gz" "${name}"
             archive="${name}.tar.gz"
           fi

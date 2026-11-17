@@ -4,6 +4,8 @@
 
 ### Added
 
+- A shared Rust runtime library, `yk_runtime`, linked into every native program and shipped beside `yidi` in each release archive. Features that need the same code in both engines (JSON, the HTTP client for `fetch`) will live there, so they behave the same on Linux, macOS and Windows. A program that does not use it keeps its size.
+
 - `yidi` shows its progress the way uv does: a bar with the current step for `yidi build`, a line while `yidi run` compiles a program that is not cached yet, a byte count for downloads in `yidi add`, `yidi sync`, `yidi update` and `yidi upgrade`, then one colored line such as `Built fib.yk in 1.21s`. Colors and bars only appear in a terminal; piped output is plain text.
 
 ### Changed

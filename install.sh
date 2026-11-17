@@ -168,6 +168,7 @@ main() {
     tar -xzf "${tmp}/${asset}" -C "$tmp"
     mkdir -p "${prefix}/bin"
     install -m 755 "${tmp}/yidi-${target}/yidi" "${prefix}/bin/yidi"
+    install -m 644 "${tmp}/yidi-${target}/libyk_runtime.a" "${prefix}/bin/libyk_runtime.a"
 
     say "installed $("${prefix}/bin/yidi" --version) to ${prefix}/bin/yidi"
     self_test "${prefix}/bin/yidi" "$tmp"
