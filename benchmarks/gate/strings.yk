@@ -1,0 +1,9 @@
+fn make(i: int) -> str { return "item-" + str(i); }
+total = 0;
+i = 0;
+while (i < 3000000) {
+    s = make(i);
+    total = total + len(s);
+    i = i + 1;
+}
+print(total);
