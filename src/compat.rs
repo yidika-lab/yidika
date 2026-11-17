@@ -395,6 +395,20 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn compat_regex_follows_unicode_and_groups() {
+        check_compat_prints(
+            r#"use { regex } from "regex";
+             fn main() {
+                 print(regex.replace("\\w+", "café crème", "X"));
+                 print(regex.replace("(\\w+)@(\\w+)", "ana@site bo@web", "$2/$1"));
+                 print(regex.match("^\\p{Lu}", "Été"));
+             }"#,
+            "regex_unicode",
+            "X X\nsite/ana web/bo\ntrue",
+        );
+    }
+
+    #[test]
     fn compat_regex_replace() {
         check_compat(
             r#"use { regex } from "regex";

@@ -6,6 +6,15 @@
 
 - Top-level variables that no function reads are now ordinary locals of the program instead of globals, so LLVM keeps them in registers and vectorizes the loops that use them. A 500 million iteration `while` loop at the top level drops from 0.83 s to 0.28 s, the same time as the equivalent C (`clang -O3`) and Rust (`rustc -O`) programs.
 
+- Native programs no longer load the C++ standard library and drop the runtime code they do not call. `print("hi")` now builds to a 10 KB binary that starts with 1.6 MB of memory, the same as C, down from 230 KB and 4.1 MB.
+
+- Status messages (`Added`, `Installed`, `Removed`, `Created`, `Published`, `Upgraded`) go to stderr, so stdout carries only a program's output, `--version` and `info`. Errors start with `error:`.
+- `yidi upgrade` messages start with their verb: `Checked yidi 0.4.0: already the latest version`, `Found yidi 0.5.0`, `Upgraded yidi from 0.4.0 to 0.5.0`.
+
+### Fixed
+
+- `regex.match` and `regex.replace` give the same result in native programs as in `yidi run --interp`: both now use the Rust `regex` crate from `yk_runtime`, so `\w` and `\p{Lu}` follow Unicode, and a pattern runs in linear time instead of risking a stack overflow on long inputs.
+
 ### Added
 
 - Native programs free their strings. A string built by `+`, `str()` or a function is released when its variable gets a new value, when the function returns, or as soon as a temporary is no longer needed, the way Rust drops a `String`. A loop that builds 3 million short strings now peaks at 4 MB instead of 379 MB, and runs in 0.42 s instead of 0.79 s. When the compiler cannot prove a string has a single owner (it went into a list, a struct or a closure), it keeps it alive, so the rule never frees memory still in use.
@@ -15,11 +24,6 @@
 - A shared Rust runtime library, `yk_runtime`, linked into every native program and shipped beside `yidi` in each release archive. Features that need the same code in both engines (JSON, the HTTP client for `fetch`) will live there, so they behave the same on Linux, macOS and Windows. A program that does not use it keeps its size.
 
 - `yidi` shows its progress the way uv does: a bar with the current step for `yidi build`, a line while `yidi run` compiles a program that is not cached yet, a byte count for downloads in `yidi add`, `yidi sync`, `yidi update` and `yidi upgrade`, then one colored line such as `Built fib.yk in 1.21s`. Colors and bars only appear in a terminal; piped output is plain text.
-
-### Changed
-
-- Status messages (`Added`, `Installed`, `Removed`, `Created`, `Published`, `Upgraded`) go to stderr, so stdout carries only a program's output, `--version` and `info`. Errors start with `error:`.
-- `yidi upgrade` messages start with their verb: `Checked yidi 0.4.0: already the latest version`, `Found yidi 0.5.0`, `Upgraded yidi from 0.4.0 to 0.5.0`.
 
 ## [0.4.0] - 2026-11-17
 

@@ -6,7 +6,7 @@ use crate::diagnostics::error::{self, ErrorKind, Result};
 use crate::diagnostics::span::Span;
 
 const COMPILERS: &[&str] = &["clang++", "clang++-21", "clang++-20", "clang++-19", "clang++-18", "clang++-17"];
-const RUNTIME_FLAGS: &[&str] = &["-x", "c++", "-std=c++17", "-O2", "-w"];
+const RUNTIME_FLAGS: &[&str] = &["-x", "c++", "-std=c++17", "-O2", "-w", "-fno-exceptions", "-fno-rtti", "-ffunction-sections", "-fdata-sections"];
 
 pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_libs: &[String]) -> Result<()> {
     let compiler = find_compiler()?;
@@ -17,6 +17,8 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     cmd.args(["-O3", "-Wno-override-module"])
         .arg(native_cpu_flag())
         .args(fast_linker_flag(&search_path()))
+        .arg(dead_code_flag())
+        .args(strip_debug_flag())
         .args(sanitizer_flags())
         .arg(&ll_path)
         .arg(&runtime_obj)
@@ -39,6 +41,17 @@ fn sanitizer_flags() -> Vec<String> {
 }
 
 const FAST_LINKERS: &[(&str, &str)] = &[("mold", "-fuse-ld=mold"), ("ld.lld", "-fuse-ld=lld")];
+
+fn dead_code_flag() -> &'static str {
+    if cfg!(target_os = "macos") { "-Wl,-dead_strip" } else { "-Wl,--gc-sections" }
+}
+
+fn strip_debug_flag() -> Option<&'static str> {
+    if !sanitizer_flags().is_empty() {
+        return None;
+    }
+    Some(if cfg!(target_os = "macos") { "-Wl,-S" } else { "-Wl,--strip-debug" })
+}
 
 fn fast_linker_flag(path: &std::ffi::OsStr) -> Option<&'static str> {
     if cfg!(target_os = "macos") {

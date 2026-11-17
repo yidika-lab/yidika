@@ -26,7 +26,7 @@ indexmap = "2"
 serde_json = { version = "1", features = ["preserve_order"] }
 chrono = "0.4"
 base64 = "0.22"
-regex = "1"
+yk_runtime = { path = "rt" }
 toml = { version = "0.7", features = ["preserve_order"] }
 libloading = "0.8"
 sysinfo = "0.33"
