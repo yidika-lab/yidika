@@ -1,6 +1,6 @@
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::process::{Command, Stdio};
+    use std::process::Command;
     use std::sync::Mutex;
     use std::io::{Read, Write};
     use std::time::Duration;
@@ -30,7 +30,7 @@ pub(crate) mod tests {
             let log = std::fs::File::create(dir.join("server.log")).expect("create server log");
             let child = Command::new(dir.join(format!("main{}", std::env::consts::EXE_SUFFIX)))
                 .env("YK_DEBUG", "1")
-                .stdout(Stdio::null())
+                .stdout(std::fs::File::create(dir.join("server.out")).expect("create server output"))
                 .stderr(log)
                 .spawn()
                 .expect("failed to start server");
@@ -41,6 +41,10 @@ pub(crate) mod tests {
 
         fn log(&self) -> String {
             std::fs::read_to_string(self.dir.join("server.log")).unwrap_or_default()
+        }
+
+        fn output(&self) -> String {
+            std::fs::read_to_string(self.dir.join("server.out")).unwrap_or_default()
         }
 
         fn address(&self) -> String {
@@ -409,6 +413,23 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn compat_std_module_imported_under_another_name() {
+        check_compat_prints(
+            r#"use {p} from "path";
+             use {b} from "base64";
+             use {r} from "regex";
+             fn main() {
+                 print("at " + p.basename("dir/file.txt"));
+                 print(p.basename(p.join("a", "b", "c.txt")));
+                 print(b.encode("hi"));
+                 print(r.match("\\d", "a1"));
+             }"#,
+            "std_alias",
+            "at file.txt\nc.txt\naGk=\ntrue",
+        );
+    }
+
+    #[test]
     fn compat_regex_replace() {
         check_compat(
             r#"use { regex } from "regex";
@@ -767,6 +788,22 @@ pub(crate) mod tests {
         let exchange = server.exchange(&get_request("/missing"));
         assert!(exchange.response.starts_with("HTTP/1.1 404"), "got: {:?}", exchange.response);
         assert!(exchange.response.ends_with("\r\n\r\nNot Found"), "got: {:?}\nserver log:\n{}", exchange.response, server.log());
+    }
+
+    #[test]
+    fn compat_net_server_runs_handler_statements_and_the_logger() {
+        let source = "use { Server } from \"net\";\nfn log_line(log: LogEntry) {\n    print(log.method + \" \" + log.path + \" -> \" + log.response.status);\n}\nfn hello(req: auto) -> str {\n    print(\"handler ran\");\n    return \"hi \" + req.path;\n}\nfn items(req: auto) {\n    return [1, 3, 4];\n}\nfn main() {\n    app = Server();\n    app.logger(log_line);\n    app.get(\"/hello\", hello);\n    app.get(\"/items\", items);\n    app.serve(\"127.0.0.1:19893\");\n}";
+        let server = AotServer::start("net_server_logger", source, 19893);
+        let hello = server.exchange(&get_request("/hello"));
+        let items = server.exchange(&get_request("/items"));
+        let missing = server.exchange(&get_request("/missing"));
+        assert!(hello.response.ends_with("\r\n\r\nhi /hello"), "got: {:?}", hello.response);
+        assert!(items.response.ends_with("\r\n\r\n[1, 3, 4]"), "got: {:?}", items.response);
+        assert!(missing.response.starts_with("HTTP/1.1 404"), "got: {:?}", missing.response);
+        let log = server.output();
+        for line in ["handler ran", "GET /hello -> 200 OK", "GET /items -> 200 OK", "GET /missing -> 404 Not Found"] {
+            assert!(log.contains(line), "missing {:?} in server log:\n{}", line, log);
+        }
     }
 
     #[test]
@@ -1770,4 +1807,88 @@ fn main() {
         check_compat_prints(OWNERSHIP_CASES, "strings_keep_their_owners",
             "w0\nw1\nw2\n[v0, v1, v2]\nAda Grace\ny2 x1\n3\nlongc4 longc4! longc4\nn=1 small n=5 big\np");
     }
+
+    const NOT_BUILT: &[(&str, &str)] = &[
+        ("advanced/test_json_import.yk", "reads data.json, which is not in the repository"),
+        ("advanced/test_llvm.yk", "old syntax: while without parentheses"),
+        ("basics/test_while.yk", "old syntax: while without parentheses"),
+        ("basics/utils.yk", "a library file, it has no main"),
+        ("debug/test_debug18.yk", "calls stringify without importing it"),
+        ("errors/type_mismatch.yk", "shows a type error on purpose"),
+        ("move/test_move_error.yk", "shows a move error on purpose"),
+        ("match/test_match.yk", "fails in the interpreter: match bindings"),
+        ("match/test_struct_match.yk", "fails in the interpreter: match bindings"),
+        ("net/route_params.yk", "fails in the interpreter: str + int"),
+        ("range/test_char_range2.yk", "old syntax: three-dot range"),
+        ("advanced/test_trailing_closure.yk", "native gap: trailing closure argument"),
+        ("basics/min.yk", "native gap: top-level struct store"),
+        ("basics/test_empty.yk", "native gap: user main returning a value"),
+        ("class/test_class3.yk", "native gap: self field assignment"),
+        ("class/test_dataclass.yk", "native gap: str() of a data class"),
+        ("class/test_dataclass2.yk", "native gap: str() of a data class"),
+        ("class/test_inherit.yk", "native gap: inherited string field"),
+        ("debug/test_debug2.yk", "native gap: integer literal passed to math.cos"),
+        ("debug/test_debug3.yk", "native gap: json.parse"),
+        ("debug/test_debug5.yk", "native gap: json.parse"),
+        ("debug/test_debug16.yk", "native gap: json.parse"),
+        ("for/test_for_list.yk", "native gap: for over a list variable"),
+        ("gui/dump_static.yk", "native gap: gui module"),
+        ("gui/event_click.yk", "native gap: gui module"),
+    ];
+
+    fn example_sources(dir: &std::path::Path, found: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                example_sources(&path, found);
+            } else if path.extension().is_some_and(|ext| ext == "yk") {
+                found.push(path);
+            }
+        }
+    }
+
+    fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+        std::fs::create_dir_all(to).expect("create example copy");
+        for entry in std::fs::read_dir(from).expect("read examples").flatten() {
+            let target = to.join(entry.file_name());
+            if entry.path().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                std::fs::copy(entry.path(), &target).expect("copy example");
+            }
+        }
+    }
+
+    #[test]
+    fn compat_every_example_builds_natively() {
+        let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        let copy = std::env::temp_dir().join("yk_compat_examples");
+        let _ = std::fs::remove_dir_all(&copy);
+        copy_tree(&examples, &copy);
+        let mut sources = Vec::new();
+        example_sources(&copy, &mut sources);
+        sources.sort();
+        let guard = aot_lock();
+        let failures: Vec<String> = sources.iter().filter_map(|path| {
+            let relative = path.strip_prefix(&copy).ok()?.to_string_lossy().replace('\\', "/");
+            if NOT_BUILT.iter().any(|(listed, _)| *listed == relative) {
+                return None;
+            }
+            crate::cli::build_program(path, false, &crate::codegen::backend::LlvmBackend, false)
+                .err()
+                .map(|e| format!("{}: {}", relative, e.lines().take(3).collect::<Vec<_>>().join(" | ")))
+        }).collect();
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&copy);
+        assert!(failures.is_empty(), "examples that no longer build natively:\n{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn every_listed_example_still_exists() {
+        let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples");
+        for (path, _) in NOT_BUILT {
+            assert!(examples.join(path).is_file(), "{} is listed in NOT_BUILT but does not exist", path);
+        }
+    }
+
 }

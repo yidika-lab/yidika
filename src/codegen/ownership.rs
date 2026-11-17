@@ -27,6 +27,23 @@ fn collect_assigned_child<'a>(child: Child<'a>, values: &mut Vec<&'a ExprNode>) 
     }
 }
 
+pub fn returned_values(body: &[StmtNode]) -> Vec<&ExprNode> {
+    let mut values = Vec::new();
+    body.iter().for_each(|s| collect_returned(s, &mut values));
+    values
+}
+
+fn collect_returned<'a>(stmt: &'a StmtNode, values: &mut Vec<&'a ExprNode>) {
+    if let Stmt::Return(Some(value)) = &stmt.value {
+        values.push(value);
+    }
+    each_stmt_child(stmt, &mut |child| {
+        if let Child::Stmt(s) = child {
+            collect_returned(s, values);
+        }
+    });
+}
+
 pub fn names_used_outside(modules: &[&Module], entry: &str) -> Vec<String> {
     let mut names = HashSet::new();
     for item in modules.iter().flat_map(|m| &m.items) {
@@ -234,6 +251,12 @@ mod tests {
         let names = names_used_outside(&[&module], "main");
         assert!(names.contains(&"s".to_string()));
         assert!(names.contains(&"t".to_string()));
+    }
+
+    #[test]
+    fn returned_values_are_found_in_nested_blocks_but_not_in_closures() {
+        let b = body("if (x) { return 1; } f = () => { return 2; }; while (y) { return 3; }");
+        assert_eq!(returned_values(&b).len(), 2);
     }
 
     #[test]

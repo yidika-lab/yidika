@@ -13,6 +13,17 @@
 
 ### Fixed
 
+- Programs that run with `yidi file.yk` now also build with `yidi build`, in cases that used to fail with an LLVM error or that built but behaved differently:
+  - a std module imported under another name (`use {p} from "path"`) is recognised natively;
+  - a function with no written return type returns the type of its `return` value instead of `void`;
+  - `"text" + obj.field` concatenates when the field is a string, in structs and classes;
+  - `app.logger(fn)` works in native servers and prints the same lines as the interpreter, including 404s;
+  - statements before the `return` of a route handler (`print`, assignments) run natively instead of being dropped; a handler the native server cannot compile yet is now reported at build time instead of silently losing code;
+  - `path.join` accepts more than two parts;
+  - native servers print the same `Server listening on: host:port` line as the interpreter.
+
+  A new test builds every example in `examples/` natively. The ones that still cannot be built are listed with their reason in `src/compat.rs`.
+
 - `regex.match` and `regex.replace` give the same result in native programs as in `yidi run --interp`: both now use the Rust `regex` crate from `yk_runtime`, so `\w` and `\p{Lu}` follow Unicode, and a pattern runs in linear time instead of risking a stack overflow on long inputs.
 
 ### Added

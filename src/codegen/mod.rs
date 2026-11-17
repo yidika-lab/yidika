@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod handler;
 pub mod hoist;
 pub mod llvm;
 pub mod ownership;
