@@ -516,8 +516,11 @@ def tailwind_binary():
 
 
 def build_css(out):
-    subprocess.run([str(tailwind_binary()), "--input", str(SITE / "tailwind.css"), "--output", str(out / "style.css"),
+    css = out.resolve() / "style.css"
+    subprocess.run([str(tailwind_binary()), "--input", str(SITE / "tailwind.css"), "--output", str(css),
                     "--minify"], check=True, cwd=SITE, capture_output=True)
+    if not css.is_file():
+        sys.exit(f"Tailwind did not write {css}")
 
 
 def copy_static(out):
@@ -555,4 +558,4 @@ def build(out):
 
 
 if __name__ == "__main__":
-    build(Path(sys.argv[1]) if len(sys.argv) > 1 else SITE / "dist")
+    build((Path(sys.argv[1]) if len(sys.argv) > 1 else SITE / "dist").resolve())
