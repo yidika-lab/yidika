@@ -1714,7 +1714,7 @@ impl LlvmCodegen {
                 }
                 self.init_constants();
                 self.in_entry = true;
-                let used_elsewhere = crate::codegen::ownership::names_used_outside(modules, "main");
+                let used_elsewhere = crate::codegen::ownership::names_used_outside(modules, crate::syntax::entry::ENTRY_FN);
                 self.freeable = self.compute_freeable(body, &used_elsewhere);
                 self.compile_fn_body(body);
                 self.freeable.clear();
@@ -1914,7 +1914,8 @@ impl LlvmCodegen {
             ItemKind::Fn { name, body, .. } if name == crate::syntax::entry::ENTRY_FN => Some(body),
             _ => None,
         }) else { return };
-        for name in &module.globals {
+        let shared = crate::codegen::ownership::names_used_outside(&[module], crate::syntax::entry::ENTRY_FN);
+        for name in module.globals.iter().filter(|n| shared.contains(n)) {
             let Some((type_expr, value)) = body.iter().find_map(|stmt| match &stmt.value {
                 Stmt::Decl { name: n, type_expr, value, .. } if n == name => Some((type_expr.as_ref(), value)),
                 Stmt::Assign(n, value) if n == name => Some((None, value)),
@@ -5770,6 +5771,23 @@ mod tests {
     use super::*;
     use crate::syntax::parser::Parser;
     use crate::syntax::ast;
+
+    #[test]
+    fn a_top_level_variable_only_main_uses_stays_in_a_register() {
+        ast::reset_ids();
+        let module = Parser::parse("fn twice(n: int) -> int { return n * 2; }\ntotal = 0;\ni = 0;\nwhile (i < 10) { total = total + twice(i); i = i + 1; }\nprint(total);").unwrap();
+        let llvm = compile_to_llvm(&module).unwrap();
+        assert!(!llvm.contains("@yk.global.i"));
+        assert!(!llvm.contains("@yk.global.total"));
+    }
+
+    #[test]
+    fn a_top_level_variable_read_by_a_function_stays_global() {
+        ast::reset_ids();
+        let module = Parser::parse("limit = 3;\nfn under(n: int) -> bool { return n < limit; }\nprint(under(2));").unwrap();
+        let llvm = compile_to_llvm(&module).unwrap();
+        assert!(llvm.contains("@yk.global.limit = internal global"));
+    }
 
     #[test]
     fn test_struct_lit_and_field() {

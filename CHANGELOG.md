@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Top-level variables that no function reads are now ordinary locals of the program instead of globals, so LLVM keeps them in registers and vectorizes the loops that use them. A 500 million iteration `while` loop at the top level drops from 0.83 s to 0.28 s, the same time as the equivalent C (`clang -O3`) and Rust (`rustc -O`) programs.
+
 ### Added
 
 - Native programs free their strings. A string built by `+`, `str()` or a function is released when its variable gets a new value, when the function returns, or as soon as a temporary is no longer needed, the way Rust drops a `String`. A loop that builds 3 million short strings now peaks at 4 MB instead of 379 MB, and runs in 0.42 s instead of 0.79 s. When the compiler cannot prove a string has a single owner (it went into a list, a struct or a closure), it keeps it alive, so the rule never frees memory still in use.
