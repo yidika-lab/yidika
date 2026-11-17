@@ -16,6 +16,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <winhttp.h>
+#include <psapi.h>
 #pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "ws2_32.lib")
 #include <winsock2.h>
@@ -32,6 +33,7 @@ typedef SOCKET yk_socket_t;
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
+#include <sys/resource.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <netdb.h>
@@ -348,34 +350,62 @@ static void yk_vmem_pool_destroy(void) {
     memset(pool, 0, sizeof(yk_vmem_pool));
 }
 
-typedef struct { char* data; int64_t len; } yk_string;
+typedef struct { char* data; int64_t len; int64_t cap; } yk_string;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+static yk_string* yk_string_header(void) {
+    return (yk_string*)calloc(1, sizeof(yk_string));
+}
+
 void yk_string_init_ptr(yk_string* s, const char* data, int64_t len) {
     s->data = (char*)data;
     s->len = len;
+    s->cap = 0;
+}
+
+void yk_string_free_header(yk_string* s) {
+    free(s);
+}
+
+void yk_string_drop(yk_string* s) {
+    if (s->cap > 0) free(s->data);
+    s->data = NULL;
+    s->len = 0;
+    s->cap = 0;
+}
+
+yk_string* yk_string_clone(yk_string* src) {
+    yk_string* s = yk_string_header();
+    s->data = (char*)malloc((size_t)src->len + 1);
+    memcpy(s->data, src->data, (size_t)src->len);
+    s->data[src->len] = '\0';
+    s->len = src->len;
+    s->cap = src->len + 1;
+    return s;
 }
 
 yk_string* yk_listen_addr_from_port(int64_t port) {
     char buf[32];
     int n = snprintf(buf, sizeof(buf), "0.0.0.0:%lld", (long long)port);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(n + 1);
     memcpy(s->data, buf, n + 1);
     s->len = n;
+    s->cap = n + 1;
     return s;
 }
 
 yk_string* yk_string_from_int(int64_t v) {
     char buf[64];
     int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(n + 1);
     memcpy(s->data, buf, n + 1);
     s->len = n;
+    s->cap = n + 1;
     return s;
 }
 
@@ -436,11 +466,12 @@ static int yk_format_complex(const yk_complex* c, char* out, int cap) {
 
 static yk_string* yk_string_from_buffer(const char* buf, int n) {
     if (n < 0) n = 0;
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(n + 1);
     memcpy(s->data, buf, n);
     s->data[n] = 0;
     s->len = n;
+    s->cap = n + 1;
     return s;
 }
 
@@ -469,23 +500,52 @@ yk_string* yk_string_from_real(double v) {
 }
 
 yk_string* yk_string_concat_ptr(yk_string* a, yk_string* b) {
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(a->len + b->len + 1);
     memcpy(s->data, a->data, a->len);
     memcpy(s->data + a->len, b->data, b->len);
     s->data[a->len + b->len] = '\0';
     s->len = a->len + b->len;
+    s->cap = a->len + b->len + 1;
     return s;
 }
 
 int64_t yk_string_len_ptr(yk_string* s) { return s->len; }
 
 yk_string* yk_string_from_cstr(const char* s) {
-    yk_string* result = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* result = yk_string_header();
     result->len = (int64_t)strlen(s);
     result->data = (char*)malloc(result->len + 1);
     memcpy(result->data, s, result->len + 1);
+    result->cap = result->len + 1;
     return result;
+}
+
+static int64_t yk_peak_memory_kb(void) {
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS counters;
+    if (!K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) return -1;
+    return (int64_t)(counters.PeakWorkingSetSize / 1024);
+#elif defined(__linux__)
+    FILE* status = fopen("/proc/self/status", "r");
+    if (!status) return -1;
+    char line[256];
+    long long kb = -1;
+    while (fgets(line, sizeof(line), status)) {
+        if (sscanf(line, "VmHWM: %lld kB", &kb) == 1) break;
+    }
+    fclose(status);
+    return (int64_t)kb;
+#else
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) != 0) return -1;
+    return (int64_t)(usage.ru_maxrss / 1024);
+#endif
+}
+
+static void yk_report_peak_memory(void) {
+    fflush(stdout);
+    fprintf(stderr, "yk-peak-memory-kb %lld\n", (long long)yk_peak_memory_kb());
 }
 
 void yk_runtime_init(void) {
@@ -494,6 +554,8 @@ void yk_runtime_init(void) {
 #else
     setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
 #endif
+    const char* report = getenv("YK_PEAK_MEMORY");
+    if (report && report[0] == '1') atexit(yk_report_peak_memory);
 }
 
 void yk_print_int(int64_t v) { printf("%lld\n", (long long)v); }
@@ -519,7 +581,7 @@ double yk_pow_real(double a, double b) { return pow(a, b); }
 
 yk_string* yk_string_from_bool(bool v) {
     const char* s = v ? "true" : "false";
-    yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* r = yk_string_header();
     int n = (int)strlen(s);
     r->data = (char*)malloc(n + 1);
     memcpy(r->data, s, n + 1);
@@ -554,7 +616,7 @@ yk_string* yk_json_string(yk_string* s) {
     }
     out[j++] = '"';
     out[j] = '\0';
-    yk_string* result = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* result = yk_string_header();
     result->data = out;
     result->len = j;
     return result;
@@ -580,7 +642,7 @@ yk_list* yk_list_new_of(int64_t kind, int64_t is_set) {
 yk_list* yk_list_new(void) { return yk_list_new_of(YK_KIND_INT, 0); }
 
 yk_string* yk_string_box(const yk_string* s) {
-    yk_string* boxed = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* boxed = yk_string_header();
     *boxed = *s;
     return boxed;
 }
@@ -673,7 +735,7 @@ yk_string* yk_list_to_string(yk_list* l) {
         yk_text_add_elem(&t, l->kind, l->data[i]);
     }
     yk_text_add(&t, l->is_set ? "}" : "]", 1);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = t.data;
     s->len = t.len;
     return s;
@@ -722,7 +784,7 @@ void yk_list_print(yk_list* l) {
 }
 
 int64_t yk_result_str_new(int64_t data, int64_t len) {
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(len + 1);
     memcpy(s->data, (void*)(intptr_t)data, len);
     s->data[len] = '\0';
@@ -784,10 +846,11 @@ yk_string* yk_time_now(void) {
     time_t t = time(NULL);
     char buf[64];
     int n = snprintf(buf, sizeof(buf), "%lld", (long long)t);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = (char*)malloc(n + 1);
     memcpy(s->data, buf, n + 1);
     s->len = n;
+    s->cap = n + 1;
     return s;
 }
 
@@ -800,7 +863,7 @@ void yk_sys_exit(int64_t code) { exit((int)code); }
 yk_string* yk_sys_cwd(void) {
     char* cwd = yk_getcwd(NULL, 0);
     if (!cwd) return yk_string_from_cstr("");
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = cwd;
     s->len = (int64_t)strlen(cwd);
     return s;
@@ -813,7 +876,7 @@ yk_string* yk_sys_platform(void) {
 #else
     const char* p = "linux";
 #endif
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = strdup(p);
     s->len = (int64_t)strlen(p);
     return s;
@@ -821,7 +884,7 @@ yk_string* yk_sys_platform(void) {
 yk_string* yk_sys_env(yk_string* name) {
     char* val = getenv(name->data);
     if (!val) { val = ""; }
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = strdup(val);
     s->len = (int64_t)strlen(val);
     return s;
@@ -834,7 +897,7 @@ yk_string* yk_path_join(yk_string* a, yk_string* b) {
     buf[a->len] = '/';
     memcpy(buf + a->len + 1, b->data, b->len);
     buf[total] = '\0';
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = buf;
     s->len = total;
     return s;
@@ -847,12 +910,12 @@ yk_string* yk_path_dirname(yk_string* s) {
             char* buf = (char*)malloc(i + 1);
             memcpy(buf, s->data, i);
             buf[i] = '\0';
-            yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+            yk_string* r = yk_string_header();
             r->data = buf; r->len = i;
             return r;
         }
     }
-    yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* r = yk_string_header();
     r->data = strdup(""); r->len = 0;
     return r;
 }
@@ -864,7 +927,7 @@ yk_string* yk_path_basename(yk_string* s) {
             int64_t nlen = s->len - i - 1;
             char* buf = (char*)malloc(nlen + 1);
             memcpy(buf, s->data + i + 1, nlen); buf[nlen] = '\0';
-            yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+            yk_string* r = yk_string_header();
             r->data = buf; r->len = nlen;
             return r;
         }
@@ -879,13 +942,13 @@ yk_string* yk_path_extension(yk_string* s) {
             int64_t nlen = s->len - i - 1;
             char* buf = (char*)malloc(nlen + 1);
             memcpy(buf, s->data + i + 1, nlen); buf[nlen] = '\0';
-            yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+            yk_string* r = yk_string_header();
             r->data = buf; r->len = nlen;
             return r;
         }
         if (s->data[i] == '/' || s->data[i] == '\\') break;
     }
-    yk_string* r = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* r = yk_string_header();
     r->data = strdup(""); r->len = 0;
     return r;
 }
@@ -901,7 +964,7 @@ int64_t yk_path_is_absolute(yk_string* s) {
 }
 
 static yk_string* yk_string_take(char* buf, int64_t len) {
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = buf;
     s->len = len;
     return s;
@@ -959,7 +1022,7 @@ yk_string* yk_base64_encode(yk_string* input) {
         out[j++] = n > 2 ? b64_enc[triple & 0x3F] : '=';
     }
     out[out_len] = '\0';
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = out; s->len = out_len;
     return s;
 }
@@ -1005,7 +1068,7 @@ yk_string* yk_base64_decode(yk_string* input) {
         if (d >= 0) out[j++] = (char)(triple & 0xFF);
     }
     out[j] = '\0';
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = out; s->len = j;
     return s;
 }
@@ -1087,7 +1150,7 @@ extern "C" yk_string* yk_re_replace(yk_string* pattern, yk_string* text, yk_stri
         std::string t(text->data, text->len);
         std::string r(replacement->data, replacement->len);
         std::string result = std::regex_replace(t, re, r);
-        yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+        yk_string* s = yk_string_header();
         s->len = (int64_t)result.size();
         s->data = (char*)malloc(s->len + 1);
         memcpy(s->data, result.c_str(), s->len + 1);
@@ -1151,7 +1214,7 @@ extern "C" yk_string* yk_fetch(yk_string* url, yk_string* method, yk_string* bod
     WinHttpCloseHandle(hRequest);
     WinHttpCloseHandle(hConnect);
     WinHttpCloseHandle(hSession);
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     s->data = buf; s->len = total;
     return s;
 #else
@@ -1596,7 +1659,7 @@ int64_t yk_tcp_send(int64_t fd, yk_string* data) {
 }
 
 yk_string* yk_tcp_recv(int64_t fd, int64_t n) {
-    yk_string* result = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* result = yk_string_header();
     if (!result) return NULL;
     result->data = NULL;
     result->len = 0;
@@ -1711,7 +1774,7 @@ int64_t yk_udp_send_to(int64_t fd, yk_string* data, yk_string* addr_str) {
 }
 
 yk_string* yk_udp_recv_from(int64_t fd, int64_t n) {
-    yk_string* result = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* result = yk_string_header();
     if (!result) return NULL;
     result->data = NULL; result->len = 0;
     if (fd <= 0 || n <= 0) return result;
@@ -1791,7 +1854,7 @@ int64_t yk_tcp_accept(int64_t fd) {
 
 // ── DNS lookup ──
 yk_string* yk_dns_lookup(yk_string* host) {
-    yk_string* result = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* result = yk_string_header();
     if (!result) return NULL;
     result->data = NULL; result->len = 0;
     char host_buf[512];
@@ -1908,7 +1971,7 @@ int32_t yk_http_status(int64_t handle) {
 
 yk_string* yk_http_body(int64_t handle) {
     yk_http_inst* inst = (yk_http_inst*)(intptr_t)handle;
-    yk_string* s = (yk_string*)malloc(sizeof(yk_string));
+    yk_string* s = yk_string_header();
     if (!s) return NULL;
     s->data = inst->body;
     s->len = inst->body_len;

@@ -53,6 +53,9 @@ pub struct LlvmCodegen {
     gui_modules: HashSet<String>,
     current_fn_ret: String,
     fn_ret_types: HashMap<String, String>,
+    user_fns: HashSet<String>,
+    owned_temps: HashSet<String>,
+    freeable: HashSet<String>,
     char_vars: std::collections::HashSet<String>,
     fn_value_sigs: HashMap<String, FnSig>,
     fn_param_types: HashMap<String, Vec<String>>,
@@ -114,6 +117,9 @@ impl LlvmCodegen {
             gui_modules: HashSet::new(),
             current_fn_ret: "void".into(),
             fn_ret_types: HashMap::new(),
+            user_fns: HashSet::new(),
+            owned_temps: HashSet::new(),
+            freeable: HashSet::new(),
             char_vars: std::collections::HashSet::new(),
             fn_value_sigs: HashMap::new(),
             fn_param_types: HashMap::new(),
@@ -172,10 +178,87 @@ impl LlvmCodegen {
         let ptr = self.fresh_label();
         self.e(&format!("%{} = getelementptr inbounds [{} x i8], ptr @{}, i64 0, i64 0", ptr, s.len() + 1, lbl));
         let tmp = self.fresh_label();
-        self.e(&format!("%{} = insertvalue %yk_string undef, ptr %{}, 0", tmp, ptr));
+        self.e(&format!("%{} = insertvalue %yk_string zeroinitializer, ptr %{}, 0", tmp, ptr));
         let tmp2 = self.fresh_label();
         self.e(&format!("%{} = insertvalue %yk_string %{}, i64 {}, 1", tmp2, tmp, s.len()));
         self.ssa(&tmp2)
+    }
+
+    fn take_runtime_string(&mut self, header: &str) -> String {
+        let loaded = self.fresh_label();
+        self.e(&format!("%{} = load %yk_string, ptr {}", loaded, header));
+        self.e(&format!("call void @yk_string_free_header(ptr {})", header));
+        let value = self.ssa(&loaded);
+        self.owned_temps.insert(value.clone());
+        value
+    }
+
+    fn release_temp(&mut self, value: &str, ty: &str) {
+        if ty == "%yk_string" && self.owned_temps.remove(value) {
+            let slot = self.string_to_ptr(value);
+            self.e(&format!("call void @yk_string_drop(ptr {})", slot));
+        }
+    }
+
+    fn drop_string_slot(&mut self, slot: &str) {
+        self.e(&format!("call void @yk_string_drop(ptr {})", slot));
+    }
+
+    fn replace_owned_string(&mut self, name: &str, slot: &str, ty: &str, value: &str, value_ty: &str) {
+        self.owned_temps.remove(value);
+        if ty == "%yk_string" && value_ty == "%yk_string" && self.freeable.contains(name) {
+            self.drop_string_slot(slot);
+        }
+    }
+
+    fn drop_owned_locals(&mut self) {
+        let mut names: Vec<String> = self.freeable.iter().filter(|n| !self.global_names.contains(n.as_str())).cloned().collect();
+        names.sort();
+        for name in names {
+            let slot = self.var_alloca.get(&name).cloned();
+            if let (Some(slot), Some("%yk_string")) = (slot, self.var_types.get(&name).map(String::as_str)) {
+                self.drop_string_slot(&slot);
+            }
+        }
+    }
+
+    fn owned_return(&mut self, value: &str, ty: &str, expr: &ExprNode) -> String {
+        if ty != "%yk_string" || self.current_fn_ret != "%yk_string" {
+            return value.to_string();
+        }
+        if self.owned_temps.remove(value) || matches!(expr.value, Expr::LitStr(_)) {
+            return value.to_string();
+        }
+        let src = self.string_to_ptr(value);
+        let copy = self.fresh_label();
+        self.e(&format!("%{} = call ptr @yk_string_clone(ptr {})", copy, src));
+        let header = self.ssa(&copy);
+        let owned = self.take_runtime_string(&header);
+        self.owned_temps.remove(&owned);
+        owned
+    }
+
+    fn is_fresh_string(&mut self, e: &ExprNode) -> bool {
+        match &e.value {
+            Expr::LitStr(_) => true,
+            Expr::BinOp(_, BinOp::Add, _) => self.expr_type_str(e) == "%yk_string",
+            Expr::Call(callee, args) => match &callee.value {
+                Expr::Ident(f) if f == "str" => args.len() == 1,
+                Expr::Ident(f) => self.user_fns.contains(f.as_str()) && self.fn_ret_types.get(&self.mangle_name(f)).is_some_and(|t| t == "%yk_string"),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn compute_freeable(&mut self, body: &[StmtNode], fixed: &[String]) -> HashSet<String> {
+        let values = crate::codegen::ownership::assigned_values(body);
+        let fresh: HashSet<AstId> = values.into_iter().filter(|v| self.is_fresh_string(v)).map(|v| v.id).collect();
+        crate::codegen::ownership::freeable_vars(body, fixed, &|e| fresh.contains(&e.id))
+    }
+
+    fn returns_owned_string(&self, callee: &ExprNode, ty: &str) -> bool {
+        ty == "%yk_string" && matches!(&callee.value, Expr::Ident(f) if self.user_fns.contains(f.as_str()))
     }
 
     fn string_to_ptr(&mut self, val: &str) -> String {
@@ -675,6 +758,9 @@ impl LlvmCodegen {
     fn alloc_local(&mut self, name: &str, ptr: &str, ty: &str) {
         if !self.captured_here.contains(name) {
             self.e(&format!("{} = alloca {}, align 8", ptr, ty));
+            if ty == "%yk_string" && self.freeable.contains(name) {
+                self.e(&format!("store %yk_string zeroinitializer, ptr {}", ptr));
+            }
             return;
         }
         let size = self.fresh_label();
@@ -1093,7 +1179,7 @@ impl LlvmCodegen {
         self.e_raw(&format!("target triple = \"{}\"", crate::codegen::target::host_triple()));
         self.e_raw("");
 
-        self.e_raw("%yk_string = type { ptr, i64 }");
+        self.e_raw("%yk_string = type { ptr, i64, i64 }");
         self.e_raw("%yk_complex = type { double, double }");
         self.e_raw("%yk_variant = type { i64, i64 }");
         self.e_raw("%yk_result = type { i64, i1 }");
@@ -1400,6 +1486,9 @@ impl LlvmCodegen {
         self.e_raw("declare ptr @yk_string_from_bool(i1)");
         self.e_raw("declare ptr @yk_string_from_complex(ptr)");
         self.e_raw("declare ptr @yk_string_concat_ptr(ptr, ptr)");
+        self.e_raw("declare ptr @yk_string_clone(ptr)");
+        self.e_raw("declare void @yk_string_drop(ptr)");
+        self.e_raw("declare void @yk_string_free_header(ptr)");
         self.e_raw("declare i64 @yk_string_len_ptr(ptr)");
         self.e_raw("declare void @yk_complex_set(ptr, double, double)");
         self.e_raw("declare double @yk_complex_real(ptr)");
@@ -1625,7 +1714,10 @@ impl LlvmCodegen {
                 }
                 self.init_constants();
                 self.in_entry = true;
+                let used_elsewhere = crate::codegen::ownership::names_used_outside(modules, "main");
+                self.freeable = self.compute_freeable(body, &used_elsewhere);
                 self.compile_fn_body(body);
+                self.freeable.clear();
                 self.in_entry = false;
                 self.e("ret i32 0");
                 self.indent -= 1;
@@ -1671,7 +1763,7 @@ impl LlvmCodegen {
             self.output.push('\n');
         }
 
-        let mut output = std::mem::take(&mut self.output);
+        let mut output = crate::codegen::hoist::allocas_to_entry(&std::mem::take(&mut self.output));
         output.push_str(&self.string_constants);
 
         let type_defs = std::mem::take(&mut self.tuple_types_output);
@@ -1683,8 +1775,8 @@ impl LlvmCodegen {
             }
             prefix.push('\n');
             // Insert tuple type defs after %yk_string and before the rest
-            if let Some(pos) = output.find("%yk_string = type { ptr, i64 }") {
-                let after = pos + "%yk_string = type { ptr, i64 }".len();
+            if let Some(pos) = output.find("%yk_string = type { ptr, i64, i64 }") {
+                let after = pos + "%yk_string = type { ptr, i64, i64 }".len();
                 output.insert_str(after, &format!("\n{}", prefix));
             }
         }
@@ -1694,6 +1786,7 @@ impl LlvmCodegen {
 
     fn register_fn_signature(&mut self, item: &ItemNode) {
         let ItemKind::Fn { name, ret_type, params, .. } = &item.value else { return };
+        self.user_fns.insert(name.clone());
         let mangled = self.mangle_name(name);
         let ret = ret_type.as_ref().map(|t| self.type_to_llvm(&t.value)).unwrap_or_else(|| "void".into());
         self.current_fn_ret = ret.clone();
@@ -1874,11 +1967,15 @@ impl LlvmCodegen {
                 self.e(&format!("store {} %{}, ptr {}", ty, i, ptr));
             }
 
+            let mut fixed: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            fixed.extend(self.global_names.iter().cloned());
+            self.freeable = self.compute_freeable(body, &fixed);
             self.compile_fn_body(body);
 
             // Only emit default return if the body didn't already have one
             let body_ends_with_return = body.last().map_or(false, |s| matches!(&s.value, Stmt::Return(_)));
             if !body_ends_with_return {
+                self.drop_owned_locals();
                 if ret == "void" {
                     self.e("ret void");
                 } else if ret.starts_with('%') {
@@ -1892,6 +1989,7 @@ impl LlvmCodegen {
             self.e_raw("}");
             self.e_raw("");
         }
+        self.freeable.clear();
         self.var_types = saved_types;
         self.var_alloca = saved_alloca;
     }
@@ -2110,6 +2208,11 @@ impl LlvmCodegen {
     }
 
     fn compile_stmt(&mut self, stmt: &StmtNode) {
+        self.compile_stmt_inner(stmt);
+        self.owned_temps.clear();
+    }
+
+    fn compile_stmt_inner(&mut self, stmt: &StmtNode) {
         self.track_char_binding(&stmt.value);
         match &stmt.value {
             Stmt::Decl { name, type_expr, value, .. } => {
@@ -2139,6 +2242,8 @@ impl LlvmCodegen {
                         ptr
                     }
                 };
+
+                self.replace_owned_string(name, &ptr, &effective_ty, &val, &val_ty);
 
                 // Store union variant definitions for later use in Assign
                 if effective_ty == "%yk_variant" {
@@ -2231,6 +2336,7 @@ impl LlvmCodegen {
                 };
                 if is_http_ctor { self.http_vars.insert(name.clone()); }
                 let ty = self.val_ty(name);
+                self.replace_owned_string(name, &ptr, &ty, &val, &val_ty);
                 if Self::is_nullable_ty(&ty) && !Self::is_nullable_ty(&val_ty) {
                     let is_null = matches!(&expr.value, Expr::LitNull);
                     let wrapped = self.wrap_in_nullable(&ty, &val, &val_ty, is_null);
@@ -2268,6 +2374,8 @@ impl LlvmCodegen {
                 match e {
                     Some(ex) => {
                         let (val, val_ty) = self.compile_expr(ex);
+                        let val = self.owned_return(&val, &val_ty, ex);
+                        self.drop_owned_locals();
                         let fn_ret = self.current_fn_ret.clone();
                         if Self::is_nullable_ty(&fn_ret) && !Self::is_nullable_ty(&val_ty) {
                             let is_null = matches!(&ex.value, Expr::LitNull);
@@ -2285,7 +2393,10 @@ impl LlvmCodegen {
                             self.e(&format!("ret {} {}", val_ty, val));
                         }
                     }
-                    None => self.e("ret void"),
+                    None => {
+                        self.drop_owned_locals();
+                        self.e("ret void");
+                    }
                 }
             }
             Stmt::If(cond, then_body, else_body) => {
@@ -2583,7 +2694,7 @@ impl LlvmCodegen {
                     let len_v = self.fresh_label();
                     self.e(&format!("%{} = load i64, ptr %{}", len_v, len_gep));
                     let sv1 = self.fresh_label();
-                    self.e(&format!("%{} = insertvalue %yk_string undef, ptr %{}, 0", sv1, ptr_v));
+                    self.e(&format!("%{} = insertvalue %yk_string zeroinitializer, ptr %{}, 0", sv1, ptr_v));
                     let sv2 = self.fresh_label();
                     self.e(&format!("%{} = insertvalue %yk_string %{}, i64 %{}, 1", sv2, sv1, len_v));
                     (self.ssa(&sv2), "%yk_string".into())
@@ -3240,9 +3351,10 @@ impl LlvmCodegen {
                     let ptr_b = self.string_to_ptr(&rc);
                     self.e(&format!("%{} = call ptr @yk_string_concat_ptr(ptr {}, ptr {})", tmp, ptr_a, ptr_b));
                     let ptr_result = self.ssa(&tmp);
-                    let loaded = self.fresh_label();
-                    self.e(&format!("%{} = load %yk_string, ptr {}", loaded, ptr_result));
-                    (self.ssa(&loaded), "%yk_string".into())
+                    let joined = self.take_runtime_string(&ptr_result);
+                    self.release_temp(&lc, "%yk_string");
+                    self.release_temp(&rc, "%yk_string");
+                    (joined, "%yk_string".into())
                 } else {
                     self.e(&format!("%{} = {}add{} {} {}, {}", tmp, arith_op, ofl_flag, lt, lc, rc));
                     (self.ssa(&tmp), lt)
@@ -3415,7 +3527,20 @@ impl LlvmCodegen {
     }
 
     fn compile_call(&mut self, callee: &ExprNode, args: &[ExprNode]) -> (String, String) {
-        // Don't compile FnLit/Closure args as standalone i64 functions when calling server methods
+        let arg_results = self.compile_call_args(callee, args);
+        let result = self.compile_call_with(callee, args, arg_results.clone());
+        if crate::codegen::ownership::is_read_only_call(callee) {
+            for (value, ty) in &arg_results {
+                self.release_temp(value, ty);
+            }
+        }
+        if self.returns_owned_string(callee, &result.1) {
+            self.owned_temps.insert(result.0.clone());
+        }
+        result
+    }
+
+    fn compile_call_args(&mut self, callee: &ExprNode, args: &[ExprNode]) -> Vec<(String, String)> {
         let is_srv = matches!(&callee.value, Expr::Field(obj, field) if matches!(obj.value, Expr::Ident(_)) &&
             matches!(field.as_str(), "get" | "post" | "put" | "delete" | "patch" | "ws" | "serve"));
         let is_gui_on = matches!(&callee.value, Expr::Field(obj, field) if matches!(&obj.value, Expr::Ident(m) if self.gui_modules.contains(m.as_str())) && field == "on");
@@ -3428,7 +3553,10 @@ impl LlvmCodegen {
                 self.compile_expr(a)
             }
         }).collect();
+        arg_results
+    }
 
+    fn compile_call_with(&mut self, callee: &ExprNode, args: &[ExprNode], arg_results: Vec<(String, String)>) -> (String, String) {
         match &callee.value {
             Expr::Ident(name) => match name.as_str() {
                 "print" => {
@@ -3541,14 +3669,24 @@ impl LlvmCodegen {
                 }
                 "str" => {
                     if let Some((av, at)) = arg_results.first() {
-                        let ptr_ssa = if args.first().is_some_and(|a| self.expr_is_char(a)) {
+                        let is_char = args.first().is_some_and(|a| self.expr_is_char(a));
+                        let ptr_ssa = if is_char {
                             self.char_to_string_ptr(av)
+                        } else if at == "%yk_string" {
+                            let src = self.string_to_ptr(av);
+                            let copy = self.fresh_label();
+                            self.e(&format!("%{} = call ptr @yk_string_clone(ptr {})", copy, src));
+                            self.ssa(&copy)
                         } else {
                             self.value_to_string_ptr(av, at)
                         };
-                        let loaded = self.fresh_label();
-                        self.e(&format!("%{} = load %yk_string, ptr {}", loaded, ptr_ssa));
-                        (self.ssa(&loaded), "%yk_string".into())
+                        if is_char || crate::codegen::ownership::STR_FRESH_TYPES.contains(&at.as_str()) {
+                            (self.take_runtime_string(&ptr_ssa), "%yk_string".into())
+                        } else {
+                            let loaded = self.fresh_label();
+                            self.e(&format!("%{} = load %yk_string, ptr {}", loaded, ptr_ssa));
+                            (self.ssa(&loaded), "%yk_string".into())
+                        }
                     } else {
                         ("0".into(), "%yk_string".into())
                     }

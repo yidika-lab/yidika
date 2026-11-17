@@ -17,6 +17,7 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     cmd.args(["-O3", "-Wno-override-module"])
         .arg(native_cpu_flag())
         .args(fast_linker_flag(&search_path()))
+        .args(sanitizer_flags())
         .arg(&ll_path)
         .arg(&runtime_obj)
         .args(extra_libs)
@@ -24,8 +25,17 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
         .arg(output_path)
         .args(["-pthread", "-lm"]);
     run(cmd, "link")?;
-    let _ = std::fs::remove_file(&ll_path);
+    if std::env::var_os("YIDI_KEEP_IR").is_none() {
+        let _ = std::fs::remove_file(&ll_path);
+    }
     Ok(())
+}
+
+fn sanitizer_flags() -> Vec<String> {
+    match std::env::var("YIDI_SANITIZE") {
+        Ok(kind) if kind == "address" => vec!["-g".into(), "-fsanitize=address".into()],
+        _ => Vec::new(),
+    }
 }
 
 const FAST_LINKERS: &[(&str, &str)] = &[("mold", "-fuse-ld=mold"), ("ld.lld", "-fuse-ld=lld")];
