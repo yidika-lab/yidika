@@ -1893,6 +1893,7 @@ fn main() {
 
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn native_print_to_a_pipe_batches_its_writes() {
         if Command::new("strace").arg("-V").output().is_err() {
             eprintln!("SKIP: strace is not installed");
