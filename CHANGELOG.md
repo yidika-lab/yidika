@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
 ### Removed
 
 Each construct now has one spelling. Programs using a removed form get a parse or type error; write the form on the right.
