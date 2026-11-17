@@ -1891,4 +1891,28 @@ fn main() {
         }
     }
 
+
+    #[test]
+    fn native_print_to_a_pipe_batches_its_writes() {
+        if Command::new("strace").arg("-V").output().is_err() {
+            eprintln!("SKIP: strace is not installed");
+            return;
+        }
+        let source = "fn main() { i = 0; while (i < 20000) { print(i); i = i + 1; } }";
+        let dir = std::env::temp_dir().join("yk_compat_print_batches");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("main.yk");
+        std::fs::write(&file, source).unwrap();
+        let guard = aot_lock();
+        crate::cli::build_program(&file, false, &crate::codegen::backend::LlvmBackend, false).expect("native build");
+        drop(guard);
+        let traced = Command::new("strace").args(["-f", "-c", "-e", "trace=write"]).arg(dir.join("main")).output().unwrap();
+        let summary = String::from_utf8_lossy(&traced.stderr);
+        let writes: u64 = summary.lines().find(|l| l.trim_end().ends_with(" write"))
+            .and_then(|l| l.split_whitespace().nth(3)).and_then(|n| n.parse().ok()).unwrap_or(u64::MAX);
+        assert_eq!(String::from_utf8_lossy(&traced.stdout).lines().count(), 20000);
+        assert!(writes < 200, "20000 lines took {} write calls:\n{}", writes, summary);
+    }
+
 }
