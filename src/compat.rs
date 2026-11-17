@@ -1918,6 +1918,7 @@ fn main() {
 
 
     #[test]
+    #[cfg(unix)]
     fn native_functions_start_on_a_cache_line() {
         let Ok(probe) = Command::new("nm").arg("--version").output() else {
             eprintln!("SKIP: nm is not installed");
