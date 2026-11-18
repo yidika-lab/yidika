@@ -248,6 +248,8 @@ static char* yk_get_handler_buf(int min_size) {
 #define YK_CAS_PTR(dest, comp, exch) __sync_val_compare_and_swap((void*volatile*)(dest), (void*)(comp), (void*)(exch))
 #endif
 
+static void yk_stdout_used(void);
+
 typedef struct yk_vmem_slot { struct yk_vmem_slot* volatile next; } yk_vmem_slot;
 
 typedef struct {
@@ -531,6 +533,7 @@ yk_string* yk_string_from_char(int64_t cp) {
 }
 
 void yk_print_field(yk_string* s, bool last) {
+    yk_stdout_used();
     fwrite(s->data, 1, (size_t)s->len, stdout);
     fputc(last ? '\n' : ' ', stdout);
 }
@@ -614,14 +617,28 @@ static yk_thread_ret YK_THREAD_CALL yk_stdout_flusher(void* arg) {
     return 0;
 }
 
-static void yk_buffer_piped_stdout(void) {
-    setvbuf(stdout, NULL, _IOFBF, 1 << 16);
+static void* volatile yk_stdout_flusher_pending = NULL;
+
+static void yk_start_stdout_flusher(void) {
     yk_thread_t flusher;
     if (yk_thread_spawn(&flusher, yk_stdout_flusher, NULL)) {
         yk_thread_detach(flusher);
     } else {
+        fflush(stdout);
         setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
     }
+}
+
+static void yk_stdout_used(void) {
+    void* pending = yk_stdout_flusher_pending;
+    if (pending && YK_CAS_PTR(&yk_stdout_flusher_pending, pending, NULL) == pending) {
+        yk_start_stdout_flusher();
+    }
+}
+
+static void yk_buffer_piped_stdout(void) {
+    setvbuf(stdout, NULL, _IOFBF, 1 << 16);
+    yk_stdout_flusher_pending = (void*)1;
 }
 
 void yk_runtime_init(void) {
@@ -639,14 +656,15 @@ void yk_runtime_init(void) {
 }
 
 void yk_print_int(int64_t v) {
+    yk_stdout_used();
     char buf[YK_I64_TEXT_MAX + 1];
     int n = yk_format_i64(buf, v);
     buf[n] = '\n';
     fwrite(buf, 1, (size_t)n + 1, stdout);
 }
-void yk_print_real(double v) { char buf[400]; yk_format_real(v, buf, sizeof(buf)); puts(buf); }
-void yk_print_bool(bool v) { printf("%s\n", v ? "true" : "false"); }
-void yk_print_str_ptr(yk_string* s) { printf("%.*s\n", (int)s->len, s->data); }
+void yk_print_real(double v) { yk_stdout_used(); char buf[400]; yk_format_real(v, buf, sizeof(buf)); puts(buf); }
+void yk_print_bool(bool v) { yk_stdout_used(); printf("%s\n", v ? "true" : "false"); }
+void yk_print_str_ptr(yk_string* s) { yk_stdout_used(); printf("%.*s\n", (int)s->len, s->data); }
 
 
 void yk_complex_set(yk_complex* c, double r, double i) { c->real = r; c->imag = i; }
@@ -659,7 +677,7 @@ void yk_complex_add(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->
 void yk_complex_sub(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real - b->real; r->imag = a->imag - b->imag; }
 void yk_complex_mul(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->real*b->real - a->imag*b->imag; r->imag = a->real*b->imag + a->imag*b->real; }
 void yk_complex_div(yk_complex* r, yk_complex* a, yk_complex* b) { double d = b->real*b->real + b->imag*b->imag; r->real = (a->real*b->real + a->imag*b->imag)/d; r->imag = (a->imag*b->real - a->real*b->imag)/d; }
-void yk_print_complex(yk_complex* c) { char buf[810]; yk_format_complex(c, buf, sizeof(buf)); puts(buf); }
+void yk_print_complex(yk_complex* c) { yk_stdout_used(); char buf[810]; yk_format_complex(c, buf, sizeof(buf)); puts(buf); }
 
 int64_t yk_pow_int(int64_t a, int64_t b) { int64_t r = 1; for (int64_t i = 0; i < b; i++) r *= a; return r; }
 double yk_pow_real(double a, double b) { return pow(a, b); }
@@ -863,6 +881,7 @@ void yk_list_remove(yk_list* l, int64_t idx) {
 }
 
 void yk_list_print(yk_list* l) {
+    yk_stdout_used();
     yk_string* s = yk_list_to_string(l);
     printf("%.*s\n", (int)s->len, s->data);
     free(s->data);
@@ -879,6 +898,7 @@ int64_t yk_result_str_new(int64_t data, int64_t len) {
 }
 
 void yk_print_result_val(int64_t val, int8_t ok) {
+    yk_stdout_used();
     yk_string* s = (yk_string*)(intptr_t)val;
     int looks_like_str = (val != 0 && s->len >= 0 && s->len < 1048576 && s->data != NULL);
     if (looks_like_str) {
@@ -2888,6 +2908,7 @@ static unsigned __stdcall yk_iocp_worker(void* arg) {
 }
 
 void yk_server_serve(int64_t handle, yk_string* addr) {
+    yk_stdout_used();
     yk_server* s = (yk_server*)(intptr_t)handle;
     if (!s || s->count == 0) { printf("No routes registered\n"); return; }
 
@@ -3242,6 +3263,7 @@ static void yk_linux_nic_tune(const char* ifname) {
 #endif
 
 void yk_server_serve(int64_t handle, yk_string* addr) {
+    yk_stdout_used();
     yk_server* s = (yk_server*)(intptr_t)handle;
     if (!s || s->count == 0) { printf("No routes registered\n"); return; }
 
@@ -3480,6 +3502,7 @@ static yk_socket_t yk_posix_listen(const char* host, int port) {
 }
 
 void yk_server_serve(int64_t handle, yk_string* addr) {
+    yk_stdout_used();
     yk_server* s = (yk_server*)(intptr_t)handle;
     if (!s || s->count == 0) { printf("No routes registered\n"); return; }
     char host[256];

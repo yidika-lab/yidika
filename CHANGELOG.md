@@ -4,6 +4,8 @@
 
 ### Changed
 
+- A native program starts its stdout flusher thread at its first `print`, not at startup. A program that prints nothing no longer creates a thread: an empty program starts in 314 us instead of 359 us (C: 300 us, Rust: 458 us; median of 5 runs of 3000 `posix_spawn` calls on one core).
+
 - Integers are formatted with a two-digits-at-a-time table instead of `snprintf`, and `+` and `str(int)` write their result into a stack slot instead of a heap header that was freed right after. 2 million `print(i)` take 0.04 s (C `printf`: 0.11 s, Rust `println!`: 0.38 s), and building 3 million short strings takes 0.10 s (Rust: 0.10 s, C with `snprintf`: 0.18 s).
 
 - Native functions start on a 64-byte boundary (`-mllvm -align-all-functions=6`). With `ld.lld`, which `yidi` prefers when installed, a hot recursive function could land across a cache line: `fib(40)` took 0.31 s against 0.28 s for the same C code linked by the default linker. It now takes 0.27-0.28 s (Rust: 0.31 s). Other benchmarks are unchanged, and a binary grows by about 32 bytes.
