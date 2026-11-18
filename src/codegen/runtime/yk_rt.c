@@ -400,14 +400,48 @@ yk_string* yk_listen_addr_from_port(int64_t port) {
     return s;
 }
 
+#define YK_I64_TEXT_MAX 21
+
+static const char yk_digit_pairs[201] = "00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899";
+
+static int yk_format_i64(char out[YK_I64_TEXT_MAX], int64_t v) {
+    char tmp[YK_I64_TEXT_MAX];
+    int i = YK_I64_TEXT_MAX;
+    uint64_t u = v < 0 ? (uint64_t)0 - (uint64_t)v : (uint64_t)v;
+    while (u >= 100) {
+        unsigned r = (unsigned)(u % 100);
+        u /= 100;
+        tmp[--i] = yk_digit_pairs[r * 2 + 1];
+        tmp[--i] = yk_digit_pairs[r * 2];
+    }
+    if (u >= 10) {
+        tmp[--i] = yk_digit_pairs[u * 2 + 1];
+        tmp[--i] = yk_digit_pairs[u * 2];
+    } else {
+        tmp[--i] = (char)('0' + u);
+    }
+    if (v < 0) tmp[--i] = '-';
+    int n = YK_I64_TEXT_MAX - i;
+    memcpy(out, tmp + i, (size_t)n);
+    return n;
+}
+
+static void yk_string_set_bytes(yk_string* out, const char* bytes, int64_t len) {
+    out->data = (char*)malloc((size_t)len + 1);
+    memcpy(out->data, bytes, (size_t)len);
+    out->data[len] = '\0';
+    out->len = len;
+    out->cap = len + 1;
+}
+
+void yk_string_from_int_into(yk_string* out, int64_t v) {
+    char buf[YK_I64_TEXT_MAX];
+    yk_string_set_bytes(out, buf, yk_format_i64(buf, v));
+}
+
 yk_string* yk_string_from_int(int64_t v) {
-    char buf[64];
-    int n = snprintf(buf, sizeof(buf), "%lld", (long long)v);
     yk_string* s = yk_string_header();
-    s->data = (char*)malloc(n + 1);
-    memcpy(s->data, buf, n + 1);
-    s->len = n;
-    s->cap = n + 1;
+    yk_string_from_int_into(s, v);
     return s;
 }
 
@@ -501,14 +535,20 @@ yk_string* yk_string_from_real(double v) {
     return yk_string_from_buffer(buf, yk_format_real(v, buf, sizeof(buf)));
 }
 
+void yk_string_concat_into(yk_string* out, yk_string* a, yk_string* b) {
+    int64_t len = a->len + b->len;
+    char* data = (char*)malloc((size_t)len + 1);
+    memcpy(data, a->data, (size_t)a->len);
+    memcpy(data + a->len, b->data, (size_t)b->len);
+    data[len] = '\0';
+    out->data = data;
+    out->len = len;
+    out->cap = len + 1;
+}
+
 yk_string* yk_string_concat_ptr(yk_string* a, yk_string* b) {
     yk_string* s = yk_string_header();
-    s->data = (char*)malloc(a->len + b->len + 1);
-    memcpy(s->data, a->data, a->len);
-    memcpy(s->data + a->len, b->data, b->len);
-    s->data[a->len + b->len] = '\0';
-    s->len = a->len + b->len;
-    s->cap = a->len + b->len + 1;
+    yk_string_concat_into(s, a, b);
     return s;
 }
 
@@ -593,7 +633,12 @@ void yk_runtime_init(void) {
     if (report && report[0] == '1') atexit(yk_report_peak_memory);
 }
 
-void yk_print_int(int64_t v) { printf("%lld\n", (long long)v); }
+void yk_print_int(int64_t v) {
+    char buf[YK_I64_TEXT_MAX + 1];
+    int n = yk_format_i64(buf, v);
+    buf[n] = '\n';
+    fwrite(buf, 1, (size_t)n + 1, stdout);
+}
 void yk_print_real(double v) { char buf[400]; yk_format_real(v, buf, sizeof(buf)); puts(buf); }
 void yk_print_bool(bool v) { printf("%s\n", v ? "true" : "false"); }
 void yk_print_str_ptr(yk_string* s) { printf("%.*s\n", (int)s->len, s->data); }

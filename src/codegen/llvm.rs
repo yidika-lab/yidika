@@ -196,6 +196,17 @@ impl LlvmCodegen {
         value
     }
 
+    fn build_string_into(&mut self, func: &str, args: &str) -> String {
+        let slot = self.fresh_label();
+        self.e(&format!("%{} = alloca %yk_string, align 8", slot));
+        self.e(&format!("call void @{}(ptr %{}, {})", func, slot, args));
+        let loaded = self.fresh_label();
+        self.e(&format!("%{} = load %yk_string, ptr %{}", loaded, slot));
+        let value = self.ssa(&loaded);
+        self.owned_temps.insert(value.clone());
+        value
+    }
+
     fn release_temp(&mut self, value: &str, ty: &str) {
         if ty == "%yk_string" && self.owned_temps.remove(value) {
             let slot = self.string_to_ptr(value);
@@ -1575,6 +1586,8 @@ impl LlvmCodegen {
         self.e_raw("declare ptr @yk_string_from_complex(ptr)");
         self.e_raw("declare ptr @yk_string_concat_ptr(ptr, ptr)");
         self.e_raw("declare ptr @yk_string_clone(ptr)");
+        self.e_raw("declare void @yk_string_concat_into(ptr, ptr, ptr)");
+        self.e_raw("declare void @yk_string_from_int_into(ptr, i64)");
         self.e_raw("declare void @yk_string_drop(ptr)");
         self.e_raw("declare void @yk_string_free_header(ptr)");
         self.e_raw("declare i64 @yk_string_len_ptr(ptr)");
@@ -3439,9 +3452,7 @@ impl LlvmCodegen {
                 if lt == "%yk_string" {
                     let ptr_a = self.string_to_ptr(&lc);
                     let ptr_b = self.string_to_ptr(&rc);
-                    self.e(&format!("%{} = call ptr @yk_string_concat_ptr(ptr {}, ptr {})", tmp, ptr_a, ptr_b));
-                    let ptr_result = self.ssa(&tmp);
-                    let joined = self.take_runtime_string(&ptr_result);
+                    let joined = self.build_string_into("yk_string_concat_into", &format!("ptr {}, ptr {}", ptr_a, ptr_b));
                     self.release_temp(&lc, "%yk_string");
                     self.release_temp(&rc, "%yk_string");
                     (joined, "%yk_string".into())
@@ -3762,6 +3773,9 @@ impl LlvmCodegen {
                         let is_char = args.first().is_some_and(|a| self.expr_is_char(a));
                         let ptr_ssa = if is_char {
                             self.char_to_string_ptr(av)
+                        } else if at == "i64" {
+                            let built = self.build_string_into("yk_string_from_int_into", &format!("i64 {}", av));
+                            return (built, "%yk_string".into());
                         } else if at == "%yk_string" {
                             let src = self.string_to_ptr(av);
                             let copy = self.fresh_label();
