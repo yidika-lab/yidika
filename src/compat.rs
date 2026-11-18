@@ -1756,6 +1756,11 @@ fn main() {
     }
 
     #[test]
+    fn compat_an_empty_list_takes_its_declared_type() {
+        check_compat("fn main() { l: int[] = []; l.push(3); l.push(4); print(l, len(l), l[1] + 1); }", "empty_typed_list");
+    }
+
+    #[test]
     fn both_backends_reject_a_negative_list_index() {
         check_both_stop("fn main() { l = [1, 2, 3]; i = 0 - 1; print(l[i]); }", "negative_index", "Index -1 out of bounds for list of length 3");
     }

@@ -4,6 +4,7 @@
 
 ### Changed
 
+- `benchmarks/gate.py` reports the size of both binaries and, on Linux, the libraries a Yidika program links.
 - A native program starts its stdout flusher thread at its first `print`, not at startup. A program that prints nothing no longer creates a thread: an empty program starts in 314 us instead of 359 us (C: 300 us, Rust: 458 us; median of 5 runs of 3000 `posix_spawn` calls on one core).
 
 - Integers are formatted with a two-digits-at-a-time table instead of `snprintf`, and `+` and `str(int)` write their result into a stack slot instead of a heap header that was freed right after. 2 million `print(i)` take 0.04 s (C `printf`: 0.11 s, Rust `println!`: 0.38 s), and building 3 million short strings takes 0.10 s (Rust: 0.10 s, C with `snprintf`: 0.18 s).
@@ -21,6 +22,7 @@
 
 ### Fixed
 
+- `l: int[] = []` and `m: Map<str, int> = {}` type-check: an empty literal takes the element types of the declaration. Collections of a different element type (`l: int[] = ["a"]`) are still rejected.
 - Native programs stop with an error instead of printing a wrong or random value: division and `%` by zero (`division by zero`), `i64::MIN / -1` (`division overflow`), `**` with a negative exponent, `pop()` on an empty list, and a stack overflow (`stack overflow: the recursion probably never ends`, through a guard page like Rust). Division was undefined behaviour in the generated IR. The interpreter gives the same messages, from one table (`trap.rs`) that also generates the C runtime's.
 - Integer `+`, `-`, `*`, `**` and unary `-` wrap around in both backends, like Rust built with `--release`; shifts use their amount modulo 64. The interpreter crashed with an internal Rust panic in debug builds and wrapped silently in release builds; the native code used `nsw`, which let LLVM assume overflow never happens. Checking every operation was measured 3x slower on a vectorized loop, so it was not chosen.
 - `**` on integers takes logarithmic time: `yk_pow_int` multiplied `b` times, so a large exponent hung the program, and it overflowed signed integers in C.

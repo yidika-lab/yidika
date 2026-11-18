@@ -30,6 +30,16 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_literal_fits_a_declared_collection() {
+        assert!(typed("fn main() { l: int[] = []; m: Map<str, int> = {}; print(l, m); }").is_ok());
+    }
+
+    #[test]
+    fn a_collection_of_the_wrong_element_type_is_rejected() {
+        assert!(typed("fn main() { l: int[] = [\"a\"]; print(l); }").is_err());
+    }
+
+    #[test]
     fn input_returns_a_string() {
         assert!(typed("fn main() { name = input(); print(\"hi \" + name); }").is_ok());
     }

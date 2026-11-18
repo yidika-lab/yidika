@@ -72,17 +72,26 @@ def check(name, yk, c):
     return failures
 
 
-def render(rows, failures):
+def linked_libraries(exe):
+    if platform.system() != "Linux" or not shutil.which("ldd"):
+        return []
+    listing = subprocess.run(["ldd", exe], capture_output=True, text=True).stdout
+    return [line.split()[0] for line in listing.splitlines() if line.strip() and "vdso" not in line]
+
+
+def render(rows, failures, libraries):
     lines = [
         f"Performance gate: Yidika versus C (time limit {TIME_LIMIT}x, memory limit {MEMORY_LIMIT}x)",
         "",
-        "| Benchmark | Yidika | C | Ratio | Yidika memory | C memory |",
-        "|---|---|---|---|---|---|",
+        "| Benchmark | Yidika | C | Ratio | Yidika memory | C memory | Yidika binary | C binary |",
+        "|---|---|---|---|---|---|---|---|",
     ]
-    for name, (yt, ym, _), (ct, cm, _) in rows:
+    for name, (yt, ym, _), (ct, cm, _), ys, cs in rows:
         ratio = yt / ct if ct > 0 else 0
-        lines.append(f"| {name} | {yt:.3f} s | {ct:.3f} s | {ratio:.2f} | {ym} KB | {cm} KB |")
+        lines.append(f"| {name} | {yt:.3f} s | {ct:.3f} s | {ratio:.2f} | {ym} KB | {cm} KB | {ys // 1024} KB | {cs // 1024} KB |")
     lines.append("")
+    if libraries:
+        lines.extend([f"Libraries linked by a Yidika program: {', '.join(libraries)}", ""])
     lines.extend(failures or ["All benchmarks are within their limits."])
     return "\n".join(lines)
 
@@ -96,7 +105,7 @@ def main():
     output_path = os.path.join(work, "stdout.txt")
     launcher = os.path.join(work, "measure")
     build_c(os.path.join(HERE, "measure.c"), launcher)
-    rows, failures = [], []
+    rows, failures, libraries = [], [], []
     names = sorted(n[:-3] for n in os.listdir(GATE_DIR) if n.endswith(".yk"))
     for name in names:
         for ext in (".yk", ".c"):
@@ -107,10 +116,11 @@ def main():
         pin_to_one_core()
         yk = best_of(launcher, yk_exe, args.runs, output_path)
         c = best_of(launcher, c_exe, args.runs, output_path)
-        rows.append((name, yk, c))
+        rows.append((name, yk, c, os.path.getsize(yk_exe), os.path.getsize(c_exe)))
+        libraries = libraries or linked_libraries(yk_exe)
         failures.extend(check(name, yk, c))
     shutil.rmtree(work, ignore_errors=True)
-    report = render(rows, failures)
+    report = render(rows, failures, libraries)
     print(report)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
