@@ -23,6 +23,22 @@ Every language and stdlib feature must work in **both** backends. They are separ
 - **One spelling per construct.** A language feature has one way to be written. Do not add a keyword alias, a second literal form or a second builtin name for something that already exists; `src/syntax/one_spelling.rs` pins the spellings that were removed. A second form needs a real use the first cannot cover, and the PR must say which.
 - **Research before building.** Before designing a feature, check the state of the art: relevant specs (RFCs, CSS, Unicode), how mature projects solve it, and existing maintained crates, so the repo doesn't reinvent them. State what was checked and why the chosen approach wins in the PR description.
 
+## Every change is verified (CI enforces it)
+
+No code lands without a test that fails before the change and passes after it, and every change is checked on each axis below. A rule that can be a CI job is a CI job, not a promise.
+
+| Axis | What to add | Enforced by |
+|---|---|---|
+| Behaviour | unit test next to the code | `Test` job, 4 OS |
+| Parity | `compat_*` test, same output in both backends | `Interpreter/AOT parity` jobs |
+| Examples | a new `examples/` file must build natively, or be listed with its reason in `NOT_BUILT` (`src/compat.rs`) | `compat_every_example_builds_natively` |
+| Memory safety | run the compat suite with `YIDI_SANITIZE=address,undefined` when touching the C runtime or codegen | `Sanitizers` job |
+| Speed and memory | a program in `benchmarks/gate/` (`.yk` + the same `.c`) for any hot path you change; Yidika must stay within 1.15x the C time and 1.3x its peak memory, with the same output | `Performance gate` jobs (`benchmarks/gate.py`) |
+| Dependencies | no RustSec advisory | `Security audit` job |
+| External input | a test with oversized, malformed and hostile input (CRLF, `..`, invalid UTF-8) | `Test` job |
+
+A PR that changes speed or memory shows a before/after table, measured pinned to one core (`taskset -c N`), against C (`clang -O3`) and Rust (`rustc -O`).
+
 ## Writing and design style: no AI tells
 
 Applies to everything an agent produces: code, identifiers, comments in `.yk` examples, docs, commit messages, PR and issue bodies, UI strings, GUI examples, and replies to the user. The goal is text and interfaces that read as written and designed by a careful human, not the statistically average output of a model.

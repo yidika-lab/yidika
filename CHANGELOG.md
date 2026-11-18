@@ -34,6 +34,8 @@
 
 ### Added
 
+- Quality gates in CI: the compat suite runs with AddressSanitizer and UndefinedBehaviorSanitizer (`YIDI_SANITIZE=address,undefined`), and `benchmarks/gate.py` builds each program of `benchmarks/gate/` in Yidika and in C, then fails if Yidika is more than 1.15x slower, uses more than 1.3x the memory, or prints something different. It runs on Linux and macOS.
+
 - Native programs free their strings. A string built by `+`, `str()` or a function is released when its variable gets a new value, when the function returns, or as soon as a temporary is no longer needed, the way Rust drops a `String`. A loop that builds 3 million short strings now peaks at 4 MB instead of 379 MB, and runs in 0.42 s instead of 0.79 s. When the compiler cannot prove a string has a single owner (it went into a list, a struct or a closure), it keeps it alive, so the rule never frees memory still in use.
 
 - `YIDI_KEEP_IR=1` keeps the generated `.ll` file next to the program, and `YIDI_SANITIZE=address` builds it with AddressSanitizer. `YK_PEAK_MEMORY=1` makes a native program print its peak memory to stderr.

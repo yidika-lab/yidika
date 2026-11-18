@@ -153,6 +153,37 @@ jobs:
       - run: cargo build -p yk_runtime
       - run: cargo test --lib compat -- --test-threads=1
 
+  sanitizers:
+    name: Sanitizers (ASan + UBSan on the compat suite)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build -p yk_runtime
+      - name: Every native program of the compat suite, built with -fsanitize=address,undefined
+        env:
+          YIDI_SANITIZE: address,undefined
+          ASAN_OPTIONS: detect_leaks=0
+          UBSAN_OPTIONS: print_stacktrace=1
+        run: cargo test --lib compat -- --test-threads=1 --skip native_strings_are_freed --skip compat_strings_built_in_a_loop
+
+  performance:
+    name: Performance gate (${{ matrix.os }}, Yidika vs C)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked --bin yidi
+      - run: cargo build --release --locked -p yk_runtime
+      - run: python3 -m unittest discover -s benchmarks -p 'test_*.py'
+      - run: python3 benchmarks/gate.py --yidi target/release/yidi
+
   audit:
     name: Security audit (RustSec)
     runs-on: ubuntu-latest

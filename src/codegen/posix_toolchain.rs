@@ -34,11 +34,18 @@ pub fn compile_to_exe(llvm_ir: &str, runtime_c: &str, output_path: &Path, extra_
     Ok(())
 }
 
+const SANITIZERS: [&str; 2] = ["address", "undefined"];
+
 fn sanitizer_flags() -> Vec<String> {
-    match std::env::var("YIDI_SANITIZE") {
-        Ok(kind) if kind == "address" => vec!["-g".into(), "-fsanitize=address".into()],
-        _ => Vec::new(),
+    sanitizer_flags_for(std::env::var("YIDI_SANITIZE").ok().as_deref())
+}
+
+fn sanitizer_flags_for(requested: Option<&str>) -> Vec<String> {
+    let kinds: Vec<&str> = requested.unwrap_or("").split(',').map(str::trim).filter(|k| SANITIZERS.contains(k)).collect();
+    if kinds.is_empty() {
+        return Vec::new();
     }
+    vec!["-g".into(), format!("-fsanitize={}", kinds.join(",")), "-fno-sanitize-recover=all".into()]
 }
 
 const FAST_LINKERS: &[(&str, &str)] = &[("mold", "-fuse-ld=mold"), ("ld.lld", "-fuse-ld=lld")];
@@ -132,6 +139,19 @@ fn fail(kind: ErrorKind, msg: String) -> error::YkError {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sanitizers_are_parsed_from_a_comma_separated_list() {
+        assert_eq!(sanitizer_flags_for(Some("address,undefined")), vec!["-g", "-fsanitize=address,undefined", "-fno-sanitize-recover=all"]);
+        assert_eq!(sanitizer_flags_for(Some("address")), vec!["-g", "-fsanitize=address", "-fno-sanitize-recover=all"]);
+    }
+
+    #[test]
+    fn unknown_or_missing_sanitizers_add_nothing() {
+        assert!(sanitizer_flags_for(None).is_empty());
+        assert!(sanitizer_flags_for(Some("thread;rm -rf /")).is_empty());
+    }
+
     use super::*;
 
     #[test]
