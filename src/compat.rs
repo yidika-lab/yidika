@@ -1978,6 +1978,7 @@ fn main() {
 
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn native_print_to_a_pipe_batches_its_writes() {
         if Command::new("strace").arg("-V").output().is_err() {
             eprintln!("SKIP: strace is not installed");
@@ -2002,6 +2003,7 @@ fn main() {
 
 
     #[test]
+    #[cfg(unix)]
     fn native_functions_start_on_a_cache_line() {
         let Ok(probe) = Command::new("nm").arg("--version").output() else {
             eprintln!("SKIP: nm is not installed");
