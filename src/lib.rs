@@ -7,6 +7,8 @@ pub mod diagnostics;
 pub mod download;
 pub mod guilib;
 pub mod hardware;
+pub mod arith;
+pub mod trap;
 pub mod http_status;
 pub mod interpret;
 pub mod jit;

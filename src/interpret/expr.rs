@@ -42,7 +42,7 @@ impl Interpreter {
                     match v { Value::Int(i) => Some((*i as f64, 0.0)), Value::Real(r) => Some((*r, 0.0)), Value::Complex(r, i) => Some((*r, *i)), _ => None }
                 };
                 match (&lv, &rv) {
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.wrapping_add(*b))),
                     (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a + b)),
                     (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a + *b as f64)),
                     (Value::Int(a), Value::Real(b)) => Ok(Value::Real(*a as f64 + b)),
@@ -63,12 +63,11 @@ impl Interpreter {
                 match (&lv, &rv) {
                     (Value::Int(a), Value::Int(b)) => {
                         let v = match op {
-                            BinOp::Sub => Value::Int(a - b),
-                            BinOp::Mul => Value::Int(a * b),
-                            BinOp::Div => Value::Int(a / b),
-                            _ => unreachable!(),
+                            BinOp::Sub => a.wrapping_sub(*b),
+                            BinOp::Mul => a.wrapping_mul(*b),
+                            _ => crate::arith::div(*a, *b).map_err(|e| self.err(span, e.message()))?,
                         };
-                        Ok(v)
+                        Ok(Value::Int(v))
                     }
                     (Value::Real(a), Value::Real(b)) => {
                         let v = match op {
@@ -133,7 +132,7 @@ impl Interpreter {
             BinOp::Assign => Ok(rv),
             BinOp::Mod => {
                 match (&lv, &rv) {
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
+                    (Value::Int(a), Value::Int(b)) => crate::arith::rem(*a, *b).map(Value::Int).map_err(|e| self.err(span, e.message())),
                     (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a % b)),
                     (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a % *b as f64)),
                     (Value::Int(a), Value::Real(b)) => Ok(Value::Real(*a as f64 % b)),
@@ -142,7 +141,7 @@ impl Interpreter {
             }
             BinOp::Pow => {
                 match (&lv, &rv) {
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a.pow(*b as u32))),
+                    (Value::Int(a), Value::Int(b)) => crate::arith::pow(*a, *b).map(Value::Int).map_err(|e| self.err(span, e.message())),
                     (Value::Real(a), Value::Real(b)) => Ok(Value::Real(a.powf(*b))),
                     (Value::Int(a), Value::Real(b)) => Ok(Value::Real((*a as f64).powf(*b))),
                     (Value::Real(a), Value::Int(b)) => Ok(Value::Real(a.powf(*b as f64))),
@@ -169,13 +168,13 @@ impl Interpreter {
             }
             BinOp::Shl => {
                 match (&lv, &rv) {
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a << b)),
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(crate::arith::shl(*a, *b))),
                     _ => Err(self.err(span, "Shift left requires two integers")),
                 }
             }
             BinOp::Shr => {
                 match (&lv, &rv) {
-                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a >> b)),
+                    (Value::Int(a), Value::Int(b)) => Ok(Value::Int(crate::arith::shr(*a, *b))),
                     _ => Err(self.err(span, "Shift right requires two integers")),
                 }
             }
@@ -331,7 +330,7 @@ impl Interpreter {
                 let v = eval!(inner);
                 match op {
                     UnOp::Neg => match v {
-                        Value::Int(i) => Ok(EvalResult::Value(Value::Int(-i))),
+                        Value::Int(i) => Ok(EvalResult::Value(Value::Int(i.wrapping_neg()))),
                         Value::Real(r) => Ok(EvalResult::Value(Value::Real(-r))),
                         Value::Complex(r, i) => Ok(EvalResult::Value(Value::Complex(-r, -i))),
                         _ => Err(self.err(expr.span, "Cannot negate")),
@@ -612,7 +611,7 @@ impl Interpreter {
                                     "pop" => match &mut receiver {
                                         Value::List(items) => {
                                             let result = items.pop()
-                                                .ok_or_else(|| self.err(expr.span, "pop from empty list"))?;
+                                                .ok_or_else(|| self.err(expr.span, crate::trap::Trap::PopFromEmptyList.message()))?;
                                             if let Some(ref n) = var_name { self.set_var(n, receiver)?; }
                                             Ok(EvalResult::Value(result))
                                         }
@@ -1154,15 +1153,13 @@ impl Interpreter {
                 let idx = eval!(idx_expr);
                 match (&obj_val, idx) {
                     (Value::List(items), Value::Int(i)) => {
-                        let i = if i < 0 { (items.len() as i64 + i) as usize } else { i as usize };
-                        items.get(i).cloned()
+                        usize::try_from(i).ok().and_then(|at| items.get(at)).cloned()
                             .ok_or_else(|| self.err(expr.span, format!("Index {} out of bounds for list of length {}", i, items.len())))
                             .map(EvalResult::Value)
                     }
                     (Value::Str(s), Value::Int(i)) => {
-                        let i = if i < 0 { (s.len() as i64 + i) as usize } else { i as usize };
-                        s.chars().nth(i).map(|c| EvalResult::Value(Value::Str(c.to_string())))
-                            .ok_or_else(|| self.err(expr.span, format!("Index {} out of bounds for string of length {}", i, s.len())))
+                        usize::try_from(i).ok().and_then(|at| s.chars().nth(at)).map(|c| EvalResult::Value(Value::Str(c.to_string())))
+                            .ok_or_else(|| self.err(expr.span, format!("Index {} out of bounds for string of length {}", i, s.chars().count())))
                     }
                     (Value::Dict(d), idx_val) => {
                         let found = d.iter().find(|(k, _)| k == &idx_val).map(|(_, v)| v.clone()).unwrap_or(Value::None_);

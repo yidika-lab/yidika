@@ -21,6 +21,13 @@
 
 ### Fixed
 
+- Native programs stop with an error instead of printing a wrong or random value: division and `%` by zero (`division by zero`), `i64::MIN / -1` (`division overflow`), `**` with a negative exponent, `pop()` on an empty list, and a stack overflow (`stack overflow: the recursion probably never ends`, through a guard page like Rust). Division was undefined behaviour in the generated IR. The interpreter gives the same messages, from one table (`trap.rs`) that also generates the C runtime's.
+- Integer `+`, `-`, `*`, `**` and unary `-` wrap around in both backends, like Rust built with `--release`; shifts use their amount modulo 64. The interpreter crashed with an internal Rust panic in debug builds and wrapped silently in release builds; the native code used `nsw`, which let LLVM assume overflow never happens. Checking every operation was measured 3x slower on a vectorized loop, so it was not chosen.
+- `**` on integers takes logarithmic time: `yk_pow_int` multiplied `b` times, so a large exponent hung the program, and it overflowed signed integers in C.
+- `len()` of a nullable value (`str?`) is rejected by the type checker. Natively it returned `0`.
+- `l[-1]` is out of bounds in the interpreter too. It returned the last item there and stopped natively. The error for a string index gives its length in characters, not bytes.
+- An `if` expression or `?:` whose branch creates its own blocks (a division, a nested `if`) produced invalid IR: the `phi` named the first block of the branch instead of the last.
+
 - Lambda parameters can have a type: `(n: int) => n + 1`, `(who: str, times: int) => ...`. The `:` made the parser read `(n: int)` as a vector literal. All lambda forms now go through one parser function.
 - `input()` works in native programs; it was an undefined symbol. Both backends read the line with the same function in `yk_runtime`, which caps a line at 1 MiB and replaces invalid UTF-8.
 - `name = input(); "hi " + name` type-checks: `input` was typed as returning nothing.

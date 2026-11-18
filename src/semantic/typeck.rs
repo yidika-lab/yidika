@@ -649,6 +649,9 @@ impl<'a> TypeChecker<'a> {
                 match &callee.value {
                     Expr::Ident(name) => {
                         if let Some(ret) = crate::semantic::builtins::return_type(name) {
+                            if name == "len" && matches!(arg_types.first(), Some(TypeExpr::Nullable(_))) {
+                                return self.fail(ErrorKind::TypeError, expr.span, "len() of a value that may be null: give a default with ?: first".to_string());
+                            }
                             Ok(ret)
                         } else if self.builtin_modules.contains(name.as_str()) {
                             match name.as_str() {

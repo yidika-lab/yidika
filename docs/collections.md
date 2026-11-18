@@ -51,6 +51,8 @@ fn main() {
 
 Reading past the end stops the program with `Index 5 out of bounds for list of length 2`.
 
+An index below `0` or past the end stops the program with `Index -1 out of bounds for list of length 3`; there is no counting from the end. `pop()` on an empty list stops with `pop from empty list` ([Runtime errors](errors-and-null.md#runtime-errors)).
+
 ## Sets
 
 A set keeps one copy of each value.

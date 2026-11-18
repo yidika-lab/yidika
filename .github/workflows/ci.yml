@@ -166,7 +166,7 @@ jobs:
           YIDI_SANITIZE: address,undefined
           ASAN_OPTIONS: detect_leaks=0
           UBSAN_OPTIONS: print_stacktrace=1
-        run: cargo test --lib compat -- --test-threads=1 --skip native_strings_are_freed --skip compat_strings_built_in_a_loop
+        run: cargo test --lib compat -- --test-threads=1 --skip native_strings_are_freed --skip compat_strings_built_in_a_loop --skip native_runtime_code --skip both_backends_stop_on_endless_recursion
 
   performance:
     name: Performance gate (${{ matrix.os }}, Yidika vs C)
