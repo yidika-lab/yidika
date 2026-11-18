@@ -99,6 +99,25 @@ fn main() {
 17
 ```
 
+An `int` that goes past its range wraps around, as in Rust built with `--release`: `+`, `-`, `*`, `**` and unary `-` keep the low 64 bits. A shift uses its amount modulo 64, so `1 << 65` is `2`. Both rules are the same in `yidi run` and in a native build, and cost nothing at run time.
+
+```yidika
+fn main() {
+    max = 9223372036854775807;
+    print(max + 1);
+    print(max * 2);
+    print(1 << 65);
+}
+```
+
+```output
+-9223372036854775808
+-2
+2
+```
+
+Dividing by zero, `i64::MIN / -1`, the same two cases with `%`, and `**` with a negative exponent stop the program instead (see [Runtime errors](errors-and-null.md#runtime-errors)).
+
 Mixing `int` and `real` gives a `real`:
 
 ```yidika

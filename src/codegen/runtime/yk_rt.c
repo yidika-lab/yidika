@@ -42,6 +42,7 @@ typedef SOCKET yk_socket_t;
 #include <fcntl.h>
 #include <pthread.h>
 #include <sched.h>
+#include <signal.h>
 #include <errno.h>
 #if defined(__linux__) && defined(YK_USE_URING)
 #include <liburing.h>
@@ -641,7 +642,100 @@ static void yk_buffer_piped_stdout(void) {
     yk_stdout_flusher_pending = (void*)1;
 }
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define YK_UNDER_ASAN 1
+#endif
+#endif
+#if defined(__SANITIZE_ADDRESS__)
+#define YK_UNDER_ASAN 1
+#endif
+
+static void yk_write_stack_overflow(void) {
+    const char* message = yk_trap_messages[YK_TRAP_STACK_OVERFLOW];
+#ifdef _WIN32
+    DWORD written;
+    HANDLE err = GetStdHandle(STD_ERROR_HANDLE);
+    WriteFile(err, "error: ", 7, &written, NULL);
+    WriteFile(err, message, (DWORD)strlen(message), &written, NULL);
+    WriteFile(err, "\n", 1, &written, NULL);
+#else
+    ssize_t ignored = write(2, "error: ", 7);
+    ignored = write(2, message, strlen(message));
+    ignored = write(2, "\n", 1);
+    (void)ignored;
+#endif
+}
+
+#ifdef _WIN32
+static LONG WINAPI yk_on_stack_overflow(EXCEPTION_POINTERS* info) {
+    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_STACK_OVERFLOW) return EXCEPTION_CONTINUE_SEARCH;
+    yk_write_stack_overflow();
+    ExitProcess(1);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+static void yk_catch_stack_overflow(void) {
+    ULONG reserve = 64 * 1024;
+    SetThreadStackGuarantee(&reserve);
+    AddVectoredExceptionHandler(1, yk_on_stack_overflow);
+}
+#else
+#define YK_ALT_STACK_SIZE (64 * 1024)
+#define YK_GUARD_SPAN (1024 * 1024)
+
+static uintptr_t yk_main_stack_low = 0;
+static char yk_alt_stack[YK_ALT_STACK_SIZE];
+
+static void yk_record_main_stack(void) {
+#if defined(__APPLE__)
+    pthread_t self = pthread_self();
+    yk_main_stack_low = (uintptr_t)pthread_get_stackaddr_np(self) - pthread_get_stacksize_np(self);
+#else
+    struct rlimit limit;
+    if (getrlimit(RLIMIT_STACK, &limit) != 0 || limit.rlim_cur == RLIM_INFINITY) return;
+    uintptr_t top = (uintptr_t)__builtin_frame_address(0);
+    if (top > limit.rlim_cur) yk_main_stack_low = top - (uintptr_t)limit.rlim_cur;
+#endif
+}
+
+static int yk_is_stack_guard(uintptr_t addr) {
+    return yk_main_stack_low && addr + YK_GUARD_SPAN >= yk_main_stack_low && addr < yk_main_stack_low + YK_GUARD_SPAN;
+}
+
+static void yk_on_fault(int sig, siginfo_t* info, void* context) {
+    (void)context;
+    if (yk_is_stack_guard((uintptr_t)info->si_addr)) {
+        yk_write_stack_overflow();
+        _exit(1);
+    }
+    struct sigaction fallback;
+    memset(&fallback, 0, sizeof(fallback));
+    fallback.sa_handler = SIG_DFL;
+    sigaction(sig, &fallback, NULL);
+}
+
+static void yk_catch_stack_overflow(void) {
+    yk_record_main_stack();
+    stack_t alt;
+    alt.ss_sp = yk_alt_stack;
+    alt.ss_size = sizeof(yk_alt_stack);
+    alt.ss_flags = 0;
+    if (sigaltstack(&alt, NULL) != 0) return;
+    struct sigaction action;
+    memset(&action, 0, sizeof(action));
+    action.sa_sigaction = yk_on_fault;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&action.sa_mask);
+    sigaction(SIGSEGV, &action, NULL);
+    sigaction(SIGBUS, &action, NULL);
+}
+#endif
+
 void yk_runtime_init(void) {
+#ifndef YK_UNDER_ASAN
+    yk_catch_stack_overflow();
+#endif
     if (!yk_stdout_is_terminal()) {
         yk_buffer_piped_stdout();
     } else {
@@ -679,7 +773,26 @@ void yk_complex_mul(yk_complex* r, yk_complex* a, yk_complex* b) { r->real = a->
 void yk_complex_div(yk_complex* r, yk_complex* a, yk_complex* b) { double d = b->real*b->real + b->imag*b->imag; r->real = (a->real*b->real + a->imag*b->imag)/d; r->imag = (a->imag*b->real - a->real*b->imag)/d; }
 void yk_print_complex(yk_complex* c) { yk_stdout_used(); char buf[810]; yk_format_complex(c, buf, sizeof(buf)); puts(buf); }
 
-int64_t yk_pow_int(int64_t a, int64_t b) { int64_t r = 1; for (int64_t i = 0; i < b; i++) r *= a; return r; }
+static void yk_fail(const char* message) {
+    fflush(stdout);
+    fprintf(stderr, "error: %s\n", message);
+    exit(1);
+}
+
+void yk_trap(int64_t code) {
+    yk_fail(code >= 0 && code < YK_TRAP_COUNT ? yk_trap_messages[code] : "runtime error");
+}
+
+int64_t yk_pow_int(int64_t base, int64_t exponent) {
+    if (exponent < 0) yk_trap(YK_TRAP_NEGATIVE_EXPONENT);
+    uint64_t result = 1, factor = (uint64_t)base, remaining = (uint64_t)exponent;
+    while (remaining) {
+        if (remaining & 1) result *= factor;
+        factor *= factor;
+        remaining >>= 1;
+    }
+    return (int64_t)result;
+}
 double yk_pow_real(double a, double b) { return pow(a, b); }
 
 yk_string* yk_string_from_bool(bool v) {
@@ -785,7 +898,6 @@ void yk_list_push_kind(yk_list* l, int64_t val, int64_t kind) {
 int64_t yk_list_get(yk_list* l, int64_t idx) {
     if (idx < 0 || idx >= l->len) {
         fflush(stdout);
-        fflush(stdout);
         fprintf(stderr, "error: Index %lld out of bounds for list of length %lld\n", (long long)idx, (long long)l->len);
         exit(1);
     }
@@ -797,7 +909,7 @@ int64_t yk_list_len(yk_list* l) { return l->len; }
 void yk_list_free(yk_list* l) { if (l) { free(l->data); free(l); } }
 
 int64_t yk_list_pop(yk_list* l) {
-    if (l->len == 0) return 0;
+    if (l->len == 0) yk_trap(YK_TRAP_POP_FROM_EMPTY_LIST);
     return l->data[--l->len];
 }
 

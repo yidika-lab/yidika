@@ -250,6 +250,13 @@ pub(crate) mod tests {
         assert_eq!(normalize(&interp_out), normalize(expected), "compat_{}: unexpected output", test_name);
     }
 
+    fn check_both_stop(source: &str, test_name: &str, message: &str) {
+        let interp = run_interp(source).expect_err("the interpreter must stop");
+        let native = run_aot(source, test_name).expect_err("the native program must stop");
+        assert!(interp.contains(message), "interpreter: {}", interp);
+        assert!(native.contains(message), "native: {}", native);
+    }
+
     fn check_compat_prints(source: &str, test_name: &str, expected: &str) {
         check_compat(source, test_name);
         assert_eq!(normalize(&run_interp(source).expect("interpreter failed")), normalize(expected), "compat_{}: unexpected output", test_name);
@@ -1674,6 +1681,90 @@ fn main() {
 }
 "#, "refuses_json_parse").expect_err("json.parse must not build until it is implemented natively");
         assert!(err.contains("json.parse"), "{}", err);
+    }
+
+    const WRAPPING: &str = r#"fn add(a: int, b: int) -> int { return a + b; }
+fn mul(a: int, b: int) -> int { return a * b; }
+fn shift(a: int, n: int) -> int { return a << n; }
+fn power(a: int, n: int) -> int { return a ** n; }
+fn main() {
+    max = 9223372036854775807;
+    min = 0 - max - 1;
+    print(add(max, 1));
+    print(min - 1);
+    print(mul(max, 2));
+    print(0 - min);
+    print(-min);
+    print(add(max, 1) > max);
+    print(shift(1, 70));
+    print(shift(1, 64));
+    print(-8 >> 1);
+    minus_one = 0 - 1;
+    print(shift(1, minus_one));
+    print(power(3, 4));
+    print(power(2, 63));
+    print(power(3, 41));
+    print(power(1, 9223372036854775807));
+}
+"#;
+
+    #[test]
+    fn compat_integer_arithmetic_wraps_like_rust_release() {
+        check_compat_prints(WRAPPING, "integer_wrapping", "-9223372036854775808\n9223372036854775807\n-2\n-9223372036854775808\n-9223372036854775808\nfalse\n64\n1\n-4\n-9223372036854775808\n81\n-9223372036854775808\n-420491770248316829\n1");
+    }
+
+    #[test]
+    fn compat_a_branch_with_its_own_blocks_feeds_the_right_phi() {
+        check_compat_prints(
+            "fn safe(a: int, b: int) -> int { return if (b == 0) 0 else a / b; }\nfn main() { print(safe(7, 2)); print(safe(7, 0)); n: int? = null; print(n ?: 10 / 5); }\n",
+            "phi_after_guard",
+            "3\n0\n2",
+        );
+    }
+
+    #[test]
+    fn both_backends_stop_on_division_by_zero() {
+        check_both_stop("fn main() { a = 10; b = 0; print(a / b); }", "div_by_zero", crate::trap::Trap::DivisionByZero.message());
+        check_both_stop("fn main() { a = 10; b = 0; print(a % b); }", "rem_by_zero", crate::trap::Trap::DivisionByZero.message());
+    }
+
+    #[test]
+    fn both_backends_stop_on_min_divided_by_minus_one() {
+        let min = "a = 0 - 9223372036854775807 - 1; b = 0 - 1;";
+        check_both_stop(&format!("fn main() {{ {} print(a / b); }}", min), "div_overflow", crate::trap::Trap::DivisionOverflow.message());
+        check_both_stop(&format!("fn main() {{ {} print(a % b); }}", min), "rem_overflow", crate::trap::Trap::DivisionOverflow.message());
+    }
+
+    #[test]
+    fn compat_len_of_a_nullable_goes_through_a_default() {
+        check_compat_prints("fn main() { s: str? = null; print(len(s ?: \"ab\")); t: str? = \"xyz\"; print(len(t ?: \"\")); }", "nullable_len_default", "2\n3");
+    }
+
+    #[test]
+    fn both_backends_stop_on_pop_from_an_empty_list() {
+        check_both_stop("fn main() { l: auto = []; l.push(1); l.pop(); print(l.pop()); }", "pop_empty", crate::trap::Trap::PopFromEmptyList.message());
+    }
+
+    #[test]
+    fn both_backends_stop_on_endless_recursion() {
+        check_both_stop("fn f(n: int) -> int { return f(n + 1) + f(n + 2); }\nfn main() { print(f(0)); }\n", "stack_overflow", crate::trap::Trap::StackOverflow.message());
+    }
+
+    #[test]
+    fn both_backends_stop_on_a_negative_integer_exponent() {
+        check_both_stop("fn main() { n = 0 - 1; print(2 ** n); }", "negative_exponent", crate::trap::Trap::NegativeExponent.message());
+    }
+
+    #[test]
+    fn both_backends_reject_a_negative_list_index() {
+        check_both_stop("fn main() { l = [1, 2, 3]; i = 0 - 1; print(l[i]); }", "negative_index", "Index -1 out of bounds for list of length 3");
+    }
+
+    #[test]
+    fn string_index_counts_characters_and_rejects_negatives() {
+        let err = run_interp("fn main() { s = \"\u{e9}t\u{e9}\"; i = 0 - 1; print(s[i]); }").unwrap_err();
+        assert!(err.contains("Index -1 out of bounds for string of length 3"), "{}", err);
+        assert_eq!(normalize(&run_interp("fn main() { s = \"\u{e9}t\u{e9}\"; print(s[2]); }").unwrap()), "\u{e9}");
     }
 
     #[test]

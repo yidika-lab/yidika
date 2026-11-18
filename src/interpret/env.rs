@@ -556,7 +556,7 @@ impl Interpreter {
 
     pub(crate) fn enter_call(&mut self, captures: &[(String, crate::interpret::value::Shared)], span: Span) -> Result<()> {
         if self.fn_bases.len() >= crate::runtime::MAX_CALL_DEPTH {
-            return Err(self.err(span, format!("Too many nested calls (more than {}): the recursion probably never ends", crate::runtime::MAX_CALL_DEPTH)));
+            return Err(self.err(span, crate::trap::Trap::StackOverflow.message()));
         }
         self.fn_bases.push(self.frames.len());
         self.push_frame();
@@ -631,6 +631,6 @@ mod tests {
         interp.fn_bases = vec![0; MAX_CALL_DEPTH - 1];
         assert!(interp.enter_call(&[], Span::new(0, 0)).is_ok());
         let err = interp.enter_call(&[], Span::new(0, 0)).expect_err("the limit stops the call");
-        assert!(format!("{:?}", err).contains("Too many nested calls"), "{:?}", err);
+        assert!(format!("{:?}", err).contains(crate::trap::Trap::StackOverflow.message()), "{:?}", err);
     }
 }

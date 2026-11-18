@@ -19,6 +19,17 @@ mod tests {
     }
 
     #[test]
+    fn len_of_a_value_that_may_be_null_is_rejected() {
+        let err = typed("fn main() { s: str? = null; print(len(s)); }").unwrap_err();
+        assert!(err.contains("may be null"), "{}", err);
+    }
+
+    #[test]
+    fn len_of_a_nullable_with_a_default_is_accepted() {
+        assert!(typed("fn main() { s: str? = null; print(len(s ?: \"\")); }").is_ok());
+    }
+
+    #[test]
     fn input_returns_a_string() {
         assert!(typed("fn main() { name = input(); print(\"hi \" + name); }").is_ok());
     }

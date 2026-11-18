@@ -14,6 +14,7 @@ const LOG_RESPONSE: &str = "__LogResponse";
 pub struct LlvmCodegen {
     output: String,
     indent: usize,
+    current_block: String,
     var_types: HashMap<String, String>,
     var_alloca: HashMap<String, String>,
     struct_defs: HashMap<String, Vec<(String, String)>>,
@@ -98,6 +99,7 @@ impl LlvmCodegen {
             variant_tag_counter: 0,
             var_union_variants: HashMap::new(),
             deferred_fns: Vec::new(),
+            current_block: String::new(),
             captured_here: std::collections::HashSet::new(),
             global_names: std::collections::HashSet::new(),
             in_entry: false,
@@ -144,11 +146,43 @@ impl LlvmCodegen {
     fn e(&mut self, s: &str) {
         use std::fmt::Write;
         writeln!(self.output, "{}{}", "  ".repeat(self.indent), s).unwrap();
+        self.track_block(s);
     }
 
     fn e_raw(&mut self, s: &str) {
         self.output.push_str(s);
         self.output.push('\n');
+        self.track_block(s);
+    }
+
+    fn track_block(&mut self, line: &str) {
+        if let Some(label) = block_label(line) {
+            self.current_block = label.to_string();
+        }
+    }
+
+    fn guard_division(&mut self, ty: &str, lhs: &str, rhs: &str) {
+        let Some(min) = int_min(ty) else { return };
+        let (zero, minus_one, is_min, overflow, bad, code) = (self.fresh_label(), self.fresh_label(), self.fresh_label(), self.fresh_label(), self.fresh_label(), self.fresh_label());
+        let (fail, ok) = (self.fresh_label(), self.fresh_label());
+        self.e(&format!("%{} = icmp eq {} {}, 0", zero, ty, rhs));
+        self.e(&format!("%{} = icmp eq {} {}, -1", minus_one, ty, rhs));
+        self.e(&format!("%{} = icmp eq {} {}, {}", is_min, ty, lhs, min));
+        self.e(&format!("%{} = and i1 %{}, %{}", overflow, minus_one, is_min));
+        self.e(&format!("%{} = or i1 %{}, %{}", bad, zero, overflow));
+        self.e(&format!("br i1 %{}, label %{}, label %{}", bad, fail, ok));
+        self.e_raw(&format!("{}:", fail));
+        self.e(&format!("%{} = select i1 %{}, i64 {}, i64 {}", code, zero, crate::trap::Trap::DivisionByZero.code(), crate::trap::Trap::DivisionOverflow.code()));
+        self.e(&format!("call void @yk_trap(i64 %{})", code));
+        self.e("unreachable");
+        self.e_raw(&format!("{}:", ok));
+    }
+
+    fn masked_shift_amount(&mut self, ty: &str, amount: &str) -> String {
+        let Some(bits) = int_bits(ty) else { return amount.to_string() };
+        let masked = self.fresh_label();
+        self.e(&format!("%{} = and {} {}, {}", masked, ty, amount, bits - 1));
+        self.ssa(&masked)
     }
 
     fn fresh_label(&mut self) -> String {
@@ -1692,6 +1726,7 @@ impl LlvmCodegen {
         self.e_raw("declare void @yk_print_result_val(i64, i1)");
         self.e_raw("declare i64 @yk_result_str_new(i64, i64)");
         self.e_raw("declare i64 @yk_pow_int(i64, i64)");
+        self.e_raw("declare void @yk_trap(i64) noreturn");
         self.e_raw("declare double @yk_pow_real(double, double)");
         self.e_raw("declare ptr @yk_datetime_now()");
         self.e_raw("declare ptr @yk_datetime_utc()");
@@ -2884,6 +2919,7 @@ impl LlvmCodegen {
                 self.e_raw(&format!("{}:", then_label));
                 self.indent += 1;
                 let (t_val, t_ty) = self.compile_expr(then_e);
+                let then_end = self.current_block.clone();
                 self.e(&format!("br label %{}", merge_label));
                 self.indent -= 1;
 
@@ -2893,12 +2929,13 @@ impl LlvmCodegen {
                     Some(ex) => self.compile_expr(ex),
                     None => ("0".into(), "i64".into()),
                 };
+                let else_end = self.current_block.clone();
                 self.e(&format!("br label %{}", merge_label));
                 self.indent -= 1;
 
                 self.e_raw(&format!("{}:", merge_label));
                 let result = self.fresh_label();
-                self.e(&format!("%{} = phi {} [ {}, %{} ], [ {}, %{} ]", result, t_ty, t_val, then_label, e_val, else_label));
+                self.e(&format!("%{} = phi {} [ {}, %{} ], [ {}, %{} ]", result, t_ty, t_val, then_end, e_val, else_end));
                 (self.ssa(&result), t_ty)
             }
             Expr::ListLit(items) => self.compile_collection(items, false),
@@ -3132,7 +3169,7 @@ impl LlvmCodegen {
                 if ty == "double" {
                     self.e(&format!("%{} = fadd double %{}, {}", new_val, orig, one));
                 } else {
-                    self.e(&format!("%{} = add nsw {} %{}, {}", new_val, ty, orig, one));
+                    self.e(&format!("%{} = add {} %{}, {}", new_val, ty, orig, one));
                 }
                 self.e(&format!("store {} %{}, ptr {}", ty, new_val, self.find_alloca_for_expr(i)));
                 (self.ssa(&orig), ty)
@@ -3146,7 +3183,7 @@ impl LlvmCodegen {
                 if ty == "double" {
                     self.e(&format!("%{} = fsub double %{}, {}", new_val, orig, one));
                 } else {
-                    self.e(&format!("%{} = sub nsw {} %{}, {}", new_val, ty, orig, one));
+                    self.e(&format!("%{} = sub {} %{}, {}", new_val, ty, orig, one));
                 }
                 self.e(&format!("store {} %{}, ptr {}", ty, new_val, self.find_alloca_for_expr(i)));
                 (self.ssa(&orig), ty)
@@ -3203,6 +3240,7 @@ impl LlvmCodegen {
                 self.e(&format!("br i1 {}, label %{}, label %{}", self.ssa(&is_null), null_bb, nonnull_bb));
                 self.e(&format!("{}:", null_bb));
                 let (b_val, b_ty) = self.compile_expr(b);
+                let null_end = self.current_block.clone();
                 self.e(&format!("br label %{}", merge_bb));
                 self.e(&format!("{}:", nonnull_bb));
                 let inner = self.fresh_label();
@@ -3211,7 +3249,7 @@ impl LlvmCodegen {
                 self.e(&format!("br label %{}", merge_bb));
                 self.e(&format!("{}:", merge_bb));
                 let phi = self.fresh_label();
-                self.e(&format!("%{} = phi {} [ {}, %{} ], [ {}, %{} ]", phi, b_ty, b_val, null_bb, inner_val, nonnull_bb));
+                self.e(&format!("%{} = phi {} [ {}, %{} ], [ {}, %{} ]", phi, b_ty, b_val, null_end, inner_val, nonnull_bb));
                 (self.ssa(&phi), b_ty)
             }
             Expr::Variant(_enum_name, variant_name, args) => {
@@ -3415,7 +3453,7 @@ impl LlvmCodegen {
         }
         let is_float = lt == "double";
         let is_complex = lt == "%yk_complex" || rt == "%yk_complex";
-        let (arith_op, cmp_op, ofl_flag) = if is_float { ("f", "fcmp", "") } else { ("", "icmp", " nsw") };
+        let (arith_op, cmp_op) = if is_float { ("f", "fcmp") } else { ("", "icmp") };
 
         let tmp = self.fresh_label();
         if is_complex {
@@ -3463,22 +3501,23 @@ impl LlvmCodegen {
                     self.release_temp(&rc, "%yk_string");
                     (joined, "%yk_string".into())
                 } else {
-                    self.e(&format!("%{} = {}add{} {} {}, {}", tmp, arith_op, ofl_flag, lt, lc, rc));
+                    self.e(&format!("%{} = {}add {} {}, {}", tmp, arith_op, lt, lc, rc));
                     (self.ssa(&tmp), lt)
                 }
             }
             BinOp::Sub => {
-                self.e(&format!("%{} = {}sub{} {} {}, {}", tmp, arith_op, ofl_flag, lt, lc, rc));
+                self.e(&format!("%{} = {}sub {} {}, {}", tmp, arith_op, lt, lc, rc));
                 (self.ssa(&tmp), lt)
             }
             BinOp::Mul => {
-                self.e(&format!("%{} = {}mul{} {} {}, {}", tmp, arith_op, ofl_flag, lt, lc, rc));
+                self.e(&format!("%{} = {}mul {} {}, {}", tmp, arith_op, lt, lc, rc));
                 (self.ssa(&tmp), lt)
             }
             BinOp::Div => {
                 if is_float {
                     self.e(&format!("%{} = fdiv {} {}, {}", tmp, lt, lc, rc));
                 } else {
+                    self.guard_division(&lt, &lc, &rc);
                     self.e(&format!("%{} = sdiv {} {}, {}", tmp, lt, lc, rc));
                 }
                 (self.ssa(&tmp), lt)
@@ -3487,6 +3526,7 @@ impl LlvmCodegen {
                 if is_float {
                     self.e(&format!("%{} = frem {} {}, {}", tmp, lt, lc, rc));
                 } else {
+                    self.guard_division(&lt, &lc, &rc);
                     self.e(&format!("%{} = srem {} {}, {}", tmp, lt, lc, rc));
                 }
                 (self.ssa(&tmp), lt)
@@ -3512,11 +3552,13 @@ impl LlvmCodegen {
                 (self.ssa(&tmp), lt)
             }
             BinOp::Shl => {
-                self.e(&format!("%{} = shl {} {}, {}", tmp, lt, lc, rc));
+                let amount = self.masked_shift_amount(&lt, &rc);
+                self.e(&format!("%{} = shl {} {}, {}", tmp, lt, lc, amount));
                 (self.ssa(&tmp), lt)
             }
             BinOp::Shr => {
-                self.e(&format!("%{} = ashr {} {}, {}", tmp, lt, lc, rc));
+                let amount = self.masked_shift_amount(&lt, &rc);
+                self.e(&format!("%{} = ashr {} {}, {}", tmp, lt, lc, amount));
                 (self.ssa(&tmp), lt)
             }
             BinOp::Eq => {
@@ -5377,7 +5419,7 @@ pub fn emit_obj_in_memory(api: &crate::codegen::llvm_api::LlvmApi, llvm_ir: &str
 }
 
 fn runtime_c_source() -> String {
-    format!("{}{}", crate::codegen::runtime_status::c_definitions(), RUNTIME_C)
+    format!("{}{}{}", crate::codegen::runtime_status::c_definitions(), crate::codegen::runtime_traps::c_definitions(), RUNTIME_C)
 }
 
 /// Cache the pre-compiled runtime C object file to avoid recompiling every time
@@ -6113,5 +6155,41 @@ mod tests {
         eprintln!("LLVM:\n{}", llvm);
         assert!(llvm.contains("__closure_0"));
         assert!(llvm.contains("ptrtoint"));
+    }
+}
+
+fn block_label(line: &str) -> Option<&str> {
+    let name = line.trim().strip_suffix(':')?;
+    let valid = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    valid.then_some(name)
+}
+
+fn int_bits(ty: &str) -> Option<u32> {
+    ty.strip_prefix('i')?.parse().ok().filter(|bits| *bits > 1 && *bits <= 64)
+}
+
+fn int_min(ty: &str) -> Option<String> {
+    int_bits(ty).map(|bits| format!("{}", i64::MIN >> (64 - bits)))
+}
+
+#[cfg(test)]
+mod block_tests {
+    use super::*;
+
+    #[test]
+    fn a_label_line_names_a_block() {
+        assert_eq!(block_label("yk_12:"), Some("yk_12"));
+        assert_eq!(block_label("  merge.3:"), Some("merge.3"));
+        assert_eq!(block_label("%x = add i64 1, 2"), None);
+        assert_eq!(block_label("define i64 @f() {"), None);
+    }
+
+    #[test]
+    fn integer_types_know_their_width_and_minimum() {
+        assert_eq!(int_min("i64").as_deref(), Some("-9223372036854775808"));
+        assert_eq!(int_min("i32").as_deref(), Some("-2147483648"));
+        assert_eq!(int_min("i8").as_deref(), Some("-128"));
+        assert_eq!(int_bits("double"), None);
+        assert_eq!(int_bits("i1"), None);
     }
 }

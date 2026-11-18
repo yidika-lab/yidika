@@ -16,6 +16,11 @@ Yidika is young. This page lists what does not work yet, so you can plan around 
 | `int("42")`, `real(x)`, `bool(x)`, `typeof(x)` (rejected by the type checker) | `json.parse("42")` to read a number from text (interpreter only for now) |
 | `int8`, `int64`, `real32` with literals | `int` and `real` |
 
+## Runtime checks
+
+- A native program started with `ulimit -s unlimited` has no stack size to check against, so a stack overflow ends with the system's `Segmentation fault` instead of `stack overflow`.
+- A native program built with `YIDI_SANITIZE=address` lets AddressSanitizer report a stack overflow in its own words.
+
 ## Ownership
 
 Passing a `str` or a list to your own function, or assigning it to another variable, moves it ([Moves](variables-and-types.md#moves)). There is no `&` to lend it and no `clone()` yet: pass `s + ""` for a string, or return the value from the function.
