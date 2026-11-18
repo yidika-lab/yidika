@@ -16,6 +16,10 @@ Yidika is young. This page lists what does not work yet, so you can plan around 
 | `int("42")`, `real(x)`, `bool(x)`, `typeof(x)` (rejected by the type checker) | `json.parse("42")` to read a number from text (interpreter only for now) |
 | `int8`, `int64`, `real32` with literals | `int` and `real` |
 
+## Collections
+
+- `{}` is an empty map. An empty set cannot be written yet: `s: Set<int> = {}` is a type error.
+
 ## Runtime checks
 
 - A native program started with `ulimit -s unlimited` has no stack size to check against, so a stack overflow ends with the system's `Segmentation fault` instead of `stack overflow`.

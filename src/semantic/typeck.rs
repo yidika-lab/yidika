@@ -40,6 +40,8 @@ fn types_compatible(expected: &TypeExpr, actual: &TypeExpr) -> bool {
         (TypeExpr::Rint(_), TypeExpr::Int(_)) => true,
         (TypeExpr::Real(_), TypeExpr::Int(_) | TypeExpr::Rint(_)) => true,
         (TypeExpr::Nullable(inner), actual) if types_compatible(inner, actual) => true,
+        (TypeExpr::List(e), TypeExpr::List(a)) | (TypeExpr::Set(e), TypeExpr::Set(a)) => types_compatible(e, a),
+        (TypeExpr::Map(ek, ev), TypeExpr::Map(ak, av)) => types_compatible(ek, ak) && types_compatible(ev, av),
         (TypeExpr::Complex(er, ei), TypeExpr::Complex(ar, ai)) => {
             types_compatible(er, ar) && types_compatible(ei, ai)
         }

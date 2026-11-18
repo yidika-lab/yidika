@@ -29,5 +29,15 @@ class Check(unittest.TestCase):
         self.assertEqual(failures, ["x: output differs from C"])
 
 
+class Render(unittest.TestCase):
+    def test_the_report_shows_both_binary_sizes(self):
+        report = gate.render([("x", (0.1, 100, {b"1\n"}), (0.1, 100, {b"1\n"}), 9216, 16384)], [], [])
+        self.assertIn("| x | 0.100 s | 0.100 s | 1.00 | 100 KB | 100 KB | 9 KB | 16 KB |", report)
+
+    def test_the_report_lists_the_linked_libraries(self):
+        report = gate.render([], [], ["libc.so.6"])
+        self.assertIn("Libraries linked by a Yidika program: libc.so.6", report)
+
+
 if __name__ == "__main__":
     unittest.main()
