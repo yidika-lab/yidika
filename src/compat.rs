@@ -117,6 +117,10 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn run_interp(source: &str) -> Result<String, String> {
+        run_interp_fed(source, "")
+    }
+
+    fn run_interp_fed(source: &str, stdin: &str) -> Result<String, String> {
         crate::syntax::ast::reset_ids();
         let module = crate::syntax::parser::Parser::parse(source)
             .map_err(|e| e.to_string())?;
@@ -126,16 +130,28 @@ pub(crate) mod tests {
 
         let mut interp = crate::interpret::Interpreter::new();
         interp.tui_mode = false;
+        interp.input = Box::new(std::io::Cursor::new(stdin.as_bytes().to_vec()));
         interp.load_module(&module);
         interp.run_main().map_err(|e| e.msg)
     }
 
     pub(crate) fn run_aot(source: &str, test_name: &str) -> Result<String, String> {
+        run_aot_fed(source, test_name, "")
+    }
+
+    fn run_aot_fed(source: &str, test_name: &str, stdin: &str) -> Result<String, String> {
         let exe_path = build_aot(source, test_name)?;
         let dir = exe_path.parent().unwrap().to_path_buf();
-        let output = Command::new(&exe_path)
-            .output()
+        let mut child = Command::new(&exe_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
             .map_err(|e| format!("run exe: {}", e))?;
+        if let Some(mut pipe) = child.stdin.take() {
+            std::io::Write::write_all(&mut pipe, stdin.as_bytes()).map_err(|e| format!("write stdin: {}", e))?;
+        }
+        let output = child.wait_with_output().map_err(|e| format!("run exe: {}", e))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -225,6 +241,13 @@ pub(crate) mod tests {
             normalize(&aot_out),
             "compat_{}: interpreter vs AOT output mismatch", test_name
         );
+    }
+
+    fn check_compat_fed(source: &str, test_name: &str, stdin: &str, expected: &str) {
+        let interp_out = run_interp_fed(source, stdin).expect("interpreter failed");
+        let aot_out = run_aot_fed(source, test_name, stdin).expect("AOT build/run failed");
+        assert_eq!(normalize(&interp_out), normalize(&aot_out), "compat_{}: interpreter vs AOT output mismatch", test_name);
+        assert_eq!(normalize(&interp_out), normalize(expected), "compat_{}: unexpected output", test_name);
     }
 
     fn check_compat_prints(source: &str, test_name: &str, expected: &str) {
@@ -592,6 +615,50 @@ pub(crate) mod tests {
     }
 
     // ── List methods ────────────────────────────────────
+
+    #[test]
+    fn compat_a_top_level_list_shared_with_a_function() {
+        check_compat_prints(
+            "kept = [];\nfn add(x: str) { kept.push(x); }\nadd(\"a\");\nkept.push(\"b\");\nprint(kept);\nprint(len(kept));\n",
+            "global_list_shared",
+            "[a, b]\n2",
+        );
+    }
+
+    #[test]
+    fn compat_input_reads_one_line_per_call() {
+        check_compat_fed(
+            "fn main() {\n    name = input(\"name? \");\n    print(\"hi \" + name);\n    print(len(input()));\n    print(\"[\" + input() + \"]\");\n}\n",
+            "input_lines",
+            "ann\r\nabc\n",
+            "name? hi ann\n3\n[]",
+        );
+    }
+
+    #[test]
+    fn compat_input_bounds_a_hostile_line() {
+        let stdin = format!("{}\nok\n", "x".repeat(2_000_000));
+        let expected = format!("{}\nok", yk_runtime::input::LINE_MAX);
+        check_compat_fed("fn main() { print(len(input())); print(input()); }", "input_bounded", &stdin, &expected);
+    }
+
+    #[test]
+    fn compat_a_closure_whose_body_prints() {
+        check_compat_prints(
+            "fn main() {\n    a = \"x\";\n    f = () => print(a);\n    f();\n    g = (n) => print(n + 1);\n    g(41);\n}\n",
+            "closure_body_prints",
+            "x\n42",
+        );
+    }
+
+    #[test]
+    fn compat_closure_parameters_can_be_typed() {
+        check_compat_prints(
+            "fn main() {\n    inc = (n: int) => n + 1;\n    greet = (who: str, times: int) => who + \"!\" + str(times);\n    print(inc(41));\n    print(greet(\"hi\", 2));\n}\n",
+            "closure_typed_params",
+            "42\nhi!2",
+        );
+    }
 
     #[test]
     fn compat_list_push_pop() {
@@ -1760,6 +1827,15 @@ print(total);
     fn native_strings_are_freed_after_their_last_use() {
         let peak = peak_memory_kb(MANY_STRINGS, "strings_are_freed");
         assert!(peak < 10_000, "3 million short strings peaked at {} KB", peak);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn native_runtime_code_a_program_does_not_call_is_left_out() {
+        let exe = build_aot("fn main() { print(\"hi\"); }", "hello_size").expect("native build");
+        let bytes = std::fs::metadata(&exe).expect("binary exists").len();
+        let _ = std::fs::remove_dir_all(exe.parent().unwrap());
+        assert!(bytes < 64 * 1024, "print(\"hi\") built to {} bytes", bytes);
     }
 
     pub(crate) const OWNERSHIP_CASES: &str = r#"struct User { name: str; }

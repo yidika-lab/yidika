@@ -66,6 +66,27 @@ fn main() {
 49
 ```
 
+## Lambda parameters
+
+A lambda parameter takes a type the same way a function parameter does. Without one, its type comes from how the lambda is used.
+
+```yidika
+fn main() {
+    inc = (n: int) => n + 1;
+    greet = (who: str, times: int) => who + "!" + str(times);
+    show = (x) => print(x);
+    print(inc(41));
+    print(greet("hi", 2));
+    show("done");
+}
+```
+
+```output
+42
+hi!2
+done
+```
+
 ## Closures
 
 A lambda keeps access to the variables of the scope where it was written, even after that function has returned. Changes are shared.

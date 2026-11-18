@@ -1,6 +1,6 @@
 # Standard library
 
-`use { math } from "std";` imports a module as a name, used as `math.sqrt(...)`. `use { sqrt } from "math";` imports functions from it, used as `sqrt(...)`. `len`, `str`, `print` and `fetch` need no import.
+`use { math } from "std";` imports a module as a name, used as `math.sqrt(...)`. `use { sqrt } from "math";` imports functions from it, used as `sqrt(...)`. `len`, `str`, `print`, `input` and `fetch` need no import.
 
 | Module | Functions |
 |---|---|
@@ -14,6 +14,17 @@
 | `time`, `datetime` | `now`, `utc`, `timestamp`, `format`, `parse`, `year`, `month`, `day`, `hour`, `minute`, `second` (`time` adds `sleep`) |
 | `net` | `Server`, `HTTP`, `TcpStream` |
 | `gui` | `window`, `div`, `text`, `button`, `style`, `on`, `run`, ... (Windows only for now) |
+
+`input()` reads one line from the standard input and returns it without its line ending (`\n` or `\r\n`). `input("name? ")` first prints the prompt. At the end of the input it returns `""`. A line is cut at 1 MiB (1,048,576 bytes) and the rest of that line is skipped, so a huge or endless line cannot exhaust memory; bytes that are not valid UTF-8 become `U+FFFD`.
+
+```yidika
+fn main() {
+    name = input("name? ");
+    print("hi " + name);
+}
+```
+
+Typing `ann` prints `name? hi ann`.
 
 Some functions exist only in the interpreter so far; a program that uses one runs in the interpreter (see [Interpreter and native code](engines.md)).
 
